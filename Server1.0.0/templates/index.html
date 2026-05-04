@@ -3,20 +3,23 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Secretariat 3.0 UI</title>
+  <title>Secretariat</title>
   <link rel="stylesheet" href="/templates/styles.css">
 </head>
 <body>
-  <main class="card">
-    <h1>Secretariat 3.0 Web UI</h1>
-    <p>Send a request to your Python API and view the assistant response.</p>
+  <main class="app-shell">
+    <section id="chat-feed" class="chat-feed" aria-live="polite">
+      <article class="msg assistant">
+        <div class="bubble">What do you need help scheduling today?</div>
+      </article>
+    </section>
 
-    <form id="secretariat-form">
-      <textarea id="prompt" placeholder="Example: Add a run tomorrow at 6pm" required></textarea>
-      <button type="submit">Send</button>
+    <form id="secretariat-form" class="composer">
+      <button type="button" class="icon-btn" aria-label="Add">+</button>
+      <input id="prompt" type="text" placeholder="Ask anything" autocomplete="off" required>
+      <button type="submit" class="send-btn" aria-label="Send">●</button>
     </form>
 
-    <div id="output" class="output">Awaiting input...</div>
     <div id="meta" class="meta"></div>
   </main>
 

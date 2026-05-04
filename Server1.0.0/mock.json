@@ -1,6 +1,6 @@
 {
-  "id": "resp_06783c97006a03b80069f85ad496908197ac9116868a52678a",
-  "created_at": 1777883860.0,
+  "id": "resp_01ca6dcdfae349460069f85cffcab481938ba6292f30cfd10f",
+  "created_at": 1777884415.0,
   "error": null,
   "incomplete_details": null,
   "instructions": null,
@@ -9,11 +9,11 @@
   "object": "response",
   "output": [
     {
-      "id": "msg_06783c97006a03b80069f85ad5959c8197a56167a0e7997b9e",
+      "id": "msg_01ca6dcdfae349460069f85d00658c819390dcc0876ebe8fb2",
       "content": [
         {
           "annotations": [],
-          "text": "{\n  \"state\": \"DONE\",\n  \"message\": \"Your current local timezone is UTC+12:00.\"\n}",
+          "text": "{\n  \"state\": \"DONE\",\n  \"message\": \"Hey! How can I help with your calendar?\"\n}",
           "type": "output_text",
           "logprobs": []
         }
@@ -121,7 +121,7 @@
   ],
   "top_p": 0.98,
   "background": false,
-  "completed_at": 1777883862.0,
+  "completed_at": 1777884416.0,
   "conversation": null,
   "max_output_tokens": null,
   "max_tool_calls": null,
@@ -146,15 +146,15 @@
   "top_logprobs": 0,
   "truncation": "disabled",
   "usage": {
-    "input_tokens": 720,
+    "input_tokens": 717,
     "input_tokens_details": {
       "cached_tokens": 0
     },
-    "output_tokens": 29,
+    "output_tokens": 28,
     "output_tokens_details": {
       "reasoning_tokens": 0
     },
-    "total_tokens": 749
+    "total_tokens": 745
   },
   "user": null,
   "billing": {

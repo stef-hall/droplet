@@ -1,6 +1,6 @@
 ﻿const form = document.getElementById("secretariat-form");
 const promptInput = document.getElementById("prompt");
-const outputEl = document.getElementById("output");
+const feedEl = document.getElementById("chat-feed");
 const metaEl = document.getElementById("meta");
 const SESSION_KEY = "secretariat_session_id";
 
@@ -11,6 +11,19 @@ function getSessionId() {
 function setSessionId(sessionId) {
   if (!sessionId) return;
   localStorage.setItem(SESSION_KEY, sessionId);
+}
+
+function appendMessage(role, text) {
+  const item = document.createElement("article");
+  item.className = `msg ${role}`;
+
+  const bubble = document.createElement("div");
+  bubble.className = "bubble";
+  bubble.textContent = text;
+
+  item.appendChild(bubble);
+  feedEl.appendChild(item);
+  feedEl.scrollTop = feedEl.scrollHeight;
 }
 
 async function initSession() {
@@ -26,7 +39,7 @@ async function initSession() {
       setSessionId(data.session_id);
     }
   } catch (_) {
-    // Non-fatal. Requests can still create a session later.
+    // Non-fatal.
   }
 }
 
@@ -36,16 +49,11 @@ form.addEventListener("submit", async (event) => {
   event.preventDefault();
 
   const prompt = promptInput.value.trim();
-  if (!prompt) {
-    outputEl.textContent = "Please enter a prompt.";
-    outputEl.className = "output error";
-    metaEl.textContent = "";
-    return;
-  }
+  if (!prompt) return;
 
-  outputEl.textContent = "Thinking...";
-  outputEl.className = "output";
-  metaEl.textContent = "";
+  appendMessage("user", prompt);
+  promptInput.value = "";
+  metaEl.textContent = "Thinking...";
 
   try {
     const response = await fetch("/api/secretariat", {
@@ -60,12 +68,10 @@ form.addEventListener("submit", async (event) => {
     }
 
     setSessionId(data.session_id);
-    outputEl.textContent = data.message || "No message returned.";
-    outputEl.className = "output ok";
+    appendMessage("assistant", data.message || "No message returned.");
     metaEl.textContent = `State: ${data.state || "UNKNOWN"}`;
   } catch (error) {
-    outputEl.textContent = `Error: ${error.message}`;
-    outputEl.className = "output error";
+    appendMessage("assistant", `Error: ${error.message}`);
     metaEl.textContent = "";
   }
 });
