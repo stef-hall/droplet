@@ -111,6 +111,13 @@ textarea {
   padding: 10px 14px;
 }
 
+.thinking-emoji {
+  width: 33px;
+  height: 33px;
+  object-fit: contain;
+  display: block;
+}
+
 .eclipse {
   width: 16px;
   height: 16px;

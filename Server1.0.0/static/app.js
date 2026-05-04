@@ -51,7 +51,7 @@ function appendThinkingMessage() {
   item.id = "thinking-message";
   item.innerHTML = `
     <div class="thinking-bubble">
-      <span class="eclipse" aria-hidden="true"></span>
+      <img class="thinking-emoji" src="/static/icons/galload.gif" alt="" aria-hidden="true">
       <span class="thinking-label">Thinking...</span>
     </div>
   `;

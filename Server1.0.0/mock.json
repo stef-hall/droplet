@@ -1,6 +1,6 @@
 {
-  "id": "resp_03af395f4e4b42fd0069f8917a81088193b40ad607e5dd4432",
-  "created_at": 1777897850.0,
+  "id": "resp_03af395f4e4b42fd0069f8943e76b8819384c88322299b2894",
+  "created_at": 1777898558.0,
   "error": null,
   "incomplete_details": null,
   "instructions": null,
@@ -9,11 +9,11 @@
   "object": "response",
   "output": [
     {
-      "id": "msg_03af395f4e4b42fd0069f8917af9388193a128ed0002a3a7be",
+      "id": "msg_03af395f4e4b42fd0069f8943f38e881938a73afd04846160d",
       "content": [
         {
           "annotations": [],
-          "text": "{\n  \"state\": \"WAITING\",\n  \"message\": \"Hey \u2014 what calendar task can I help with?\"\n}",
+          "text": "{\n  \"state\": \"WAITING\",\n  \"message\": \"Hey \u2014 ready when you are. Tell me your calendar request.\"\n}",
           "type": "output_text",
           "logprobs": []
         }
@@ -121,11 +121,11 @@
   ],
   "top_p": 0.98,
   "background": false,
-  "completed_at": 1777897851.0,
+  "completed_at": 1777898559.0,
   "conversation": null,
   "max_output_tokens": null,
   "max_tool_calls": null,
-  "previous_response_id": "resp_03af395f4e4b42fd0069f8916a379481938b67f5828cdd659b",
+  "previous_response_id": "resp_03af395f4e4b42fd0069f89216917c819390b9d731919a1c0c",
   "prompt": null,
   "prompt_cache_key": null,
   "prompt_cache_retention": "in_memory",
@@ -146,15 +146,15 @@
   "top_logprobs": 0,
   "truncation": "disabled",
   "usage": {
-    "input_tokens": 1329,
+    "input_tokens": 1508,
     "input_tokens_details": {
-      "cached_tokens": 1152
+      "cached_tokens": 1280
     },
-    "output_tokens": 29,
+    "output_tokens": 32,
     "output_tokens_details": {
       "reasoning_tokens": 0
     },
-    "total_tokens": 1358
+    "total_tokens": 1540
   },
   "user": null,
   "billing": {
