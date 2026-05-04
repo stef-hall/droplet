@@ -1,6 +1,6 @@
 {
-  "id": "resp_09d96e0b1113e0cc0069f89ee8b1e081949b86834aa5a69754",
-  "created_at": 1777901288.0,
+  "id": "resp_09d96e0b1113e0cc0069f89f1ac3bc81948d4eee7c7c1c8f57",
+  "created_at": 1777901338.0,
   "error": null,
   "incomplete_details": null,
   "instructions": null,
@@ -9,11 +9,11 @@
   "object": "response",
   "output": [
     {
-      "id": "msg_09d96e0b1113e0cc0069f89ee97d4481949a0da48f3325533b",
+      "id": "msg_09d96e0b1113e0cc0069f89f1b4b6c8194960f3e75fdce7b08",
       "content": [
         {
           "annotations": [],
-          "text": "{\n  \"state\": \"WAITING\",\n  \"message\": \"Hey fella! I\u2019m ready to help with your school week. Do you want a written weekly plan, or should I add the classes from the image into your calendar?\"\n}",
+          "text": "{\n  \"state\": \"WAITING\",\n  \"message\": \"I\u2019m ready when you are. To plan your next school week from the image, tell me if you want: 1) a written plan, or 2) calendar events.\"\n}",
           "type": "output_text",
           "logprobs": []
         }
@@ -121,11 +121,11 @@
   ],
   "top_p": 0.98,
   "background": false,
-  "completed_at": 1777901290.0,
+  "completed_at": 1777901340.0,
   "conversation": null,
   "max_output_tokens": null,
   "max_tool_calls": null,
-  "previous_response_id": "resp_09d96e0b1113e0cc0069f89ed924648194b7e9aa8cd65ce8fd",
+  "previous_response_id": "resp_09d96e0b1113e0cc0069f89ee8b1e081949b86834aa5a69754",
   "prompt": null,
   "prompt_cache_key": null,
   "prompt_cache_retention": "in_memory",
@@ -146,15 +146,15 @@
   "top_logprobs": 0,
   "truncation": "disabled",
   "usage": {
-    "input_tokens": 4015,
+    "input_tokens": 4127,
     "input_tokens_details": {
-      "cached_tokens": 3456
+      "cached_tokens": 3584
     },
-    "output_tokens": 54,
+    "output_tokens": 56,
     "output_tokens_details": {
       "reasoning_tokens": 0
     },
-    "total_tokens": 4069
+    "total_tokens": 4183
   },
   "user": null,
   "billing": {
