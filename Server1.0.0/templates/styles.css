@@ -133,6 +133,7 @@ textarea {
 .msg.assistant .bubble {
   background: var(--assistant);
   border: 0;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.08);
 }
 
 .msg.user .bubble {
@@ -145,11 +146,11 @@ textarea {
   grid-template-columns: auto 1fr auto;
   align-items: center;
   gap: 10px;
-  border: 1px solid #d2d2d2;
+  border: 1px solid #d9d9d9;
   border-radius: 28px;
   background: var(--panel);
   padding: 8px 10px;
-  box-shadow: 0 10px 26px rgba(17, 24, 39, 0.1);
+  box-shadow: 0 10px 26px rgba(17, 24, 39, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.9);
 }
 
 .icon-btn,
@@ -184,6 +185,7 @@ textarea {
   background: transparent;
   font-size: 1rem;
   color: var(--text);
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.06);
 }
 
 #prompt::placeholder {
