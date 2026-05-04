@@ -1,6 +1,6 @@
 {
-  "id": "resp_0320e1a330b4a8670069f8676181a0819486302e24181faf97",
-  "created_at": 1777887073.0,
+  "id": "resp_0f5fca1dfd7ebfb70069f867d206048196b5ca66af16ac9921",
+  "created_at": 1777887186.0,
   "error": null,
   "incomplete_details": null,
   "instructions": null,
@@ -9,11 +9,11 @@
   "object": "response",
   "output": [
     {
-      "id": "msg_0320e1a330b4a8670069f8676220dc81948f0d366b2236ade3",
+      "id": "msg_0f5fca1dfd7ebfb70069f867d27d1c8196bec14cee68e8ba00",
       "content": [
         {
           "annotations": [],
-          "text": "{\n  \"state\": \"DONE\",\n  \"message\": \"Event added.\"\n}",
+          "text": "{\n  \"state\": \"DONE\",\n  \"message\": \"You\u2019ve got 1 event coming up this week: Mon 4 May, 10:31 PM to 11:31 PM local time \u2014 smoking weed.\"\n}",
           "type": "output_text",
           "logprobs": []
         }
@@ -121,11 +121,11 @@
   ],
   "top_p": 0.98,
   "background": false,
-  "completed_at": 1777887074.0,
+  "completed_at": 1777887187.0,
   "conversation": null,
   "max_output_tokens": null,
   "max_tool_calls": null,
-  "previous_response_id": "resp_0320e1a330b4a8670069f86759efc48194a43605c51b6f6214",
+  "previous_response_id": "resp_0f5fca1dfd7ebfb70069f867ccede88196a39165366e0f9d85",
   "prompt": null,
   "prompt_cache_key": null,
   "prompt_cache_retention": "in_memory",
@@ -146,15 +146,15 @@
   "top_logprobs": 0,
   "truncation": "disabled",
   "usage": {
-    "input_tokens": 877,
+    "input_tokens": 868,
     "input_tokens_details": {
       "cached_tokens": 0
     },
-    "output_tokens": 21,
+    "output_tokens": 51,
     "output_tokens_details": {
       "reasoning_tokens": 0
     },
-    "total_tokens": 898
+    "total_tokens": 919
   },
   "user": null,
   "billing": {

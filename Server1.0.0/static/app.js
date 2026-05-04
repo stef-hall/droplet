@@ -37,6 +37,25 @@ function appendMessage(role, text) {
   feedEl.scrollTop = feedEl.scrollHeight;
 }
 
+function appendThinkingMessage() {
+  const item = document.createElement("article");
+  item.className = "msg assistant";
+  item.id = "thinking-message";
+  item.innerHTML = `
+    <div class="thinking-bubble">
+      <span class="eclipse" aria-hidden="true"></span>
+      <span class="thinking-label">Thinking...</span>
+    </div>
+  `;
+  feedEl.appendChild(item);
+  feedEl.scrollTop = feedEl.scrollHeight;
+}
+
+function removeThinkingMessage() {
+  const item = document.getElementById("thinking-message");
+  if (item) item.remove();
+}
+
 function toDataUrl(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -108,6 +127,7 @@ form.addEventListener("submit", async (event) => {
   appendMessage("user", prompt);
   promptInput.value = "";
   metaEl.textContent = "Thinking...";
+  appendThinkingMessage();
 
   try {
     const response = await fetch("/api/secretariat", {
@@ -126,12 +146,14 @@ form.addEventListener("submit", async (event) => {
     }
 
     setSessionId(data.session_id);
+    removeThinkingMessage();
     appendMessage("assistant", data.message || "No message returned.");
     metaEl.textContent = `State: ${data.state || "UNKNOWN"}`;
     attachedImageDataUrl = null;
     imageUploadInput.value = "";
     showAttachmentPill(false);
   } catch (error) {
+    removeThinkingMessage();
     appendMessage("assistant", `Error: ${error.message}`);
     metaEl.textContent = "";
   }

@@ -93,6 +93,43 @@ textarea {
   white-space: pre-wrap;
 }
 
+.thinking-bubble {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: #fff;
+  border-radius: 999px;
+  padding: 10px 14px;
+}
+
+.eclipse {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, #454545 0%, #111 70%);
+  position: relative;
+  overflow: hidden;
+}
+
+.eclipse::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.9) 48%, transparent 100%);
+  transform: translateX(-120%);
+  animation: riffle 1.1s linear infinite;
+}
+
+@keyframes riffle {
+  0% { transform: translateX(-120%); }
+  100% { transform: translateX(120%); }
+}
+
+.thinking-label {
+  font-size: 0.9rem;
+  color: #666;
+}
+
 .msg.assistant .bubble {
   background: var(--assistant);
   border: 0;
@@ -154,6 +191,7 @@ textarea {
   font-size: 0.9rem;
   color: var(--muted);
   padding: 0 8px;
+  text-align: center;
 }
 
 .hidden {
