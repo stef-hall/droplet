@@ -1,6 +1,6 @@
 {
-  "id": "resp_03af395f4e4b42fd0069f895d41adc8193804306066c50e1ee",
-  "created_at": 1777898964.0,
+  "id": "resp_06db3202addcbb3d0069f898f0f5448194a2c2e85de58589e8",
+  "created_at": 1777899761.0,
   "error": null,
   "incomplete_details": null,
   "instructions": null,
@@ -9,11 +9,11 @@
   "object": "response",
   "output": [
     {
-      "id": "msg_03af395f4e4b42fd0069f895d4b9b881939a03ee254b1f516c",
+      "id": "msg_06db3202addcbb3d0069f898f22ca8819485209b981a6e2825",
       "content": [
         {
           "annotations": [],
-          "text": "{\n  \"state\": \"WAITING\",\n  \"message\": \"I didn\u2019t catch a calendar task. Send something like: \u201cAdd gym at 6pm tomorrow\u201d or \u201cShow my events for today.\u201d\"\n}",
+          "text": "{\n  \"state\": \"WAITING\",\n  \"message\": \"I can do that, but I still need the actual schedule details: which day(s) and what time(s) should I put the runs on? If you want, you can reply casually like \u201cWed 7am and Sat 9am, 2-hour blocks.\u201d\"\n}",
           "type": "output_text",
           "logprobs": []
         }
@@ -121,11 +121,11 @@
   ],
   "top_p": 0.98,
   "background": false,
-  "completed_at": 1777898965.0,
+  "completed_at": 1777899763.0,
   "conversation": null,
   "max_output_tokens": null,
   "max_tool_calls": null,
-  "previous_response_id": "resp_03af395f4e4b42fd0069f8957d9b40819395833ed588defd1a",
+  "previous_response_id": "resp_06db3202addcbb3d0069f89884a64c8194b6ef13c945e5cabc",
   "prompt": null,
   "prompt_cache_key": null,
   "prompt_cache_retention": "in_memory",
@@ -146,15 +146,15 @@
   "top_logprobs": 0,
   "truncation": "disabled",
   "usage": {
-    "input_tokens": 2186,
+    "input_tokens": 959,
     "input_tokens_details": {
-      "cached_tokens": 2048
+      "cached_tokens": 0
     },
-    "output_tokens": 49,
+    "output_tokens": 75,
     "output_tokens_details": {
       "reasoning_tokens": 0
     },
-    "total_tokens": 2235
+    "total_tokens": 1034
   },
   "user": null,
   "billing": {
