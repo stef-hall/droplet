@@ -164,7 +164,7 @@ form.addEventListener("submit", async (event) => {
     setSessionId(data.session_id);
     removeThinkingMessage();
     appendMessage("assistant", data.message || "No message returned.");
-    metaEl.textContent = `State: ${data.state || "UNKNOWN"}`;
+    metaEl.textContent = data.message || "";
     attachedImageDataUrl = null;
     imageUploadInput.value = "";
     showAttachmentPill(false);
