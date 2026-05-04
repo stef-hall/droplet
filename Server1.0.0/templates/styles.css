@@ -164,12 +164,31 @@ textarea {
   box-shadow: 0 3px 7px rgba(17, 24, 39, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.9);
   margin-bottom: 40px;
   --float-offset: 0px;
+  --dock-start-offset: 0px;
   transform: translateY(0);
-  transition: transform 420ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  transition: transform 420ms cubic-bezier(0.2, 0.8, 0.2, 1), opacity 420ms ease;
 }
 
 .composer.floating {
-  transform: translateY(var(--float-offset));
+  transform: translateY(var(--float-offset)) scale(1.08);
+}
+
+.composer.docking {
+  animation: dockComposer 420ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@keyframes dockComposer {
+  0% {
+    transform: translateY(var(--dock-start-offset)) scale(1.08);
+    opacity: 1;
+  }
+  55% {
+    opacity: 0.2;
+  }
+  100% {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
 }
 
 @supports (corner-shape: squircle) {

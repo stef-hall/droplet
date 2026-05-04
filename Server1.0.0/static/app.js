@@ -200,8 +200,14 @@ function initializeComposerFloating() {
 function dockComposer() {
   if (composerDocked) return;
   composerDocked = true;
+  const startOffset = getComputedStyle(composerEl).getPropertyValue("--float-offset").trim() || "0px";
+  composerEl.style.setProperty("--dock-start-offset", startOffset);
+  composerEl.classList.add("docking");
   composerEl.classList.remove("floating");
   composerEl.style.setProperty("--float-offset", "0px");
+  setTimeout(() => {
+    composerEl.classList.remove("docking");
+  }, 440);
 }
 
 window.addEventListener("resize", updateComposerFloatOffset);
