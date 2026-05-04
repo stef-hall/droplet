@@ -21,7 +21,7 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+  font-family: Arial, sans-serif;
 }
 
 .app-shell {
@@ -94,7 +94,7 @@ body {
 
 .msg.user .bubble {
   background: var(--user);
-  box-shadow: 0 8px 20px rgba(17, 24, 39, 0.08);
+  box-shadow: 0 1px 5px rgba(17, 24, 39, 0.08);
 }
 
 .composer {
