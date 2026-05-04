@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Server4.0 Calculator</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card: #111827;
+      --text: #e5e7eb;
+      --muted: #94a3b8;
+      --accent: #22c55e;
+      --danger: #ef4444;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      background: radial-gradient(circle at 20% 20%, #1e293b, var(--bg));
+      color: var(--text);
+      font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+      padding: 20px;
+    }
+
+    .card {
+      width: min(560px, 100%);
+      background: rgba(17, 24, 39, 0.85);
+      border: 1px solid #334155;
+      border-radius: 16px;
+      padding: 24px;
+      backdrop-filter: blur(4px);
+    }
+
+    h1 {
+      margin-top: 0;
+      margin-bottom: 8px;
+      font-size: 1.6rem;
+    }
+
+    p {
+      color: var(--muted);
+      margin-top: 0;
+    }
+
+    form {
+      display: grid;
+      gap: 12px;
+    }
+
+    input {
+      width: 100%;
+      padding: 12px;
+      border-radius: 10px;
+      border: 1px solid #475569;
+      background: #0b1220;
+      color: var(--text);
+      font-size: 1rem;
+    }
+
+    button {
+      padding: 12px 14px;
+      border: none;
+      border-radius: 10px;
+      background: var(--accent);
+      color: #052e16;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .result {
+      margin-top: 14px;
+      min-height: 24px;
+      font-weight: 600;
+    }
+
+    .error { color: var(--danger); }
+    .ok { color: #86efac; }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <h1>Calculator API Test</h1>
+    <p>Enter an expression and it will be calculated by Python on the server.</p>
+
+    <form id="calc-form">
+      <input id="expression" type="text" placeholder="Example: (8 + 2) * 3 - 4 / 2" required>
+      <button type="submit">Calculate</button>
+    </form>
+
+    <div id="result" class="result"></div>
+  </main>
+
+  <script>
+    const form = document.getElementById("calc-form");
+    const expressionInput = document.getElementById("expression");
+    const resultEl = document.getElementById("result");
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      resultEl.className = "result";
+      resultEl.textContent = "Calculating...";
+
+      try {
+        const response = await fetch("/api/calculate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ expression: expressionInput.value })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok || !data.ok) {
+          throw new Error(data.error || "Request failed");
+        }
+
+        resultEl.classList.add("ok");
+        resultEl.textContent = `Result: ${data.result}`;
+      } catch (error) {
+        resultEl.classList.add("error");
+        resultEl.textContent = `Error: ${error.message}`;
+      }
+    });
+  </script>
+</body>
+</html>
