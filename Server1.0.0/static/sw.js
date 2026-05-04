@@ -1,4 +1,4 @@
-﻿const CACHE_NAME = "secretariat-v1";
+﻿const CACHE_NAME = "secretariat-v2";
 const ASSETS = [
   "/",
   "/templates/styles.css",
