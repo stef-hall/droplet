@@ -1,6 +1,6 @@
 {
-  "id": "resp_06a6c1d21ee4dc3e0069f8810c8bc08195a0ceff961f7c9775",
-  "created_at": 1777893644.0,
+  "id": "resp_03af395f4e4b42fd0069f8917a81088193b40ad607e5dd4432",
+  "created_at": 1777897850.0,
   "error": null,
   "incomplete_details": null,
   "instructions": null,
@@ -9,11 +9,11 @@
   "object": "response",
   "output": [
     {
-      "id": "msg_06a6c1d21ee4dc3e0069f8810d891c819589e0a3f245cbb63e",
+      "id": "msg_03af395f4e4b42fd0069f8917af9388193a128ed0002a3a7be",
       "content": [
         {
           "annotations": [],
-          "text": "{\n  \"state\": \"WAITING\",\n  \"message\": \"Hey \u2014 I\u2019m ready. Send the 2 event details and I\u2019ll add them. For each event, give me at least a title and date/time. If you don\u2019t include duration, I\u2019ll use 1 hour.\"\n}",
+          "text": "{\n  \"state\": \"WAITING\",\n  \"message\": \"Hey \u2014 what calendar task can I help with?\"\n}",
           "type": "output_text",
           "logprobs": []
         }
@@ -121,11 +121,11 @@
   ],
   "top_p": 0.98,
   "background": false,
-  "completed_at": 1777893646.0,
+  "completed_at": 1777897851.0,
   "conversation": null,
   "max_output_tokens": null,
   "max_tool_calls": null,
-  "previous_response_id": "resp_06a6c1d21ee4dc3e0069f8694c86848195b1a7c26311870775",
+  "previous_response_id": "resp_03af395f4e4b42fd0069f8916a379481938b67f5828cdd659b",
   "prompt": null,
   "prompt_cache_key": null,
   "prompt_cache_retention": "in_memory",
@@ -146,15 +146,15 @@
   "top_logprobs": 0,
   "truncation": "disabled",
   "usage": {
-    "input_tokens": 866,
+    "input_tokens": 1329,
     "input_tokens_details": {
-      "cached_tokens": 0
+      "cached_tokens": 1152
     },
-    "output_tokens": 65,
+    "output_tokens": 29,
     "output_tokens_details": {
       "reasoning_tokens": 0
     },
-    "total_tokens": 931
+    "total_tokens": 1358
   },
   "user": null,
   "billing": {
