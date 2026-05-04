@@ -163,6 +163,13 @@ textarea {
   padding: 12px 12px;
   box-shadow: 0 3px 7px rgba(17, 24, 39, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.9);
   margin-bottom: 40px;
+  --float-offset: 0px;
+  transform: translateY(0);
+  transition: transform 420ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.composer.floating {
+  transform: translateY(var(--float-offset));
 }
 
 @supports (corner-shape: squircle) {

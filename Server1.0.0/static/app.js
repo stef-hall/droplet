@@ -6,9 +6,11 @@ const addAttachmentBtn = document.getElementById("add-attachment");
 const imageUploadInput = document.getElementById("image-upload");
 const attachmentPill = document.getElementById("attachment-pill");
 const clearAttachmentBtn = document.getElementById("clear-attachment");
+const composerEl = document.getElementById("secretariat-form");
 const SESSION_KEY = "secretariat_session_id";
 const MAX_PROMPT_HEIGHT = 180;
 let attachedImageDataUrl = null;
+let composerDocked = false;
 
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
@@ -98,8 +100,12 @@ async function initSession() {
 
 initSession();
 autoSizePrompt();
+initializeComposerFloating();
 
 promptInput.addEventListener("input", autoSizePrompt);
+promptInput.addEventListener("focus", () => {
+  dockComposer();
+});
 promptInput.addEventListener("keydown", (event) => {
   if (event.key === "Enter" && !event.shiftKey) {
     event.preventDefault();
@@ -174,4 +180,30 @@ form.addEventListener("submit", async (event) => {
     metaEl.textContent = "";
   }
 });
+
+function updateComposerFloatOffset() {
+  if (composerDocked) return;
+  const rect = composerEl.getBoundingClientRect();
+  const viewportCenterY = window.innerHeight / 2;
+  const composerCenterY = rect.top + rect.height / 2;
+  const offset = viewportCenterY - composerCenterY;
+  composerEl.style.setProperty("--float-offset", `${Math.round(offset)}px`);
+}
+
+function initializeComposerFloating() {
+  requestAnimationFrame(() => {
+    updateComposerFloatOffset();
+    composerEl.classList.add("floating");
+  });
+}
+
+function dockComposer() {
+  if (composerDocked) return;
+  composerDocked = true;
+  composerEl.classList.remove("floating");
+  composerEl.style.setProperty("--float-offset", "0px");
+}
+
+window.addEventListener("resize", updateComposerFloatOffset);
+composerEl.addEventListener("pointerdown", dockComposer);
 
