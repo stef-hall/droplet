@@ -39,6 +39,30 @@ body {
   padding: 4px;
 }
 
+.attachment-pill {
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid #d4d4d4;
+  background: #fff;
+  border-radius: 999px;
+  padding: 8px 12px;
+  font-size: 0.9rem;
+  color: #444;
+}
+
+.pill-clear {
+  border: 0;
+  background: #f1f1f1;
+  color: #444;
+  border-radius: 999px;
+  width: 20px;
+  height: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+
 .msg {
   display: flex;
   margin: 10px 0;
@@ -119,6 +143,14 @@ body {
   font-size: 0.9rem;
   color: var(--muted);
   padding: 0 8px;
+}
+
+.hidden {
+  display: none;
+}
+
+.hidden-file-input {
+  display: none;
 }
 
 @media (max-width: 640px) {

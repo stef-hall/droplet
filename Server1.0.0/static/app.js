@@ -2,7 +2,12 @@
 const promptInput = document.getElementById("prompt");
 const feedEl = document.getElementById("chat-feed");
 const metaEl = document.getElementById("meta");
+const addAttachmentBtn = document.getElementById("add-attachment");
+const imageUploadInput = document.getElementById("image-upload");
+const attachmentPill = document.getElementById("attachment-pill");
+const clearAttachmentBtn = document.getElementById("clear-attachment");
 const SESSION_KEY = "secretariat_session_id";
+let attachedImageDataUrl = null;
 
 function getSessionId() {
   return localStorage.getItem(SESSION_KEY) || "";
@@ -26,6 +31,23 @@ function appendMessage(role, text) {
   feedEl.scrollTop = feedEl.scrollHeight;
 }
 
+function toDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error("Failed to read image."));
+    reader.readAsDataURL(file);
+  });
+}
+
+function showAttachmentPill(show) {
+  if (show) {
+    attachmentPill.classList.remove("hidden");
+  } else {
+    attachmentPill.classList.add("hidden");
+  }
+}
+
 async function initSession() {
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
   try {
@@ -45,6 +67,32 @@ async function initSession() {
 
 initSession();
 
+addAttachmentBtn.addEventListener("click", () => {
+  imageUploadInput.click();
+});
+
+imageUploadInput.addEventListener("change", async () => {
+  const file = imageUploadInput.files && imageUploadInput.files[0];
+  if (!file) return;
+
+  try {
+    attachedImageDataUrl = await toDataUrl(file);
+    showAttachmentPill(true);
+    metaEl.textContent = "Image attached.";
+  } catch (error) {
+    attachedImageDataUrl = null;
+    showAttachmentPill(false);
+    metaEl.textContent = error.message;
+  }
+});
+
+clearAttachmentBtn.addEventListener("click", () => {
+  attachedImageDataUrl = null;
+  imageUploadInput.value = "";
+  showAttachmentPill(false);
+  metaEl.textContent = "Attachment removed.";
+});
+
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
 
@@ -59,7 +107,11 @@ form.addEventListener("submit", async (event) => {
     const response = await fetch("/api/secretariat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt, session_id: getSessionId() })
+      body: JSON.stringify({
+        prompt,
+        session_id: getSessionId(),
+        image_data_url: attachedImageDataUrl
+      })
     });
 
     const data = await response.json();
@@ -70,6 +122,9 @@ form.addEventListener("submit", async (event) => {
     setSessionId(data.session_id);
     appendMessage("assistant", data.message || "No message returned.");
     metaEl.textContent = `State: ${data.state || "UNKNOWN"}`;
+    attachedImageDataUrl = null;
+    imageUploadInput.value = "";
+    showAttachmentPill(false);
   } catch (error) {
     appendMessage("assistant", `Error: ${error.message}`);
     metaEl.textContent = "";
