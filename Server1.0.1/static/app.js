@@ -13,6 +13,13 @@ const MAX_PROMPT_HEIGHT = 180;
 let attachedImageDataUrl = null;
 let composerDocked = false;
 
+function keepPromptFocused() {
+  if (!promptInput) return;
+  if (document.activeElement !== promptInput) {
+    promptInput.focus();
+  }
+}
+
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
     navigator.serviceWorker.register("/static/sw.js").catch(() => {});
@@ -208,13 +215,24 @@ function dockComposer() {
   composerEl.classList.add("docking");
   composerEl.classList.remove("floating");
   composerEl.style.setProperty("--float-offset", "0px");
+  requestAnimationFrame(keepPromptFocused);
+  setTimeout(keepPromptFocused, 80);
   setTimeout(() => {
     composerEl.classList.remove("docking");
   }, 440);
 }
 
 window.addEventListener("resize", updateComposerFloatOffset);
-composerEl.addEventListener("pointerdown", dockComposer);
+composerEl.addEventListener("pointerdown", (event) => {
+  dockComposer();
+  const target = event.target;
+  const clickedControl =
+    target instanceof HTMLElement &&
+    target.closest("button, input[type='file'], .pill-clear");
+  if (!clickedControl) {
+    requestAnimationFrame(keepPromptFocused);
+  }
+});
 
 window.addEventListener("keydown", (event) => {
   if (event.defaultPrevented) return;
