@@ -51,7 +51,6 @@ function appendThinkingMessage() {
   item.id = "thinking-message";
   item.innerHTML = `
     <div class="thinking-bubble">
-      <img class="thinking-emoji" src="/static/icons/galload.gif" alt="" aria-hidden="true">
       <span class="thinking-label">Thinking...</span>
     </div>
   `;
@@ -212,4 +211,34 @@ function dockComposer() {
 
 window.addEventListener("resize", updateComposerFloatOffset);
 composerEl.addEventListener("pointerdown", dockComposer);
+
+window.addEventListener("keydown", (event) => {
+  if (event.defaultPrevented) return;
+  if (event.ctrlKey || event.metaKey || event.altKey) return;
+
+  const target = event.target;
+  const isEditableTarget =
+    target instanceof HTMLInputElement ||
+    target instanceof HTMLTextAreaElement ||
+    (target instanceof HTMLElement && target.isContentEditable);
+  if (isEditableTarget) return;
+
+  if (event.key.length === 1) {
+    event.preventDefault();
+    dockComposer();
+    promptInput.focus();
+    promptInput.setRangeText(event.key, promptInput.selectionStart, promptInput.selectionEnd, "end");
+    autoSizePrompt();
+    return;
+  }
+
+  if (event.key === "Backspace" && promptInput.value.length > 0) {
+    event.preventDefault();
+    dockComposer();
+    promptInput.focus();
+    const start = Math.max(0, promptInput.selectionStart - 1);
+    promptInput.setRangeText("", start, promptInput.selectionEnd, "end");
+    autoSizePrompt();
+  }
+});
 
