@@ -1,6 +1,6 @@
 {
-  "id": "resp_06e724cc40e208190069f8504512e48194b1b0730b00eea89e",
-  "created_at": 1777881157.0,
+  "id": "resp_06783c97006a03b80069f85ad496908197ac9116868a52678a",
+  "created_at": 1777883860.0,
   "error": null,
   "incomplete_details": null,
   "instructions": null,
@@ -9,11 +9,11 @@
   "object": "response",
   "output": [
     {
-      "id": "msg_06e724cc40e208190069f8504584c481949b4b15256fbc7ee3",
+      "id": "msg_06783c97006a03b80069f85ad5959c8197a56167a0e7997b9e",
       "content": [
         {
           "annotations": [],
-          "text": "{\n  \"state\": \"DONE\",\n  \"message\": \"Done.\"\n}",
+          "text": "{\n  \"state\": \"DONE\",\n  \"message\": \"Your current local timezone is UTC+12:00.\"\n}",
           "type": "output_text",
           "logprobs": []
         }
@@ -121,11 +121,11 @@
   ],
   "top_p": 0.98,
   "background": false,
-  "completed_at": 1777881157.0,
+  "completed_at": 1777883862.0,
   "conversation": null,
   "max_output_tokens": null,
   "max_tool_calls": null,
-  "previous_response_id": "resp_06e724cc40e208190069f85030643c81948b54e226ac5f1f30",
+  "previous_response_id": null,
   "prompt": null,
   "prompt_cache_key": null,
   "prompt_cache_retention": "in_memory",
@@ -146,15 +146,15 @@
   "top_logprobs": 0,
   "truncation": "disabled",
   "usage": {
-    "input_tokens": 831,
+    "input_tokens": 720,
     "input_tokens_details": {
       "cached_tokens": 0
     },
-    "output_tokens": 20,
+    "output_tokens": 29,
     "output_tokens_details": {
       "reasoning_tokens": 0
     },
-    "total_tokens": 851
+    "total_tokens": 749
   },
   "user": null,
   "billing": {

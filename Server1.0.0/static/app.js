@@ -13,6 +13,25 @@ function setSessionId(sessionId) {
   localStorage.setItem(SESSION_KEY, sessionId);
 }
 
+async function initSession() {
+  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+  try {
+    const response = await fetch("/api/session/init", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ session_id: getSessionId(), timezone })
+    });
+    const data = await response.json();
+    if (response.ok && data.ok) {
+      setSessionId(data.session_id);
+    }
+  } catch (_) {
+    // Non-fatal. Requests can still create a session later.
+  }
+}
+
+initSession();
+
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
 

@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import ast
 import operator as op
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, jsonify, render_template, request, send_from_directory
 
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from caldav import DAVClient
 from openai import OpenAI
 import vobject
@@ -180,11 +181,16 @@ def ToolUse(name, args):
 
 
 
-def ask_gpt54(user_input, system_prompt, results, previous_response_id=None):
+def ask_gpt54(user_input, system_prompt, results, previous_response_id=None, user_timezone=None):
     client = OpenAI(api_key=api_key)
 
     now_utc = datetime.now(timezone.utc)
     now_local = datetime.now().astimezone()
+    if user_timezone:
+        try:
+            now_local = now_utc.astimezone(ZoneInfo(user_timezone))
+        except Exception:
+            pass
     image_data_url = None
     if isinstance(user_input, dict):
         image_data_url = user_input.get("image_data_url")
@@ -340,7 +346,13 @@ tools = [
 """
 
 
-def run_secretariat(prompt_text, image_data_url=None, previous_response_id=None, max_turns=12):
+def run_secretariat(
+    prompt_text,
+    image_data_url=None,
+    previous_response_id=None,
+    user_timezone=None,
+    max_turns=12,
+):
     results = []
     state = "RUNNING"
     assistant_message = ""
@@ -348,7 +360,13 @@ def run_secretariat(prompt_text, image_data_url=None, previous_response_id=None,
 
     for _ in range(max_turns):
         user_turn = {"prompt": prompt_text, "image_data_url": image_data_url}
-        response = ask_gpt54(user_turn, system_prompt, results, current_response_id)
+        response = ask_gpt54(
+            user_turn,
+            system_prompt,
+            results,
+            current_response_id,
+            user_timezone=user_timezone,
+        )
         current_response_id = response.id
         response_data = response.model_dump()
         results = []
@@ -397,6 +415,10 @@ def run_secretariat(prompt_text, image_data_url=None, previous_response_id=None,
 def home():
     return render_template("index.html")
 
+@app.get("/templates/styles.css")
+def template_styles():
+    return send_from_directory("templates", "styles.css")
+
 
 @app.post("/api/secretariat")
 def api_secretariat():
@@ -404,7 +426,9 @@ def api_secretariat():
     prompt_text = str(payload.get("prompt", "")).strip()
     image_data_url = payload.get("image_data_url")
     session_id = str(payload.get("session_id", "")).strip() or str(uuid.uuid4())
-    previous_response_id = session_store.get(session_id)
+    session_data = session_store.get(session_id, {})
+    previous_response_id = session_data.get("previous_response_id")
+    user_timezone = session_data.get("timezone")
 
     if not prompt_text:
         return jsonify({"ok": False, "error": "Prompt is required."}), 400
@@ -414,13 +438,40 @@ def api_secretariat():
             prompt_text,
             image_data_url=image_data_url,
             previous_response_id=previous_response_id,
+            user_timezone=user_timezone,
         )
-        session_store[session_id] = result.get("previous_response_id")
+        session_store[session_id] = {
+            "previous_response_id": result.get("previous_response_id"),
+            "timezone": user_timezone,
+        }
         if result.get("state") == "DONE":
             session_store.pop(session_id, None)
         return jsonify({"ok": True, "session_id": session_id, **result})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.post("/api/session/init")
+def api_session_init():
+    payload = request.get_json(silent=True) or {}
+    session_id = str(payload.get("session_id", "")).strip() or str(uuid.uuid4())
+    timezone_name = str(payload.get("timezone", "")).strip()
+
+    session_data = session_store.get(
+        session_id,
+        {"previous_response_id": None, "timezone": None},
+    )
+    if timezone_name:
+        session_data["timezone"] = timezone_name
+    session_store[session_id] = session_data
+
+    return jsonify(
+        {
+            "ok": True,
+            "session_id": session_id,
+            "timezone": session_data.get("timezone"),
+        }
+    )
 
 
 if __name__ == "__main__":
