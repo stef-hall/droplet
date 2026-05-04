@@ -7,6 +7,7 @@ const imageUploadInput = document.getElementById("image-upload");
 const attachmentPill = document.getElementById("attachment-pill");
 const clearAttachmentBtn = document.getElementById("clear-attachment");
 const SESSION_KEY = "secretariat_session_id";
+const MAX_PROMPT_HEIGHT = 180;
 let attachedImageDataUrl = null;
 
 if ("serviceWorker" in navigator) {
@@ -35,6 +36,11 @@ function appendMessage(role, text) {
   item.appendChild(bubble);
   feedEl.appendChild(item);
   feedEl.scrollTop = feedEl.scrollHeight;
+}
+
+function autoSizePrompt() {
+  promptInput.style.height = "auto";
+  promptInput.style.height = `${Math.min(promptInput.scrollHeight, MAX_PROMPT_HEIGHT)}px`;
 }
 
 function appendThinkingMessage() {
@@ -91,6 +97,15 @@ async function initSession() {
 }
 
 initSession();
+autoSizePrompt();
+
+promptInput.addEventListener("input", autoSizePrompt);
+promptInput.addEventListener("keydown", (event) => {
+  if (event.key === "Enter" && !event.shiftKey) {
+    event.preventDefault();
+    form.requestSubmit();
+  }
+});
 
 addAttachmentBtn.addEventListener("click", () => {
   imageUploadInput.click();
@@ -126,6 +141,7 @@ form.addEventListener("submit", async (event) => {
 
   appendMessage("user", prompt);
   promptInput.value = "";
+  autoSizePrompt();
   metaEl.textContent = "Thinking...";
   appendThinkingMessage();
 
@@ -158,3 +174,4 @@ form.addEventListener("submit", async (event) => {
     metaEl.textContent = "";
   }
 });
+

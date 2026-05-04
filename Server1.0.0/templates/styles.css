@@ -175,6 +175,10 @@ textarea {
 }
 
 #prompt {
+  resize: none;
+  min-height: 24px;
+  max-height: 180px;
+  overflow-y: auto;
   border: 0;
   outline: none;
   background: transparent;
@@ -211,3 +215,4 @@ textarea {
     max-width: 92%;
   }
 }
+

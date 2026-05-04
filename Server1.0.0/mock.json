@@ -1,6 +1,6 @@
 {
-  "id": "resp_0aa659453755f42c0069f86897de2881948f5dcefbe3059cb5",
-  "created_at": 1777887383.0,
+  "id": "resp_06a6c1d21ee4dc3e0069f8694c86848195b1a7c26311870775",
+  "created_at": 1777887564.0,
   "error": null,
   "incomplete_details": null,
   "instructions": null,
@@ -9,11 +9,11 @@
   "object": "response",
   "output": [
     {
-      "id": "msg_0aa659453755f42c0069f8689935d88194828fc925b2e355bf",
+      "id": "msg_06a6c1d21ee4dc3e0069f8694d14948195a818538e180af31b",
       "content": [
         {
           "annotations": [],
-          "text": "{\n  \"state\": \"WAITING\",\n  \"message\": \"I\u2019m not sure what you want me to do with your calendar. Please tell me what event you want to add, view, or delete.\"\n}",
+          "text": "{\n  \"state\": \"WAITING\",\n  \"message\": \"Sure \u2014 I can add two events. Please send the title and time for each one. If you want, use this format:\\n1) Title \u2014 date & time \u2014 duration/location\\n2) Title \u2014 date & time \u2014 duration/location\\nIf you don\u2019t give a duration, I\u2019ll make each one 1 hour.\"\n}",
           "type": "output_text",
           "logprobs": []
         }
@@ -121,7 +121,7 @@
   ],
   "top_p": 0.98,
   "background": false,
-  "completed_at": 1777887387.0,
+  "completed_at": 1777887566.0,
   "conversation": null,
   "max_output_tokens": null,
   "max_tool_calls": null,
@@ -146,15 +146,15 @@
   "top_logprobs": 0,
   "truncation": "disabled",
   "usage": {
-    "input_tokens": 718,
+    "input_tokens": 723,
     "input_tokens_details": {
       "cached_tokens": 0
     },
-    "output_tokens": 48,
+    "output_tokens": 85,
     "output_tokens_details": {
       "reasoning_tokens": 0
     },
-    "total_tokens": 766
+    "total_tokens": 808
   },
   "user": null,
   "billing": {
