@@ -7,6 +7,7 @@ const imageUploadInput = document.getElementById("image-upload");
 const attachmentPill = document.getElementById("attachment-pill");
 const clearAttachmentBtn = document.getElementById("clear-attachment");
 const composerEl = document.getElementById("secretariat-form");
+const initialAssistantMessageEl = document.getElementById("initial-assistant-message");
 const SESSION_KEY = "secretariat_session_id";
 const MAX_PROMPT_HEIGHT = 180;
 let attachedImageDataUrl = null;
@@ -199,6 +200,9 @@ function initializeComposerFloating() {
 function dockComposer() {
   if (composerDocked) return;
   composerDocked = true;
+  if (initialAssistantMessageEl) {
+    initialAssistantMessageEl.classList.add("revealed");
+  }
   const startOffset = getComputedStyle(composerEl).getPropertyValue("--float-offset").trim() || "0px";
   composerEl.style.setProperty("--dock-start-offset", startOffset);
   composerEl.classList.add("docking");
