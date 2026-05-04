@@ -1,0 +1,24 @@
+﻿{
+  "name": "Secretariat",
+  "short_name": "Secretariat",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f4f4f4",
+  "theme_color": "#f4f4f4",
+  "description": "Calendar assistant chat interface.",
+  "icons": [
+    {
+      "src": "/static/icons/icon-192.svg",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/static/icons/icon-512.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

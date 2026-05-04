@@ -1,5 +1,5 @@
 ﻿:root {
-  --bg: #f4f4f4;
+  --bg: #fff;
   --panel: #ffffff;
   --text: #161616;
   --muted: #777;
@@ -77,6 +77,8 @@ body {
 }
 
 .bubble {
+  display: inline-block;
+  width: fit-content;
   max-width: min(680px, 86%);
   border: 1px solid var(--line);
   border-radius: 18px;
@@ -87,10 +89,12 @@ body {
 
 .msg.assistant .bubble {
   background: var(--assistant);
+  border: 0;
 }
 
 .msg.user .bubble {
   background: var(--user);
+  box-shadow: 0 8px 20px rgba(17, 24, 39, 0.08);
 }
 
 .composer {
@@ -102,6 +106,7 @@ body {
   border-radius: 28px;
   background: var(--panel);
   padding: 8px 10px;
+  box-shadow: 0 10px 26px rgba(17, 24, 39, 0.1);
 }
 
 .icon-btn,

@@ -9,6 +9,12 @@ const clearAttachmentBtn = document.getElementById("clear-attachment");
 const SESSION_KEY = "secretariat_session_id";
 let attachedImageDataUrl = null;
 
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/static/sw.js").catch(() => {});
+  });
+}
+
 function getSessionId() {
   return localStorage.getItem(SESSION_KEY) || "";
 }
