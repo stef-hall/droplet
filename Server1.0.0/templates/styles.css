@@ -6,8 +6,8 @@
   --line: #e4e4e4;
   --assistant: #ffffff;
   --user: #ececec;
-  --composer-radius: 21px;
-  --composer-squircle: 0.61;
+  --composer-radius: 22px;
+  --composer-squircle: 0.78;
 }
 
 * {
@@ -157,17 +157,17 @@ textarea {
   gap: 10px;
   width: min(760px, 100%);
   justify-self: center;
-  border: 1px solid #d9d9d9;
+  border: 1px solid #d6d6d6;
   border-radius: var(--composer-radius);
   background: var(--panel);
   padding: 12px 12px;
-  box-shadow: 0 10px 26px rgba(17, 24, 39, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  box-shadow: 0 3px 7px rgba(17, 24, 39, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.9);
   margin-bottom: 40px;
 }
 
-@supports (corner-shape: superellipse(1)) {
+@supports (corner-shape: squircle) {
   .composer {
-    corner-shape: superellipse(var(--composer-squircle));
+    corner-shape: squircle;
   }
 }
 
