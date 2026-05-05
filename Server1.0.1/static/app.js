@@ -10,6 +10,7 @@ const composerEl = document.getElementById("secretariat-form");
 const initialAssistantMessageEl = document.getElementById("initial-assistant-message");
 const SESSION_KEY = "secretariat_session_id";
 const MAX_PROMPT_HEIGHT = 180;
+const isTouchDevice = window.matchMedia("(pointer: coarse)").matches;
 let attachedImageDataUrl = null;
 let composerDocked = false;
 let doneFadeTimer = null;
@@ -47,6 +48,12 @@ function escapeHtml(value) {
 
 function renderInlineMarkdown(text) {
   let out = escapeHtml(text);
+  out = out.replace(/\[\[\s*send\s*:\s*([^\]]+?)\s*\]\]/gi, (_, replyRaw) => {
+    const replyText = String(replyRaw || "").trim();
+    if (!replyText) return "";
+    const escapedReply = escapeHtml(replyText);
+    return `<button type="button" class="quick-reply-inline" data-reply="${escapedReply}">${escapedReply}</button>`;
+  });
   out = out.replace(/`([^`]+)`/g, "<code>$1</code>");
   out = out.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
   out = out.replace(/\*([^*\n]+)\*/g, "<em>$1</em>");
@@ -213,6 +220,21 @@ function showAttachmentPill(show) {
   }
 }
 
+async function attachImageFile(file) {
+  if (!file) return false;
+  try {
+    attachedImageDataUrl = await toDataUrl(file);
+    showAttachmentPill(true);
+    setMetaStatus("Image attached.");
+    return true;
+  } catch (_) {
+    attachedImageDataUrl = null;
+    showAttachmentPill(false);
+    setMetaStatus("Failed to read pasted image.");
+    return false;
+  }
+}
+
 async function initSession() {
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
   try {
@@ -230,63 +252,7 @@ async function initSession() {
   }
 }
 
-initSession();
-autoSizePrompt();
-initializeComposerFloating();
-
-promptInput.addEventListener("input", autoSizePrompt);
-promptInput.addEventListener("focus", () => {
-  dockComposer();
-});
-promptInput.addEventListener("keydown", (event) => {
-  if (event.key === "Enter" && !event.shiftKey) {
-    event.preventDefault();
-    form.requestSubmit();
-  }
-});
-
-addAttachmentBtn.addEventListener("click", () => {
-  imageUploadInput.click();
-});
-
-addAttachmentBtn.addEventListener("pointerdown", (event) => {
-  if (composerDocked) return;
-  // Prevent the floating-to-docked transition from swallowing the intended attach action.
-  event.preventDefault();
-  dockComposer();
-  setTimeout(() => {
-    imageUploadInput.click();
-  }, 120);
-});
-
-imageUploadInput.addEventListener("change", async () => {
-  const file = imageUploadInput.files && imageUploadInput.files[0];
-  if (!file) return;
-
-  try {
-    attachedImageDataUrl = await toDataUrl(file);
-    showAttachmentPill(true);
-    metaEl.textContent = "Image attached.";
-  } catch (error) {
-    attachedImageDataUrl = null;
-    showAttachmentPill(false);
-    metaEl.textContent = error.message;
-  }
-});
-
-clearAttachmentBtn.addEventListener("click", () => {
-  attachedImageDataUrl = null;
-  imageUploadInput.value = "";
-  showAttachmentPill(false);
-  metaEl.textContent = "Attachment removed.";
-});
-
-form.addEventListener("submit", async (event) => {
-  event.preventDefault();
-
-  const prompt = promptInput.value.trim();
-  if (!prompt) return;
-
+async function submitPromptText(prompt) {
   appendMessage("user", prompt);
   promptInput.value = "";
   autoSizePrompt();
@@ -324,6 +290,81 @@ form.addEventListener("submit", async (event) => {
     resolveThinkingMessage(`Error: ${error.message}`, "assistant");
     setMetaStatus("");
   }
+}
+
+initSession();
+autoSizePrompt();
+initializeComposerFloating();
+
+promptInput.addEventListener("input", autoSizePrompt);
+promptInput.addEventListener("focus", () => {
+  dockComposer();
+});
+promptInput.addEventListener("keydown", (event) => {
+  if (event.key === "Enter" && !event.shiftKey) {
+    event.preventDefault();
+    form.requestSubmit();
+  }
+});
+
+addAttachmentBtn.addEventListener("click", () => {
+  imageUploadInput.click();
+});
+
+addAttachmentBtn.addEventListener("pointerdown", (event) => {
+  if (composerDocked) return;
+  // Prevent the floating-to-docked transition from swallowing the intended attach action.
+  event.preventDefault();
+  dockComposer();
+  setTimeout(() => {
+    imageUploadInput.click();
+  }, 120);
+});
+
+imageUploadInput.addEventListener("change", async () => {
+  const file = imageUploadInput.files && imageUploadInput.files[0];
+  if (!file) return;
+  await attachImageFile(file);
+});
+
+clearAttachmentBtn.addEventListener("click", () => {
+  attachedImageDataUrl = null;
+  imageUploadInput.value = "";
+  showAttachmentPill(false);
+  setMetaStatus("Attachment removed.");
+});
+
+document.addEventListener("paste", async (event) => {
+  const clipboardData = event.clipboardData;
+  if (!clipboardData) return;
+  const items = Array.from(clipboardData.items || []);
+  const imageItem = items.find((item) => item.kind === "file" && item.type.startsWith("image/"));
+  if (!imageItem) return;
+  const imageFile = imageItem.getAsFile();
+  if (!imageFile) return;
+  event.preventDefault();
+  dockComposer();
+  await attachImageFile(imageFile);
+});
+
+form.addEventListener("submit", async (event) => {
+  event.preventDefault();
+
+  const prompt = promptInput.value.trim();
+  if (!prompt) return;
+  await submitPromptText(prompt);
+});
+
+feedEl.addEventListener("click", async (event) => {
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) return;
+  const quickReplyButton = target.closest(".quick-reply-inline");
+  if (!(quickReplyButton instanceof HTMLButtonElement)) return;
+  const reply = (quickReplyButton.dataset.reply || "").trim();
+  if (!reply) return;
+  promptInput.value = reply;
+  dockComposer();
+  await submitPromptText(reply);
 });
 
 function updateComposerFloatOffset() {
@@ -336,6 +377,10 @@ function updateComposerFloatOffset() {
 }
 
 function initializeComposerFloating() {
+  if (isTouchDevice) {
+    dockComposer();
+    return;
+  }
   requestAnimationFrame(() => {
     updateComposerFloatOffset();
     composerEl.classList.add("floating");
@@ -361,7 +406,10 @@ function dockComposer() {
   }, 440);
 }
 
-window.addEventListener("resize", updateComposerFloatOffset);
+window.addEventListener("resize", () => {
+  if (isTouchDevice) return;
+  updateComposerFloatOffset();
+});
 composerEl.addEventListener("pointerdown", (event) => {
   dockComposer();
   const target = event.target;

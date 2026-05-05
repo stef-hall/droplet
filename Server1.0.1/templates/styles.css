@@ -22,6 +22,7 @@ body {
 
 body {
   margin: 0;
+  min-height: 100dvh;
   background: var(--bg);
   color: var(--text);
   font-family: "Segoe UI", Arial, sans-serif;
@@ -34,13 +35,13 @@ textarea {
 }
 
 .app-shell {
-  height: 100vh;
+  min-height: 100dvh;
   width: 100%;
   max-width: none;
   margin: 0 auto;
   display: grid;
   grid-template-rows: 1fr auto auto;
-  padding: 22px 18px 14px;
+  padding: calc(16px + env(safe-area-inset-top)) 18px calc(14px + env(safe-area-inset-bottom));
   gap: 10px;
 }
 
@@ -147,7 +148,7 @@ textarea {
 
 .msg {
   display: flex;
-  margin: 80px 0px;
+  margin: 60px 0px;
   width: min(var(--content-width), 100%);
   margin-left: auto;
   margin-right: auto;
@@ -183,8 +184,8 @@ textarea {
 
 .msg.assistant .bubble strong {
     text-shadow: none;
-    font-weight: 700;
-    color: #111111d4;
+    font-weight: 600;
+    color: #000000;
 }
 
 .thinking-bubble {
@@ -258,12 +259,11 @@ textarea {
 }
 
 .bubble.md ul {
-  margin: 8px 0 0;
   padding-left: 18px;
 }
 
 .bubble.md li + li {
-  margin-top: 4px;
+  
 }
 
 .bubble.md code {
@@ -272,6 +272,34 @@ textarea {
   padding: 1px 5px;
   font-family: "Consolas", "SFMono-Regular", Menlo, monospace;
   font-size: 0.9em;
+}
+
+.quick-reply-inline {
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    padding: 0;
+    margin: 0;
+    cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    text-decoration-style: dotted;
+    text-decoration-color: #0080ff;
+}
+
+.quick-reply-inline::after {
+  content: " \21AA";
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.quick-reply-inline:hover {
+  opacity: 0.75;
+}
+
+.quick-reply-inline:hover::after {
+  opacity: 1;
 }
 
 .initial-assistant-message {
@@ -423,10 +451,13 @@ textarea {
 }
 
 .meta {
-  min-height: 18px;
+  height: 18px;
   font-size: 0.9rem;
   color: var(--muted);
   padding: 0 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   text-align: center;
   opacity: 1;
   transition: opacity 240ms ease;
@@ -446,11 +477,49 @@ textarea {
 
 @media (max-width: 640px) {
   .app-shell {
-    padding: 14px 10px 10px;
+    min-height: 100dvh;
+    padding: calc(10px + env(safe-area-inset-top)) 10px calc(8px + env(safe-area-inset-bottom));
+  }
+
+  .chat-feed .msg:first-child {
+    margin-top: 24px;
+  }
+
+  .chat-feed .initial-assistant-message.hero:first-child {
+    margin-top: 24px;
+    justify-content: flex-start;
+  }
+
+  .initial-assistant-message.hero .bubble {
+    text-align: left;
+    font-size: clamp(1.2rem, 6vw, 1.45rem);
+    line-height: 1.25;
+  }
+
+  .msg {
+    margin: 18px 0;
+  }
+
+  .chat-feed {
+    padding-bottom: 16px;
+    -webkit-mask-image: none;
+    mask-image: none;
+  }
+
+  .composer {
+    margin-bottom: 8px;
+    padding: 10px;
+  }
+
+  .icon-btn,
+  .send-btn {
+    width: 40px;
+    height: 40px;
   }
 
   .bubble {
     max-width: 92%;
+    padding: 6px 14px;
   }
 }
 

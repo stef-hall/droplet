@@ -1,10 +1,13 @@
-const CACHE_NAME = "secretariat-v3";
+﻿const CACHE_NAME = "secretariat-v4";
+const OFFLINE_URL = "/static/offline.html";
 const ASSETS = [
+  "/",
   "/templates/styles.css",
   "/static/app.js",
   "/static/manifest.webmanifest",
   "/static/icons/icon-192.svg",
-  "/static/icons/icon-512.svg"
+  "/static/icons/icon-512.svg",
+  OFFLINE_URL
 ];
 
 self.addEventListener("install", (event) => {
@@ -31,26 +34,34 @@ self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
   const isNavigation = event.request.mode === "navigate";
 
-  event.respondWith(
-    (isNavigation
-      ? fetch(event.request)
-          .then((response) => {
-            const cloned = response.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, cloned));
-            return response;
-          })
-          .catch(() => caches.match(event.request))
-      : caches.match(event.request).then((cached) => {
-          if (cached) return cached;
+  if (isNavigation) {
+    event.respondWith(
+      fetch(event.request)
+        .then((response) => {
+          const cloned = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, cloned));
+          return response;
+        })
+        .catch(async () => {
+          const cachedPage = await caches.match(event.request);
+          if (cachedPage) return cachedPage;
+          return caches.match(OFFLINE_URL);
+        })
+    );
+    return;
+  }
 
-          return fetch(event.request)
-            .then((response) => {
-              const cloned = response.clone();
-              caches.open(CACHE_NAME).then((cache) => cache.put(event.request, cloned));
-              return response;
-            })
-            .catch(() => caches.match(event.request));
-        }))
+  event.respondWith(
+    caches.match(event.request).then((cached) => {
+      if (cached) return cached;
+
+      return fetch(event.request)
+        .then((response) => {
+          const cloned = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, cloned));
+          return response;
+        })
+        .catch(() => caches.match(event.request));
+    })
   );
 });
-
