@@ -181,6 +181,10 @@ textarea {
   white-space: pre-wrap;
 }
 
+.msg.assistant .bubble strong {
+  text-shadow: none;
+}
+
 .thinking-bubble {
   display: inline-flex;
   align-items: center;

@@ -298,7 +298,7 @@ form.addEventListener("submit", async (event) => {
       DONE: "Done."
     };
     const mappedState = stateLabelMap[data.state] || data.state || "";
-    setMetaStatus(mappedState, { autoFade: data.state === "DONE", fadeDelayMs: 4000 });
+    setMetaStatus(mappedState, { autoFade: data.state === "DONE", fadeDelayMs: 5000 });
     attachedImageDataUrl = null;
     imageUploadInput.value = "";
     showAttachmentPill(false);
