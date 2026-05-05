@@ -12,7 +12,7 @@ const SESSION_KEY = "secretariat_session_id";
 const MAX_PROMPT_HEIGHT = 180;
 const isTouchDevice = window.matchMedia("(pointer: coarse)").matches;
 let attachedImageDataUrl = null;
-let composerDocked = isTouchDevice;
+let composerDocked = false;
 let doneFadeTimer = null;
 
 function keepPromptFocused() {
@@ -377,7 +377,10 @@ function updateComposerFloatOffset() {
 }
 
 function initializeComposerFloating() {
-  if (isTouchDevice) return;
+  if (isTouchDevice) {
+    dockComposer();
+    return;
+  }
   requestAnimationFrame(() => {
     updateComposerFloatOffset();
     composerEl.classList.add("floating");
