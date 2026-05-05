@@ -138,6 +138,7 @@ textarea {
   line-height: 1;
   font-size: 12px;
   font-weight: 600;
+  transform: translateY(-1px);
   padding: 0;
   cursor: pointer;
 }
