@@ -183,8 +183,8 @@ textarea {
 
 .msg.assistant .bubble strong {
     text-shadow: none;
-    font-weight: 700;
-    color: #111111d4;
+    font-weight: 600;
+    color: #000000;
 }
 
 .thinking-bubble {
@@ -287,8 +287,18 @@ textarea {
     text-decoration-color: #0080ff;
 }
 
+.quick-reply-inline::after {
+  content: " \21AA";
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
 .quick-reply-inline:hover {
   opacity: 0.75;
+}
+
+.quick-reply-inline:hover::after {
+  opacity: 1;
 }
 
 .initial-assistant-message {
