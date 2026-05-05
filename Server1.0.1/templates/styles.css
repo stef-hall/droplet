@@ -110,9 +110,9 @@ textarea {
   width: fit-content;
   max-width: min(680px, 86%);
   border: 1px solid var(--line);
-  border-radius: 18px;
-  padding: 12px 14px;
-  line-height: 1.45;
+  border-radius: 27px;
+  padding: 9px 14px;
+  line-height: 1.6;
   white-space: pre-wrap;
 }
 
