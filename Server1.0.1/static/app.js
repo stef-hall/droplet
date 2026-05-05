@@ -219,6 +219,21 @@ function showAttachmentPill(show) {
   }
 }
 
+async function attachImageFile(file) {
+  if (!file) return false;
+  try {
+    attachedImageDataUrl = await toDataUrl(file);
+    showAttachmentPill(true);
+    setMetaStatus("Image attached.");
+    return true;
+  } catch (_) {
+    attachedImageDataUrl = null;
+    showAttachmentPill(false);
+    setMetaStatus("Failed to read pasted image.");
+    return false;
+  }
+}
+
 async function initSession() {
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
   try {
@@ -308,23 +323,27 @@ addAttachmentBtn.addEventListener("pointerdown", (event) => {
 imageUploadInput.addEventListener("change", async () => {
   const file = imageUploadInput.files && imageUploadInput.files[0];
   if (!file) return;
-
-  try {
-    attachedImageDataUrl = await toDataUrl(file);
-    showAttachmentPill(true);
-    metaEl.textContent = "Image attached.";
-  } catch (error) {
-    attachedImageDataUrl = null;
-    showAttachmentPill(false);
-    metaEl.textContent = error.message;
-  }
+  await attachImageFile(file);
 });
 
 clearAttachmentBtn.addEventListener("click", () => {
   attachedImageDataUrl = null;
   imageUploadInput.value = "";
   showAttachmentPill(false);
-  metaEl.textContent = "Attachment removed.";
+  setMetaStatus("Attachment removed.");
+});
+
+document.addEventListener("paste", async (event) => {
+  const clipboardData = event.clipboardData;
+  if (!clipboardData) return;
+  const items = Array.from(clipboardData.items || []);
+  const imageItem = items.find((item) => item.kind === "file" && item.type.startsWith("image/"));
+  if (!imageItem) return;
+  const imageFile = imageItem.getAsFile();
+  if (!imageFile) return;
+  event.preventDefault();
+  dockComposer();
+  await attachImageFile(imageFile);
 });
 
 form.addEventListener("submit", async (event) => {
