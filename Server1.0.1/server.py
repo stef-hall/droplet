@@ -180,6 +180,27 @@ tools = [
     },
     {
         "type": "function",
+        "name": "EditList",
+        "description": "Create or overwrite a saved list in the local lists folder.",
+        "strict": True,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "list_name": {
+                    "type": "string",
+                    "description": "List name without .txt extension (e.g. Shopping List)"
+                },
+                "content": {
+                    "type": "string",
+                    "description": "Full text content that should be saved to the list file."
+                }
+            },
+            "required": ["list_name", "content"],
+            "additionalProperties": False
+        }
+    },
+    {
+        "type": "function",
         "name": "EditEvent",
         "description": "Edit an existing calendar event by UID in one step. This performs an internal delete-and-recreate while preserving the event UID.",
         "strict": False,
@@ -329,6 +350,17 @@ def ReadList(list_name):
     with open(list_path, "r", encoding="utf-8") as f:
         content = f.read()
     return {"status": "success", "list_name": safe_name, "content": content}
+
+
+def EditList(list_name, content):
+    safe_name = str(list_name).strip()
+    if not safe_name:
+        return {"status": "failed", "error": "List name is required."}
+    LISTS_DIR.mkdir(parents=True, exist_ok=True)
+    list_path = LISTS_DIR / f"{safe_name}.txt"
+    with open(list_path, "w", encoding="utf-8") as f:
+        f.write("" if content is None else str(content))
+    return {"status": "success", "list_name": safe_name}
 
 
 def _to_utc_ics(value):
@@ -511,6 +543,24 @@ def ToolUse(name, args):
             return {
                 "status": "failed",
                 "tool": "ReadList",
+                "list": {"list_name": list_name},
+                "error": str(e),
+            }
+
+    # Creates/overwrites saved list by list name
+    if name == 'EditList':
+        list_name = args.get("list_name")
+        content = args.get("content")
+        try:
+            output = EditList(list_name=list_name, content=content)
+            status = output.get("status") if isinstance(output, dict) else None
+            if status == "failed":
+                return {"status": "failed", "tool": "EditList", "list": {"list_name": list_name}, "error": output.get("error", "Edit failed"), "result": output}
+            return {"status": "success", "tool": "EditList", "list": {"list_name": list_name}, "result": output}
+        except Exception as e:
+            return {
+                "status": "failed",
+                "tool": "EditList",
                 "list": {"list_name": list_name},
                 "error": str(e),
             }
