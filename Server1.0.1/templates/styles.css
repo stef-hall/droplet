@@ -275,17 +275,17 @@ textarea {
 }
 
 .quick-reply-inline {
+    margin: 2px;
     border: 0;
     background: transparent;
     color: inherit;
     font: inherit;
     padding: 0;
-    margin: 0;
     cursor: pointer;
     text-decoration: underline;
     text-underline-offset: 2px;
-    text-decoration-style: dotted;
-    text-decoration-color: #0080ff;
+    text-decoration-style: dashed;
+    text-decoration-color: #0080ff9c;
 }
 
 .quick-reply-inline::after {

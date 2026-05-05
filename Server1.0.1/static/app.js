@@ -48,11 +48,18 @@ function escapeHtml(value) {
 
 function renderInlineMarkdown(text) {
   let out = escapeHtml(text);
-  out = out.replace(/\[\[\s*send\s*:\s*([^\]]+?)\s*\]\]/gi, (_, replyRaw) => {
-    const replyText = String(replyRaw || "").trim();
-    if (!replyText) return "";
+  out = out.replace(/\[\[\s*send\s*:\s*([^\]]+?)\s*\]\]/gi, (_, payloadRaw) => {
+    const payload = String(payloadRaw || "").trim();
+    if (!payload) return "";
+
+    const separatorIndex = payload.indexOf("|");
+    const visibleText = separatorIndex >= 0 ? payload.slice(0, separatorIndex).trim() : payload;
+    const replyText = separatorIndex >= 0 ? payload.slice(separatorIndex + 1).trim() : payload;
+    if (!visibleText || !replyText) return "";
+
+    const escapedVisibleText = escapeHtml(visibleText);
     const escapedReply = escapeHtml(replyText);
-    return `<button type="button" class="quick-reply-inline" data-reply="${escapedReply}">${escapedReply}</button>`;
+    return `<button type="button" class="quick-reply-inline" data-reply="${escapedReply}" title="${escapedReply}">${escapedVisibleText}</button>`;
   });
   out = out.replace(/`([^`]+)`/g, "<code>$1</code>");
   out = out.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
