@@ -12,6 +12,7 @@ const SESSION_KEY = "secretariat_session_id";
 const MAX_PROMPT_HEIGHT = 180;
 let attachedImageDataUrl = null;
 let composerDocked = false;
+let doneFadeTimer = null;
 
 function keepPromptFocused() {
   if (!promptInput) return;
@@ -58,6 +59,25 @@ function autoSizePrompt() {
 
 function scrollFeedToBottom() {
   feedEl.scrollTo({ top: feedEl.scrollHeight, behavior: "smooth" });
+}
+
+function setMetaStatus(text, { autoFade = false, fadeDelayMs = 4000 } = {}) {
+  if (doneFadeTimer) {
+    clearTimeout(doneFadeTimer);
+    doneFadeTimer = null;
+  }
+  metaEl.classList.remove("meta-fading");
+  metaEl.textContent = text || "";
+
+  if (autoFade && text) {
+    doneFadeTimer = setTimeout(() => {
+      metaEl.classList.add("meta-fading");
+      setTimeout(() => {
+        metaEl.textContent = "";
+        metaEl.classList.remove("meta-fading");
+      }, 240);
+    }, fadeDelayMs);
+  }
 }
 
 function appendThinkingMessage() {
@@ -195,7 +215,7 @@ form.addEventListener("submit", async (event) => {
   appendMessage("user", prompt);
   promptInput.value = "";
   autoSizePrompt();
-  metaEl.textContent = "Thinking...";
+  setMetaStatus("Thinking...");
   appendThinkingMessage();
 
   try {
@@ -220,13 +240,14 @@ form.addEventListener("submit", async (event) => {
       WAITING: "Waiting...",
       DONE: "Done."
     };
-    metaEl.textContent = stateLabelMap[data.state] || data.state || "";
+    const mappedState = stateLabelMap[data.state] || data.state || "";
+    setMetaStatus(mappedState, { autoFade: data.state === "DONE", fadeDelayMs: 4000 });
     attachedImageDataUrl = null;
     imageUploadInput.value = "";
     showAttachmentPill(false);
   } catch (error) {
     resolveThinkingMessage(`Error: ${error.message}`, "assistant");
-    metaEl.textContent = "";
+    setMetaStatus("");
   }
 });
 

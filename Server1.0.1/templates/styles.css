@@ -358,6 +358,12 @@ textarea {
   color: var(--muted);
   padding: 0 8px;
   text-align: center;
+  opacity: 1;
+  transition: opacity 240ms ease;
+}
+
+.meta.meta-fading {
+  opacity: 0;
 }
 
 .hidden {
