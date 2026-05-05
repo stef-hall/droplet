@@ -284,7 +284,7 @@ textarea {
     cursor: pointer;
     text-decoration: underline;
     text-underline-offset: 2px;
-    text-decoration-style: dashed;
+    text-decoration-style: dotted;
     text-decoration-color: #0080ff9c;
 }
 
