@@ -98,7 +98,7 @@ textarea {
 }
 
 .chat-feed .msg:first-child {
-  margin-top: calc(100vh * 65 / 1080);
+  margin-top: calc(100vh * 235 / 1080);
 }
 
 .attachment-row {
@@ -305,6 +305,12 @@ textarea {
   line-height: 0;
   padding: 0;
   position: relative;
+  transition: background-color 160ms ease, color 160ms ease;
+}
+
+.icon-btn:hover {
+  background: #111;
+  color: #fff;
 }
 
 .icon-btn::before {
