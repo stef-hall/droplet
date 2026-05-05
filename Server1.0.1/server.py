@@ -721,8 +721,6 @@ def api_secretariat():
             "previous_response_id": result.get("previous_response_id"),
             "timezone": user_timezone,
         }
-        if result.get("state") == "DONE":
-            session_store.pop(session_id, None)
         _log_json("API_SECRETARIAT_RESULT", {"session_id": session_id, **result})
         return jsonify({"ok": True, "session_id": session_id, **result})
     except Exception as e:
