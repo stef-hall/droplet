@@ -163,6 +163,23 @@ tools = [
     },
     {
         "type": "function",
+        "name": "ReadList",
+        "description": "Read a saved list from the local lists folder by list name.",
+        "strict": True,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "list_name": {
+                    "type": "string",
+                    "description": "List name without .txt extension (e.g. Shopping List)"
+                }
+            },
+            "required": ["list_name"],
+            "additionalProperties": False
+        }
+    },
+    {
+        "type": "function",
         "name": "EditEvent",
         "description": "Edit an existing calendar event by UID in one step. This performs an internal delete-and-recreate while preserving the event UID.",
         "strict": False,
@@ -300,6 +317,18 @@ def DeleteEvent(uid):
                     event.delete()
                     return {"status": "deleted"}
     return {"status": "not_found"}
+
+
+def ReadList(list_name):
+    safe_name = str(list_name).strip()
+    if not safe_name:
+        return {"status": "failed", "error": "List name is required."}
+    list_path = LISTS_DIR / f"{safe_name}.txt"
+    if not list_path.exists() or not list_path.is_file():
+        return {"status": "not_found", "list_name": safe_name}
+    with open(list_path, "r", encoding="utf-8") as f:
+        content = f.read()
+    return {"status": "success", "list_name": safe_name, "content": content}
 
 
 def _to_utc_ics(value):
@@ -464,6 +493,25 @@ def ToolUse(name, args):
                 "status": "failed",
                 "tool": "DeleteEvent",
                 "event": {"uid": uid},
+                "error": str(e),
+            }
+
+    # Reads saved list by list name
+    if name == 'ReadList':
+        list_name = args.get("list_name")
+        try:
+            output = ReadList(list_name=list_name)
+            status = output.get("status") if isinstance(output, dict) else None
+            if status == "not_found":
+                return {"status": "failed", "tool": "ReadList", "list": {"list_name": list_name}, "error": "List not found", "result": output}
+            if status == "failed":
+                return {"status": "failed", "tool": "ReadList", "list": {"list_name": list_name}, "error": output.get("error", "Read failed"), "result": output}
+            return {"status": "success", "tool": "ReadList", "list": {"list_name": list_name}, "result": output}
+        except Exception as e:
+            return {
+                "status": "failed",
+                "tool": "ReadList",
+                "list": {"list_name": list_name},
                 "error": str(e),
             }
 
