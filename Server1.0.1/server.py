@@ -147,7 +147,48 @@ tools = [
             "required": ["uid"],
             "additionalProperties": False
         }
-    }    
+    },
+    {
+        "type": "function",
+        "name": "EditEvent",
+        "description": "Edit an existing calendar event by UID in one step. This performs an internal delete-and-recreate while preserving the event UID.",
+        "strict": False,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "uid": {
+                    "type": "string",
+                    "description": "The unique identifier of the calendar event to edit."
+                },
+                "title": {
+                    "type": "string",
+                    "description": "Updated event title. Optional."
+                },
+                "start": {
+                    "type": "string",
+                    "description": "Updated event start time in UTC time iCalendar format (e.g. 20260502T150000Z). Optional."
+                },
+                "finish": {
+                    "type": "string",
+                    "description": "Updated event end time in UTC time iCalendar format (e.g. 20260502T160000Z). Optional."
+                },
+                "location": {
+                    "type": "string",
+                    "description": "Updated event location. Optional."
+                },
+                "description": {
+                    "type": "string",
+                    "description": "Updated event description. Optional."
+                },
+                "rrule": {
+                    "type": "string",
+                    "description": "Updated recurrence rule (RRULE). Optional."
+                }
+            },
+            "required": ["uid"],
+            "additionalProperties": False
+        }
+    }
 ]
 
 
@@ -248,6 +289,101 @@ def DeleteEvent(uid):
     return {"status": "not_found"}
 
 
+def _to_utc_ics(value):
+    if value is None:
+        return ""
+    if isinstance(value, datetime):
+        dt = value
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        else:
+            dt = dt.astimezone(timezone.utc)
+        return dt.strftime("%Y%m%dT%H%M%SZ")
+    return str(value)
+
+
+def _build_event_ics(uid, title, start, finish, location="", description="", rrule=""):
+    lines = [
+        "BEGIN:VCALENDAR",
+        "VERSION:2.0",
+        "BEGIN:VEVENT",
+        f"UID:{uid}",
+        f"SUMMARY:{title}",
+        f"DTSTART:{start}",
+        f"DTEND:{finish}",
+    ]
+    if location:
+        lines.append(f"LOCATION:{location}")
+    if description:
+        lines.append(f"DESCRIPTION:{description}")
+    if rrule:
+        lines.append(f"RRULE:{rrule}")
+    lines.extend(["END:VEVENT", "END:VCALENDAR"])
+    return "\n".join(lines)
+
+
+def EditEvent(uid, title=None, start=None, finish=None, location=None, description=None, rrule=None):
+    client = DAVClient(
+        url="https://caldav.icloud.com",
+        username=USERNAME,
+        password=PASSWORD
+    )
+    principal = client.principal()
+    calendars = principal.calendars()
+    for cal in calendars:
+        for event in cal.events():
+            data = event.vobject_instance
+            if not data or not hasattr(data, "vevent"):
+                continue
+            vevent = data.vevent
+            current_uid = str(vevent.uid.value) if hasattr(vevent, "uid") else ""
+            if current_uid != uid:
+                continue
+
+            current_title = str(vevent.summary.value) if hasattr(vevent, "summary") else ""
+            current_start = _to_utc_ics(vevent.dtstart.value) if hasattr(vevent, "dtstart") else ""
+            current_finish = _to_utc_ics(vevent.dtend.value) if hasattr(vevent, "dtend") else ""
+            current_location = str(vevent.location.value) if hasattr(vevent, "location") else ""
+            current_description = str(vevent.description.value) if hasattr(vevent, "description") else ""
+            current_rrule = str(vevent.rrule.value) if hasattr(vevent, "rrule") else ""
+
+            new_title = title if title is not None else current_title
+            new_start = start if start is not None else current_start
+            new_finish = finish if finish is not None else current_finish
+            new_location = location if location is not None else current_location
+            new_description = description if description is not None else current_description
+            new_rrule = rrule if rrule is not None else current_rrule
+
+            if not new_title or not new_start or not new_finish:
+                return {"status": "failed", "error": "Edited event is missing required fields (title/start/finish)."}
+
+            new_event = _build_event_ics(
+                uid=uid,
+                title=new_title,
+                start=new_start,
+                finish=new_finish,
+                location=new_location,
+                description=new_description,
+                rrule=new_rrule,
+            )
+            event.delete()
+            cal.add_event(new_event)
+            return {
+                "status": "edited",
+                "uid": uid,
+                "updated_fields": {
+                    "title": title is not None,
+                    "start": start is not None,
+                    "finish": finish is not None,
+                    "location": location is not None,
+                    "description": description is not None,
+                    "rrule": rrule is not None,
+                },
+            }
+
+    return {"status": "not_found"}
+
+
 def ToolUse(name, args):
     _log_json("TOOL_DEPLOY", {"tool": name, "args": args})
 
@@ -314,6 +450,39 @@ def ToolUse(name, args):
             return {
                 "status": "failed",
                 "tool": "DeleteEvent",
+                "event": {"uid": uid},
+                "error": str(e),
+            }
+
+    # Edits Event by UID (delete + recreate in one tool call)
+    if name == 'EditEvent':
+        uid = args.get("uid")
+        title = args.get("title")
+        start = args.get("start")
+        finish = args.get("finish")
+        location = args.get("location")
+        description = args.get("description")
+        rrule = args.get("rrule")
+        try:
+            output = EditEvent(
+                uid=uid,
+                title=title,
+                start=start,
+                finish=finish,
+                location=location,
+                description=description,
+                rrule=rrule,
+            )
+            status = output.get("status") if isinstance(output, dict) else None
+            if status == "not_found":
+                return {"status": "failed", "tool": "EditEvent", "event": {"uid": uid}, "error": "Event not found", "result": output}
+            if status == "failed":
+                return {"status": "failed", "tool": "EditEvent", "event": {"uid": uid}, "error": output.get("error", "Edit failed"), "result": output}
+            return {"status": "success", "tool": "EditEvent", "event": {"uid": uid}, "result": output}
+        except Exception as e:
+            return {
+                "status": "failed",
+                "tool": "EditEvent",
                 "event": {"uid": uid},
                 "error": str(e),
             }
