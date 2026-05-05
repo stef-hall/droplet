@@ -49,7 +49,7 @@ textarea {
   overflow-anchor: none;
   scroll-behavior: smooth;
   padding: 0;
-  padding-bottom: 40px;
+  padding-bottom: 60px;
   -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 calc(100% - 72px), transparent 100%);
   mask-image: linear-gradient(to bottom, #000 0%, #000 calc(100% - 72px), transparent 100%);
   scrollbar-width: thin;
@@ -100,7 +100,7 @@ textarea {
 }
 
 .chat-feed .msg:first-child {
-  margin-top: calc(100vh * 235 / 1080);
+  margin-top: calc(100vh * 200 / 1080);
 }
 
 .attachment-row {
