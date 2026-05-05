@@ -59,6 +59,7 @@ function appendThinkingMessage() {
   item.id = "thinking-message";
   item.innerHTML = `
     <div class="thinking-bubble">
+      <span class="eclipse" aria-hidden="true"></span>
       <span class="thinking-label">Thinking...</span>
     </div>
   `;

@@ -129,7 +129,7 @@ textarea {
   width: 16px;
   height: 16px;
   border-radius: 50%;
-  background: radial-gradient(circle at 35% 35%, #454545 0%, #111 70%);
+  background: radial-gradient(circle at 35% 35%, #424242 0%, #6d6d6d 70%);
   position: relative;
   overflow: hidden;
 }
