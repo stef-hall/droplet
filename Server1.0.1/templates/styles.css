@@ -182,7 +182,9 @@ textarea {
 }
 
 .msg.assistant .bubble strong {
-  text-shadow: none;
+    text-shadow: none;
+    font-weight: 700;
+    color: #111111d4;
 }
 
 .thinking-bubble {
@@ -225,7 +227,7 @@ textarea {
 .msg.assistant .bubble {
   background: var(--assistant);
   border: 0;
-  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.08);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
 }
 
 .bubble.md {

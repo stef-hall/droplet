@@ -58,22 +58,38 @@ function renderMarkdown(text) {
   const lines = source.split("\n");
   const chunks = [];
   let listBuffer = [];
+  let listType = null;
 
   function flushList() {
-    if (listBuffer.length === 0) return;
+    if (listBuffer.length === 0 || !listType) return;
     const items = listBuffer.map((item) => `<li>${renderInlineMarkdown(item)}</li>`).join("");
-    chunks.push(`<ul>${items}</ul>`);
+    chunks.push(`<${listType}>${items}</${listType}>`);
     listBuffer = [];
+    listType = null;
   }
 
   for (const rawLine of lines) {
-    const line = rawLine.trimEnd();
-    if (!line.trim()) {
+    const line = rawLine.trim();
+    if (!line) {
       flushList();
       continue;
     }
     if (/^[-*]\s+/.test(line)) {
-      listBuffer.push(line.replace(/^[-*]\s+/, ""));
+      const itemText = line.replace(/^[-*]\s+/, "");
+      if (listType && listType !== "ul") {
+        flushList();
+      }
+      listType = "ul";
+      listBuffer.push(itemText);
+      continue;
+    }
+    if (/^\d+\.\s+/.test(line)) {
+      const itemText = line.replace(/^\d+\.\s+/, "");
+      if (listType && listType !== "ol") {
+        flushList();
+      }
+      listType = "ol";
+      listBuffer.push(itemText);
       continue;
     }
     flushList();
