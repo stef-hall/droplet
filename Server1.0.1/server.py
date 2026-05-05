@@ -2,14 +2,14 @@ from __future__ import annotations
 
 import ast
 import operator as op
-from flask import Flask, jsonify, render_template, request, send_from_directory
+from flask import Flask, jsonify, render_template, request, send_from_directory # type: ignore
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
-from caldav import DAVClient
-from openai import OpenAI
-import vobject
+from caldav import DAVClient # type: ignore
+from openai import OpenAI # type: ignore
+import vobject # type: ignore
 import json
 import warnings
 import base64
@@ -491,6 +491,7 @@ def template_styles():
 
 @app.post("/api/secretariat")
 def api_secretariat():
+    print("pasta")
     payload = request.get_json(silent=True) or {}
     prompt_text = str(payload.get("prompt", "")).strip()
     image_data_url = payload.get("image_data_url")
@@ -517,6 +518,8 @@ def api_secretariat():
             session_store.pop(session_id, None)
         return jsonify({"ok": True, "session_id": session_id, **result})
     except Exception as e:
+        print(e)
+        print('nugget')
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
