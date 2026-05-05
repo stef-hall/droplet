@@ -37,7 +37,7 @@ function setSessionId(sessionId) {
 
 function appendMessage(role, text) {
   const item = document.createElement("article");
-  item.className = `msg ${role}`;
+  item.className = `msg ${role} entering`;
 
   const bubble = document.createElement("div");
   bubble.className = "bubble";
@@ -45,6 +45,9 @@ function appendMessage(role, text) {
 
   item.appendChild(bubble);
   feedEl.appendChild(item);
+  requestAnimationFrame(() => {
+    item.classList.remove("entering");
+  });
   feedEl.scrollTop = feedEl.scrollHeight;
 }
 
