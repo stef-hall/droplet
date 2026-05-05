@@ -682,8 +682,8 @@ def ask_gpt54(user_input, system_prompt, results, previous_response_id=None, use
         f"Current UTC time: {now_utc.strftime('%Y-%m-%d, %a %H:%M:%S  %z')}\n"
         f"Current Local time: {now_local.strftime('%Y-%m-%d, %a %H:%M:%S  %z')}\n"
         f"Available lists: {lists_line}\n"
-        f"##############################"
-        f"Request:{raw_prompt}"
+        f"##############################\n"
+        f"Request: {raw_prompt}"
     )
     user_content = [{"type": "input_text", "text": formatted_request}]
     if image_data_url:
