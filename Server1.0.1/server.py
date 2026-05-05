@@ -76,7 +76,7 @@ Rules:
 - After any tool execution, always return a user-facing confirmation message (e.g. “Event added”, “Done”, or a brief status summary), even if no additional information is required
 - The "message" field may contain markdown for formatting (e.g. **bold**, *italics*, bullet lists, and `code`)
 - For one-tap user replies, use this exact markdown line format: [[send: your suggested user message]]
-- Use [[send: ...]] inline text, as obvious follow ups if your not completley comfortable taking action. (e.g. ...If you'd like? Just type: [[send: Yes, do that]] and i'll do that for you.)
+- Use [[send: ...]] inline text, as obvious follow up's if your not completley comfortable taking action. (e.g. ...If you'd like? Just type: [[send: Yes, do that]] and i'll do that for you.)
 - Always return a state. RUNNING = Operating Tools/Thinking, WAITING = Waiting for User Input, DONE = ONLY when completley finished your task.
 
 - When multiple tool actions are needed, plan them as ordered steps:
