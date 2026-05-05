@@ -128,6 +128,16 @@ addAttachmentBtn.addEventListener("click", () => {
   imageUploadInput.click();
 });
 
+addAttachmentBtn.addEventListener("pointerdown", (event) => {
+  if (composerDocked) return;
+  // Prevent the floating-to-docked transition from swallowing the intended attach action.
+  event.preventDefault();
+  dockComposer();
+  setTimeout(() => {
+    imageUploadInput.click();
+  }, 120);
+});
+
 imageUploadInput.addEventListener("change", async () => {
   const file = imageUploadInput.files && imageUploadInput.files[0];
   if (!file) return;
