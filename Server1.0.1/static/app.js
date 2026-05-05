@@ -10,8 +10,9 @@ const composerEl = document.getElementById("secretariat-form");
 const initialAssistantMessageEl = document.getElementById("initial-assistant-message");
 const SESSION_KEY = "secretariat_session_id";
 const MAX_PROMPT_HEIGHT = 180;
+const isTouchDevice = window.matchMedia("(pointer: coarse)").matches;
 let attachedImageDataUrl = null;
-let composerDocked = false;
+let composerDocked = isTouchDevice;
 let doneFadeTimer = null;
 
 function keepPromptFocused() {
@@ -376,6 +377,7 @@ function updateComposerFloatOffset() {
 }
 
 function initializeComposerFloating() {
+  if (isTouchDevice) return;
   requestAnimationFrame(() => {
     updateComposerFloatOffset();
     composerEl.classList.add("floating");
@@ -401,7 +403,10 @@ function dockComposer() {
   }, 440);
 }
 
-window.addEventListener("resize", updateComposerFloatOffset);
+window.addEventListener("resize", () => {
+  if (isTouchDevice) return;
+  updateComposerFloatOffset();
+});
 composerEl.addEventListener("pointerdown", (event) => {
   dockComposer();
   const target = event.target;

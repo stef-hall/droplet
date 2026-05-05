@@ -22,6 +22,7 @@ body {
 
 body {
   margin: 0;
+  min-height: 100dvh;
   background: var(--bg);
   color: var(--text);
   font-family: "Segoe UI", Arial, sans-serif;
@@ -34,13 +35,13 @@ textarea {
 }
 
 .app-shell {
-  height: 100vh;
+  min-height: 100dvh;
   width: 100%;
   max-width: none;
   margin: 0 auto;
   display: grid;
   grid-template-rows: 1fr auto auto;
-  padding: 22px 18px 14px;
+  padding: calc(16px + env(safe-area-inset-top)) 18px calc(14px + env(safe-area-inset-bottom));
   gap: 10px;
 }
 
@@ -476,7 +477,44 @@ textarea {
 
 @media (max-width: 640px) {
   .app-shell {
-    padding: 14px 10px 10px;
+    min-height: 100dvh;
+    padding: calc(10px + env(safe-area-inset-top)) 10px calc(8px + env(safe-area-inset-bottom));
+  }
+
+  .chat-feed .msg:first-child {
+    margin-top: 24px;
+  }
+
+  .chat-feed .initial-assistant-message.hero:first-child {
+    margin-top: 24px;
+    justify-content: flex-start;
+  }
+
+  .initial-assistant-message.hero .bubble {
+    text-align: left;
+    font-size: clamp(1.2rem, 6vw, 1.45rem);
+    line-height: 1.25;
+  }
+
+  .msg {
+    margin: 18px 0;
+  }
+
+  .chat-feed {
+    padding-bottom: 16px;
+    -webkit-mask-image: none;
+    mask-image: none;
+  }
+
+  .composer {
+    margin-bottom: 8px;
+    padding: 10px;
+  }
+
+  .icon-btn,
+  .send-btn {
+    width: 40px;
+    height: 40px;
   }
 
   .bubble {
