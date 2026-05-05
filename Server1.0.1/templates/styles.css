@@ -519,6 +519,7 @@ textarea {
 
   .bubble {
     max-width: 92%;
+    padding: 6px 14px;
   }
 }
 
