@@ -46,6 +46,8 @@ textarea {
 
 .chat-feed {
   overflow-y: auto;
+  overflow-anchor: none;
+  scroll-behavior: smooth;
   padding: 0;
   padding-bottom: 20px;
   -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 calc(100% - 72px), transparent 100%);

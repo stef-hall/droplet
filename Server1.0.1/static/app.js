@@ -48,12 +48,16 @@ function appendMessage(role, text) {
   requestAnimationFrame(() => {
     item.classList.remove("entering");
   });
-  feedEl.scrollTop = feedEl.scrollHeight;
+  scrollFeedToBottom();
 }
 
 function autoSizePrompt() {
   promptInput.style.height = "auto";
   promptInput.style.height = `${Math.min(promptInput.scrollHeight, MAX_PROMPT_HEIGHT)}px`;
+}
+
+function scrollFeedToBottom() {
+  feedEl.scrollTo({ top: feedEl.scrollHeight, behavior: "smooth" });
 }
 
 function appendThinkingMessage() {
@@ -67,12 +71,34 @@ function appendThinkingMessage() {
     </div>
   `;
   feedEl.appendChild(item);
-  feedEl.scrollTop = feedEl.scrollHeight;
+  scrollFeedToBottom();
 }
 
 function removeThinkingMessage() {
   const item = document.getElementById("thinking-message");
   if (item) item.remove();
+}
+
+function resolveThinkingMessage(text, role = "assistant") {
+  const item = document.getElementById("thinking-message");
+  if (!item) {
+    appendMessage(role, text);
+    return;
+  }
+
+  item.id = "";
+  item.className = `msg ${role} entering`;
+  item.innerHTML = "";
+
+  const bubble = document.createElement("div");
+  bubble.className = "bubble";
+  bubble.textContent = text;
+  item.appendChild(bubble);
+
+  requestAnimationFrame(() => {
+    item.classList.remove("entering");
+  });
+  scrollFeedToBottom();
 }
 
 function toDataUrl(file) {
@@ -189,15 +215,13 @@ form.addEventListener("submit", async (event) => {
     }
 
     setSessionId(data.session_id);
-    removeThinkingMessage();
-    appendMessage("assistant", data.message || "No message returned.");
+    resolveThinkingMessage(data.message || "No message returned.", "assistant");
     metaEl.textContent = data.state && data.state !== "DONE" ? data.state : "";
     attachedImageDataUrl = null;
     imageUploadInput.value = "";
     showAttachmentPill(false);
   } catch (error) {
-    removeThinkingMessage();
-    appendMessage("assistant", `Error: ${error.message}`);
+    resolveThinkingMessage(`Error: ${error.message}`, "assistant");
     metaEl.textContent = "";
   }
 });
