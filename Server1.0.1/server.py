@@ -20,6 +20,7 @@ global USERNAME, PASSWORD, api_key
 warnings.simplefilter("ignore", DeprecationWarning)
 app = Flask(__name__)
 session_store = {}
+MAX_PARALLEL_TOOL_CALLS = 10
 
 system_prompt = """
 You are an assistant calender manager with access to tools.
@@ -235,42 +236,83 @@ def ToolUse(name, args):
 
     # Add Calender Event
     if name == 'AddEvent':
-        title = args["title"]
-        start = args["start"]
-        finish = args["finish"]
+        title = args.get("title")
+        start = args.get("start")
+        finish = args.get("finish")
         location = args.get("location", "")
         description = args.get("description", "")
         rrule = args.get("rrule", "")
-        output = AddEvent(
-            title=title,
-            start=start,
-            finish=finish,
-            location=location,
-            description=description,
-            rrule=rrule
-        )
-        return output
+        try:
+            output = AddEvent(
+                title=title,
+                start=start,
+                finish=finish,
+                location=location,
+                description=description,
+                rrule=rrule
+            )
+            if isinstance(output, dict):
+                return {"status": "success", "tool": "AddEvent", "event": {"title": title, "start": start, "finish": finish}, "result": output}
+            return {"status": "success", "tool": "AddEvent", "event": {"title": title, "start": start, "finish": finish}, "result": {"raw": str(output)}}
+        except Exception as e:
+            return {
+                "status": "failed",
+                "tool": "AddEvent",
+                "event": {"title": title, "start": start, "finish": finish},
+                "error": str(e),
+            }
 
     # Returns List of Events in Timeframe
     if name == 'GetEvents':
-        start = args["start"]
-        end = args["end"]
-        output = GetEvents(
-            start=start,
-            end=end,
-        )
-        return output
+        start = args.get("start")
+        end = args.get("end")
+        try:
+            output = GetEvents(
+                start=start,
+                end=end,
+            )
+            return {"status": "success", "tool": "GetEvents", "range": {"start": start, "end": end}, "result": output}
+        except Exception as e:
+            return {
+                "status": "failed",
+                "tool": "GetEvents",
+                "range": {"start": start, "end": end},
+                "error": str(e),
+            }
 
     # Deletes Event for UID
     if name == 'DeleteEvent':
-        uid = args['uid']
-        output = DeleteEvent(
-            uid=uid
-        )
-        return output
+        uid = args.get('uid')
+        try:
+            output = DeleteEvent(
+                uid=uid
+            )
+            if isinstance(output, dict):
+                status = output.get("status", "success")
+                if status == "not_found":
+                    return {"status": "failed", "tool": "DeleteEvent", "event": {"uid": uid}, "error": "Event not found", "result": output}
+                return {"status": "success", "tool": "DeleteEvent", "event": {"uid": uid}, "result": output}
+            return {"status": "success", "tool": "DeleteEvent", "event": {"uid": uid}, "result": {"raw": str(output)}}
+        except Exception as e:
+            return {
+                "status": "failed",
+                "tool": "DeleteEvent",
+                "event": {"uid": uid},
+                "error": str(e),
+            }
+
+    return {
+        "status": "failed",
+        "tool": name,
+        "error": "Unknown tool name",
+        "args": args,
+    }
 
 
 def _execute_function_calls_parallel(function_calls):
+    if not function_calls:
+        return []
+
     if len(function_calls) == 1:
         call = function_calls[0]
         result = ToolUse(call["name"], call["args"])
@@ -281,14 +323,25 @@ def _execute_function_calls_parallel(function_calls):
         }]
 
     outputs_by_call_id = {}
-    with ThreadPoolExecutor(max_workers=len(function_calls)) as executor:
-        future_to_call = {
-            executor.submit(ToolUse, call["name"], call["args"]): call
-            for call in function_calls
-        }
-        for future in as_completed(future_to_call):
-            call = future_to_call[future]
-            outputs_by_call_id[call["call_id"]] = future.result()
+    batch_size = MAX_PARALLEL_TOOL_CALLS
+    for i in range(0, len(function_calls), batch_size):
+        batch = function_calls[i:i + batch_size]
+        with ThreadPoolExecutor(max_workers=len(batch)) as executor:
+            future_to_call = {
+                executor.submit(ToolUse, call["name"], call["args"]): call
+                for call in batch
+            }
+            for future in as_completed(future_to_call):
+                call = future_to_call[future]
+                try:
+                    outputs_by_call_id[call["call_id"]] = future.result()
+                except Exception as e:
+                    outputs_by_call_id[call["call_id"]] = {
+                        "status": "failed",
+                        "tool": call.get("name"),
+                        "error": str(e),
+                        "event": call.get("args", {}),
+                    }
 
     ordered_outputs = []
     for call in function_calls:
