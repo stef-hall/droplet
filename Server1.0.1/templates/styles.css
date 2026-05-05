@@ -185,19 +185,20 @@ textarea {
   width: min(var(--content-width), 100%);
   justify-self: center;
   border: 1px solid #d6d6d6;
-  border-radius: 50px;
+  border-radius:50px;
   background: var(--panel);
-  padding: 16px;
+  padding: 14px;
   box-shadow: 0 3px 7px rgba(17, 24, 39, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.9);
   margin-bottom: 40px;
   --float-offset: 0px;
   --dock-start-offset: 0px;
   transform: translateY(0);
-  transition: transform 420ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  transition: transform 420ms cubic-bezier(0.2, 0.8, 0.2, 1), padding 420ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
 .composer.floating {
   transform: translateY(var(--float-offset)) scale(1.08);
+  padding: 16px;
 }
 
 .composer.docking {
@@ -231,10 +232,23 @@ textarea {
 }
 
 .icon-btn {
-  background: transparent;
+  background: #f4f4f4;
   color: #333;
   width: 42px;
   height: 42px;
+  display: grid;
+  place-items: center;
+  font-size: 0;
+  line-height: 0;
+  padding: 0;
+  position: relative;
+}
+
+.icon-btn::before {
+  content: "+";
+  font-size: 30px;
+  line-height: 1;
+  transform: translateY(-1px);
 }
 
 .send-btn {
