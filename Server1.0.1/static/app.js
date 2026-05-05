@@ -344,6 +344,7 @@ function dockComposer() {
   if (composerDocked) return;
   composerDocked = true;
   if (initialAssistantMessageEl) {
+    initialAssistantMessageEl.classList.remove("hero");
     initialAssistantMessageEl.classList.add("revealed");
   }
   const startOffset = getComputedStyle(composerEl).getPropertyValue("--float-offset").trim() || "0px";

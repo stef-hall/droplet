@@ -259,17 +259,37 @@ textarea {
   font-size: 0.9em;
 }
 
-.initial-assistant-message .bubble {
-  opacity: 0;
-  color: var(--bg);
-  background: var(--bg);
-  transition: opacity 420ms ease, color 420ms ease, background-color 420ms ease;
+.initial-assistant-message {
+  transition: margin-top 420ms cubic-bezier(0.2, 0.8, 0.2, 1), transform 420ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
-.initial-assistant-message.revealed .bubble {
+.initial-assistant-message .bubble {
   opacity: 1;
-  color: var(--text);
-  background: var(--assistant);
+  transition: font-size 420ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    line-height 420ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    padding 420ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    border-radius 420ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    background-color 420ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    color 420ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    text-shadow 420ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.chat-feed .initial-assistant-message.hero:first-child {
+  margin-top: calc(100vh * 360 / 1080);
+  justify-content: center;
+}
+
+.initial-assistant-message.hero .bubble {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  text-shadow: none;
+  color: #171717;
+  font-size: clamp(1.55rem, 2.2vw, 2rem);
+  line-height: 1.2;
+  padding: 0;
+  max-width: min(820px, 96%);
+  text-align: center;
 }
 
 .msg.user .bubble {
