@@ -216,7 +216,7 @@ form.addEventListener("submit", async (event) => {
 
     setSessionId(data.session_id);
     resolveThinkingMessage(data.message || "No message returned.", "assistant");
-    metaEl.textContent = data.state && data.state !== "DONE" ? data.state : "";
+    metaEl.textContent = data.state || "";
     attachedImageDataUrl = null;
     imageUploadInput.value = "";
     showAttachmentPill(false);
