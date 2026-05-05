@@ -118,22 +118,26 @@ textarea {
   align-items: center;
   gap: 10px;
   border: 1px solid #d4d4d4;
-  background: #fff;
+  background: #f4f4f4;
   border-radius: 999px;
   padding: 8px 12px;
   font-size: 0.9rem;
-  color: #444;
+  color: #111;
   margin: 0;
 }
 
 .pill-clear {
   border: 0;
-  background: #f1f1f1;
-  color: #444;
+  background: #111;
+  color: #fff;
   border-radius: 999px;
   width: 20px;
   height: 20px;
-  line-height: 1;
+  line-height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
   cursor: pointer;
 }
 
@@ -168,7 +172,7 @@ textarea {
   max-width: min(680px, 86%);
   border: 1px solid var(--line);
   border-radius: 27px;
-  padding: 10px 14px;
+  padding: 10px 16px;
   line-height: 1.6;
   white-space: pre-wrap;
 }
