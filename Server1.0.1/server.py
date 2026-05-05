@@ -15,12 +15,24 @@ import warnings
 import base64
 import mimetypes
 import uuid
+import traceback
 
 global USERNAME, PASSWORD, api_key
 warnings.simplefilter("ignore", DeprecationWarning)
 app = Flask(__name__)
 session_store = {}
 MAX_PARALLEL_TOOL_CALLS = 10
+
+
+def _log(label, message):
+    stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    print(f"[{stamp}] [{label}] {message}", flush=True)
+
+
+def _log_json(label, payload):
+    stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    pretty = json.dumps(payload, indent=2, ensure_ascii=False, default=str)
+    print(f"[{stamp}] [{label}] {pretty}", flush=True)
 
 system_prompt = """
 You are an assistant calender manager with access to tools.
@@ -232,7 +244,7 @@ def DeleteEvent(uid):
 
 
 def ToolUse(name, args):
-    print('\nDeploying Tool: ', name, args)
+    _log_json("TOOL_DEPLOY", {"tool": name, "args": args})
 
     # Add Calender Event
     if name == 'AddEvent':
@@ -427,7 +439,8 @@ def run_secretariat(prompt_text,image_data_url=None, previous_response_id=None, 
     state = "RUNNING"
     assistant_message = ""
     current_response_id = previous_response_id
-    for _ in range(max_turns):
+    for turn_idx in range(max_turns):
+        _log("TURN_START", f"{turn_idx + 1}/{max_turns}")
         user_turn = {"prompt": prompt_text, "image_data_url": image_data_url}
         response = ask_gpt54(
             user_turn,
@@ -441,7 +454,7 @@ def run_secretariat(prompt_text,image_data_url=None, previous_response_id=None, 
         results = []
         saw_function_call = False
         function_calls = []
-        print(response_data.get("output", []))
+        _log_json("MODEL_OUTPUT", response_data.get("output", []))
         for content in response_data.get("output", []):
             if content.get("type") == "message" and content.get("content"):
                 text_payload = content["content"][0].get("text", "")
@@ -463,10 +476,12 @@ def run_secretariat(prompt_text,image_data_url=None, previous_response_id=None, 
                 })
 
         if saw_function_call:
+            _log("TOOL_BATCH", f"Executing {len(function_calls)} tool call(s)")
             results.extend(_execute_function_calls_parallel(function_calls))
             continue
 
         if state in {"WAITING", "DONE"}:
+            _log("TURN_END", f"state={state}")
             return {
                 "state": state,
                 "message": assistant_message,
@@ -491,7 +506,7 @@ def template_styles():
 
 @app.post("/api/secretariat")
 def api_secretariat():
-    print("pasta")
+    _log("API_SECRETARIAT", "request_received")
     payload = request.get_json(silent=True) or {}
     prompt_text = str(payload.get("prompt", "")).strip()
     image_data_url = payload.get("image_data_url")
@@ -516,10 +531,17 @@ def api_secretariat():
         }
         if result.get("state") == "DONE":
             session_store.pop(session_id, None)
+        _log_json("API_SECRETARIAT_RESULT", {"session_id": session_id, **result})
         return jsonify({"ok": True, "session_id": session_id, **result})
     except Exception as e:
-        print(e)
-        print('nugget')
+        _log_json(
+            "API_SECRETARIAT_ERROR",
+            {
+                "error_type": type(e).__name__,
+                "error": str(e),
+                "traceback": traceback.format_exc(),
+            },
+        )
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
