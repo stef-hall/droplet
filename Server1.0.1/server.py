@@ -15,224 +15,10 @@ import base64
 import mimetypes
 import uuid
 
+global USERNAME, PASSWORD, api_key
 warnings.simplefilter("ignore", DeprecationWarning)
 app = Flask(__name__)
 session_store = {}
-
-global USERNAME, PASSWORD, api_key
-def load_value_file(path: str) -> dict[str, str]:
-    data: dict[str, str] = {}
-
-    with open(path, "r", encoding="utf-8") as f:
-        for line_no, raw_line in enumerate(f, start=1):
-            line = raw_line.strip()
-
-            if not line or line.startswith("#"):
-                continue  # skip blanks/comments
-
-            if ":" not in line:
-                raise ValueError(f"Invalid format on line {line_no}: {raw_line!r}")
-
-            key, value = line.split(":", 1)  # split only first colon
-            key = key.strip()
-            value = value.strip()
-
-            if not key:
-                raise ValueError(f"Empty key on line {line_no}")
-
-            data[key] = value
-
-    return data
-
-secret = load_value_file('secrets.txt')
-USERNAME = secret['USERNAME']
-PASSWORD =  secret['PASSWORD']
-api_key = secret['api_key']
-
-def get_utc_calendar_string() -> str:
-    return datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
-
-def get_local_time_string() -> str:
-    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-
-def AddEvent(title, start, finish, location, description, rrule):
-    event = f"""BEGIN:VCALENDAR
-VERSION:2.0
-BEGIN:VEVENT
-SUMMARY:{title}
-DTSTART:{start}
-DTEND:{finish}
-LOCATION:{location}
-DESCRIPTION:{description}
-RRULE:{rrule}
-END:VEVENT
-END:VCALENDAR"""
-
-    client = DAVClient(
-        url="https://caldav.icloud.com",
-        username=USERNAME,
-        password=PASSWORD
-    )
-
-    principal = client.principal()
-    calendars = principal.calendars()
-    calendar = calendars[0]  # first iCloud calendar
-    calendar.add_event(event)
-
-    return {'status' : 'Complete'}
-
-
-def GetEvents(start, end):
-    def parse_utc_z(ts):
-        return datetime.strptime(ts, "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
-
-    start = parse_utc_z(start)
-    end = parse_utc_z(end)
-    client = DAVClient(
-        url="https://caldav.icloud.com",
-        username=USERNAME,
-        password=PASSWORD
-    )
-    principal = client.principal()
-    calendars = principal.calendars()
-
-    results = []
-
-    for cal in calendars:
-        events = cal.date_search(start=start, end=end)
-
-        for event in events:
-            data = event.vobject_instance
-            if not data or not hasattr(data, "vevent"):
-                continue
-
-            vevent = data.vevent
-
-            results.append({
-                "uid": str(vevent.uid.value),
-                "start": str(vevent.dtstart.value),
-                "end": str(vevent.dtend.value) if hasattr(vevent, "dtend") else None,
-                "summary": str(vevent.summary.value) if hasattr(vevent, "summary") else None,
-                "location": str(vevent.location.value) if hasattr(vevent, "location") else None,
-                "description": str(vevent.description.value) if hasattr(vevent, "description") else None,
-                "calendar": cal.get_display_name()
-            })
-
-    return results
-
-
-def DeleteEvent(uid):
-    client = DAVClient(
-        url="https://caldav.icloud.com",
-        username=USERNAME,
-        password=PASSWORD
-    )
-    principal = client.principal()
-    calendars = principal.calendars()
-    for cal in calendars:
-        for event in cal.events():
-            data = event.vobject_instance
-            if data and hasattr(data, "vevent"):
-                if str(data.vevent.uid.value) == uid:
-                    event.delete()
-                    return {"status": "deleted"}
-    return {"status": "not_found"}
-
-
-def ToolUse(name, args):
-    print('\nDeploying Tool: ', name, args)
-
-    # Add Calender Event
-    if name == 'AddEvent':
-        title = args["title"]
-        start = args["start"]
-        finish = args["finish"]
-        location = args.get("location", "")
-        description = args.get("description", "")
-        rrule = args.get("rrule", "")
-        output = AddEvent(
-            title=title,
-            start=start,
-            finish=finish,
-            location=location,
-            description=description,
-            rrule=rrule
-        )
-        return output
-
-    # Returns List of Events in Timeframe
-    if name == 'GetEvents':
-        start = args["start"]
-        end = args["end"]
-        output = GetEvents(
-            start=start,
-            end=end,
-        )
-        return output
-
-    # Deletes Event for UID
-    if name == 'DeleteEvent':
-        uid = args['uid']
-        output = DeleteEvent(
-            uid=uid
-        )
-        return output
-
-
-
-def ask_gpt54(user_input, system_prompt, results, previous_response_id=None, user_timezone=None):
-    client = OpenAI(api_key=api_key)
-
-    now_utc = datetime.now(timezone.utc)
-    now_local = datetime.now().astimezone()
-    if user_timezone:
-        try:
-            now_local = now_utc.astimezone(ZoneInfo(user_timezone))
-        except Exception:
-            pass
-    image_data_url = None
-    if isinstance(user_input, dict):
-        image_data_url = user_input.get("image_data_url")
-        raw_prompt = user_input.get("prompt", "")
-    else:
-        raw_prompt = user_input
-
-    formatted_request = (
-        f"Current UTC time: {now_utc.strftime('%Y-%m-%d, %a %H:%M:%S  %z')}\n"
-        f"Current Local time: {now_local.strftime('%Y-%m-%d, %a %H:%M:%S  %z')}\n"
-        f"Request:{raw_prompt}"
-    )
-    user_content = [{"type": "input_text", "text": formatted_request}]
-    if image_data_url:
-        user_content.append({"type": "input_image", "image_url": image_data_url})
-
-    # First turn: provide system + user input.
-    # Follow-up turns:
-    # - if tools are pending, return tool outputs only
-    # - otherwise send the next user turn while keeping conversation chain context
-    if previous_response_id is None:
-        input_items = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_content},
-        ]
-        response = client.responses.create(model="gpt-5.4", input=input_items, tools=tools)
-    else:
-        if results:
-            input_items = results
-        else:
-            input_items = [{"role": "user", "content": user_content}]
-        response = client.responses.create(
-            model="gpt-5.4",
-            input=input_items,
-            tools=tools,
-            previous_response_id=previous_response_id,
-        )
-
-    with open("mock.json", "w", encoding="utf-8") as f:
-        json.dump(response.model_dump(), f, indent=2)
-    return response
-
 
 system_prompt = """
 You are an assistant calender manager with access to tools.
@@ -339,25 +125,213 @@ tools = [
         }
     }    
 ]
-""" Possibile, but so expensive ~10k tokens..
-{
-    "type": "web_search"
-}
-"""
 
 
-def run_secretariat(
-    prompt_text,
-    image_data_url=None,
-    previous_response_id=None,
-    user_timezone=None,
-    max_turns=12,
-):
+def load_value_file(path: str) -> dict[str, str]:
+    data: dict[str, str] = {}
+    with open(path, "r", encoding="utf-8") as f:
+        for line_no, raw_line in enumerate(f, start=1):
+            line = raw_line.strip()
+            if not line or line.startswith("#"):
+                continue  # skip blanks/comments
+
+            if ":" not in line:
+                raise ValueError(f"Invalid format on line {line_no}: {raw_line!r}")
+
+            key, value = line.split(":", 1)  # split only first colon
+            key = key.strip()
+            value = value.strip()
+            if not key:
+                raise ValueError(f"Empty key on line {line_no}")
+
+            data[key] = value
+    return data
+
+
+def AddEvent(title, start, finish, location, description, rrule):
+    event = f"""BEGIN:VCALENDAR
+VERSION:2.0
+BEGIN:VEVENT
+SUMMARY:{title}
+DTSTART:{start}
+DTEND:{finish}
+LOCATION:{location}
+DESCRIPTION:{description}
+RRULE:{rrule}
+END:VEVENT
+END:VCALENDAR"""
+    client = DAVClient(
+        url="https://caldav.icloud.com",
+        username=USERNAME,
+        password=PASSWORD
+    )
+    principal = client.principal()
+    calendars = principal.calendars()
+    calendar = calendars[0]  # first iCloud calendar
+    calendar.add_event(event)
+    return {'status' : 'Complete'}
+
+
+def GetEvents(start, end):
+    def parse_utc_z(ts):
+        return datetime.strptime(ts, "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
+
+    start = parse_utc_z(start)
+    end = parse_utc_z(end)
+    client = DAVClient(
+        url="https://caldav.icloud.com",
+        username=USERNAME,
+        password=PASSWORD
+    )
+    principal = client.principal()
+    calendars = principal.calendars()
+    results = []
+    for cal in calendars:
+        events = cal.date_search(start=start, end=end)
+        for event in events:
+            data = event.vobject_instance
+            if not data or not hasattr(data, "vevent"):
+                continue
+
+            vevent = data.vevent
+            results.append({
+                "uid": str(vevent.uid.value),
+                "start": str(vevent.dtstart.value),
+                "end": str(vevent.dtend.value) if hasattr(vevent, "dtend") else None,
+                "summary": str(vevent.summary.value) if hasattr(vevent, "summary") else None,
+                "location": str(vevent.location.value) if hasattr(vevent, "location") else None,
+                "description": str(vevent.description.value) if hasattr(vevent, "description") else None,
+                "calendar": cal.get_display_name()
+            })
+    return results
+
+
+def DeleteEvent(uid):
+    client = DAVClient(
+        url="https://caldav.icloud.com",
+        username=USERNAME,
+        password=PASSWORD
+    )
+    principal = client.principal()
+    calendars = principal.calendars()
+    for cal in calendars:
+        for event in cal.events():
+            data = event.vobject_instance
+            if data and hasattr(data, "vevent"):
+                if str(data.vevent.uid.value) == uid:
+                    event.delete()
+                    return {"status": "deleted"}
+    return {"status": "not_found"}
+
+
+def ToolUse(name, args):
+    print('\nDeploying Tool: ', name, args)
+
+    # Add Calender Event
+    if name == 'AddEvent':
+        title = args["title"]
+        start = args["start"]
+        finish = args["finish"]
+        location = args.get("location", "")
+        description = args.get("description", "")
+        rrule = args.get("rrule", "")
+        output = AddEvent(
+            title=title,
+            start=start,
+            finish=finish,
+            location=location,
+            description=description,
+            rrule=rrule
+        )
+        return output
+
+    # Returns List of Events in Timeframe
+    if name == 'GetEvents':
+        start = args["start"]
+        end = args["end"]
+        output = GetEvents(
+            start=start,
+            end=end,
+        )
+        return output
+
+    # Deletes Event for UID
+    if name == 'DeleteEvent':
+        uid = args['uid']
+        output = DeleteEvent(
+            uid=uid
+        )
+        return output
+
+
+
+def ask_gpt54(user_input, system_prompt, results, previous_response_id=None, user_timezone=None):
+    # Build a fresh OpenAI client for each request.
+    client = OpenAI(api_key=api_key)
+
+    # Generate both UTC and local timestamps so the model can reason about time-sensitive requests.
+    now_utc = datetime.now(timezone.utc)
+    now_local = datetime.now().astimezone()
+    if user_timezone:
+        try:
+            # If a user timezone is provided, prefer that explicit timezone for local time context.
+            now_local = now_utc.astimezone(ZoneInfo(user_timezone))
+        except Exception:
+            # Fall back to system-local timezone if timezone parsing fails.
+            pass
+
+    # Support both plain-text input and dict-based multimodal input (text + optional image).
+    image_data_url = None
+    if isinstance(user_input, dict):
+        image_data_url = user_input.get("image_data_url")
+        raw_prompt = user_input.get("prompt", "")
+    else:
+        raw_prompt = user_input
+
+    # Prepend time context to every user request before sending it to the model.
+    formatted_request = (
+        f"Current UTC time: {now_utc.strftime('%Y-%m-%d, %a %H:%M:%S  %z')}\n"
+        f"Current Local time: {now_local.strftime('%Y-%m-%d, %a %H:%M:%S  %z')}\n"
+        f"Request:{raw_prompt}"
+    )
+    user_content = [{"type": "input_text", "text": formatted_request}]
+    if image_data_url:
+        # Include an image input block when present.
+        user_content.append({"type": "input_image", "image_url": image_data_url})
+
+    # First turn: include system prompt and user content to initialize the response thread.
+    if previous_response_id is None:
+        input_items = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_content},
+        ]
+        response = client.responses.create(model="gpt-5.4", input=input_items, tools=tools)
+
+
+    else:
+        # Follow-up turns: send function outputs when available, otherwise send the new user turn.
+        if results:
+            input_items = results
+
+        else:
+            input_items = [{"role": "user", "content": user_content}]
+
+        # Continue the same model conversation by passing previous_response_id.
+        response = client.responses.create(
+            model="gpt-5.4",
+            input=input_items,
+            tools=tools,
+            previous_response_id=previous_response_id,
+        )
+
+    return response
+
+
+def run_secretariat(prompt_text,image_data_url=None, previous_response_id=None, user_timezone=None, max_turns=12):
     results = []
     state = "RUNNING"
     assistant_message = ""
     current_response_id = previous_response_id
-
     for _ in range(max_turns):
         user_turn = {"prompt": prompt_text, "image_data_url": image_data_url}
         response = ask_gpt54(
@@ -371,7 +345,7 @@ def run_secretariat(
         response_data = response.model_dump()
         results = []
         saw_function_call = False
-
+        print(response_data.get("output", []))
         for content in response_data.get("output", []):
             if content.get("type") == "message" and content.get("content"):
                 text_payload = content["content"][0].get("text", "")
@@ -379,6 +353,7 @@ def run_secretariat(
                     parsed = json.loads(text_payload)
                     state = parsed.get("state", "RUNNING")
                     assistant_message = parsed.get("message", "")
+
                 except Exception:
                     state = "RUNNING"
                     assistant_message = text_payload
@@ -475,9 +450,11 @@ def api_session_init():
 
 
 if __name__ == "__main__":
+    secret = load_value_file('secrets.txt')
+    USERNAME = secret['USERNAME']
+    PASSWORD =  secret['PASSWORD']
+    api_key = secret['api_key']
     app.run(host="127.0.0.1", port=8000, debug=False)
-
-
 
 """
 Grabbing a Fanta
