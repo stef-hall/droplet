@@ -3,6 +3,7 @@ from __future__ import annotations
 import ast
 import operator as op
 from flask import Flask, jsonify, render_template, request, send_from_directory
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
@@ -39,6 +40,11 @@ Rules:
 - If no duration is stated; *1 hour* is the default
 - After any tool execution, always return a user-facing confirmation message (e.g. “Event added”, “Done”, or a brief status summary), even if no additional information is required
 - Always return a state. RUNNING = Operating Tools/Thinking, WAITING = Waiting for User Input, DONE = ONLY when completley finished your task.
+
+- When multiple tool actions are needed, plan them as ordered steps:
+  - Emit all independent actions that can run at the same time in the same assistant turn as multiple tool calls.
+  - Emit dependent actions in later assistant turns only after prior tool outputs are available.
+  - Treat delete-then-add flows as separate sequential turns.
 
 STRICT VALID RESPONSE FORMAT:
 {
@@ -264,6 +270,36 @@ def ToolUse(name, args):
         return output
 
 
+def _execute_function_calls_parallel(function_calls):
+    if len(function_calls) == 1:
+        call = function_calls[0]
+        result = ToolUse(call["name"], call["args"])
+        return [{
+            "type": "function_call_output",
+            "call_id": call["call_id"],
+            "output": json.dumps(result),
+        }]
+
+    outputs_by_call_id = {}
+    with ThreadPoolExecutor(max_workers=len(function_calls)) as executor:
+        future_to_call = {
+            executor.submit(ToolUse, call["name"], call["args"]): call
+            for call in function_calls
+        }
+        for future in as_completed(future_to_call):
+            call = future_to_call[future]
+            outputs_by_call_id[call["call_id"]] = future.result()
+
+    ordered_outputs = []
+    for call in function_calls:
+        ordered_outputs.append({
+            "type": "function_call_output",
+            "call_id": call["call_id"],
+            "output": json.dumps(outputs_by_call_id[call["call_id"]]),
+        })
+    return ordered_outputs
+
+
 
 def ask_gpt54(user_input, system_prompt, results, previous_response_id=None, user_timezone=None):
     # Build a fresh OpenAI client for each request.
@@ -305,7 +341,12 @@ def ask_gpt54(user_input, system_prompt, results, previous_response_id=None, use
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_content},
         ]
-        response = client.responses.create(model="gpt-5.4", input=input_items, tools=tools)
+        response = client.responses.create(
+            model="gpt-5.4",
+            input=input_items,
+            tools=tools,
+            parallel_tool_calls=True,
+        )
 
 
     else:
@@ -322,6 +363,7 @@ def ask_gpt54(user_input, system_prompt, results, previous_response_id=None, use
             input=input_items,
             tools=tools,
             previous_response_id=previous_response_id,
+            parallel_tool_calls=True,
         )
 
     return response
@@ -345,6 +387,7 @@ def run_secretariat(prompt_text,image_data_url=None, previous_response_id=None, 
         response_data = response.model_dump()
         results = []
         saw_function_call = False
+        function_calls = []
         print(response_data.get("output", []))
         for content in response_data.get("output", []):
             if content.get("type") == "message" and content.get("content"):
@@ -360,16 +403,14 @@ def run_secretariat(prompt_text,image_data_url=None, previous_response_id=None, 
 
             if content.get("type") == "function_call":
                 saw_function_call = True
-                name = content["name"]
-                args = json.loads(content["arguments"])
-                tool_output = ToolUse(name, args)
-                results.append({
-                    "type": "function_call_output",
+                function_calls.append({
+                    "name": content["name"],
+                    "args": json.loads(content["arguments"]),
                     "call_id": content["call_id"],
-                    "output": json.dumps(tool_output),
                 })
 
         if saw_function_call:
+            results.extend(_execute_function_calls_parallel(function_calls))
             continue
 
         if state in {"WAITING", "DONE"}:
