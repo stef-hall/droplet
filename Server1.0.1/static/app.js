@@ -47,6 +47,12 @@ function escapeHtml(value) {
 
 function renderInlineMarkdown(text) {
   let out = escapeHtml(text);
+  out = out.replace(/\[\[\s*send\s*:\s*([^\]]+?)\s*\]\]/gi, (_, replyRaw) => {
+    const replyText = String(replyRaw || "").trim();
+    if (!replyText) return "";
+    const escapedReply = escapeHtml(replyText);
+    return `<button type="button" class="quick-reply-inline" data-reply="${escapedReply}">${escapedReply}</button>`;
+  });
   out = out.replace(/`([^`]+)`/g, "<code>$1</code>");
   out = out.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
   out = out.replace(/\*([^*\n]+)\*/g, "<em>$1</em>");
@@ -230,6 +236,46 @@ async function initSession() {
   }
 }
 
+async function submitPromptText(prompt) {
+  appendMessage("user", prompt);
+  promptInput.value = "";
+  autoSizePrompt();
+  setMetaStatus("Thinking...");
+  appendThinkingMessage();
+
+  try {
+    const response = await fetch("/api/secretariat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        prompt,
+        session_id: getSessionId(),
+        image_data_url: attachedImageDataUrl
+      })
+    });
+
+    const data = await response.json();
+    if (!response.ok || !data.ok) {
+      throw new Error(data.error || "Request failed.");
+    }
+
+    setSessionId(data.session_id);
+    resolveThinkingMessage(data.message || "No message returned.", "assistant");
+    const stateLabelMap = {
+      WAITING: "Waiting...",
+      DONE: "Done."
+    };
+    const mappedState = stateLabelMap[data.state] || data.state || "";
+    setMetaStatus(mappedState, { autoFade: data.state === "DONE", fadeDelayMs: 5000 });
+    attachedImageDataUrl = null;
+    imageUploadInput.value = "";
+    showAttachmentPill(false);
+  } catch (error) {
+    resolveThinkingMessage(`Error: ${error.message}`, "assistant");
+    setMetaStatus("");
+  }
+}
+
 initSession();
 autoSizePrompt();
 initializeComposerFloating();
@@ -286,44 +332,19 @@ form.addEventListener("submit", async (event) => {
 
   const prompt = promptInput.value.trim();
   if (!prompt) return;
+  await submitPromptText(prompt);
+});
 
-  appendMessage("user", prompt);
-  promptInput.value = "";
-  autoSizePrompt();
-  setMetaStatus("Thinking...");
-  appendThinkingMessage();
-
-  try {
-    const response = await fetch("/api/secretariat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        prompt,
-        session_id: getSessionId(),
-        image_data_url: attachedImageDataUrl
-      })
-    });
-
-    const data = await response.json();
-    if (!response.ok || !data.ok) {
-      throw new Error(data.error || "Request failed.");
-    }
-
-    setSessionId(data.session_id);
-    resolveThinkingMessage(data.message || "No message returned.", "assistant");
-    const stateLabelMap = {
-      WAITING: "Waiting...",
-      DONE: "Done."
-    };
-    const mappedState = stateLabelMap[data.state] || data.state || "";
-    setMetaStatus(mappedState, { autoFade: data.state === "DONE", fadeDelayMs: 5000 });
-    attachedImageDataUrl = null;
-    imageUploadInput.value = "";
-    showAttachmentPill(false);
-  } catch (error) {
-    resolveThinkingMessage(`Error: ${error.message}`, "assistant");
-    setMetaStatus("");
-  }
+feedEl.addEventListener("click", async (event) => {
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) return;
+  const quickReplyButton = target.closest(".quick-reply-inline");
+  if (!(quickReplyButton instanceof HTMLButtonElement)) return;
+  const reply = (quickReplyButton.dataset.reply || "").trim();
+  if (!reply) return;
+  promptInput.value = reply;
+  dockComposer();
+  await submitPromptText(reply);
 });
 
 function updateComposerFloatOffset() {
