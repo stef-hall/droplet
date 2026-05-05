@@ -16,12 +16,14 @@ import base64
 import mimetypes
 import uuid
 import traceback
+from pathlib import Path
 
 global USERNAME, PASSWORD, api_key
 warnings.simplefilter("ignore", DeprecationWarning)
 app = Flask(__name__)
 session_store = {}
 MAX_PARALLEL_TOOL_CALLS = 10
+LISTS_DIR = Path(__file__).resolve().parent / "lists"
 
 
 def _log(label, message):
@@ -33,6 +35,16 @@ def _log_json(label, payload):
     stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     pretty = json.dumps(payload, indent=2, ensure_ascii=False, default=str)
     print(f"[{stamp}] [{label}] {pretty}", flush=True)
+
+
+def get_available_lists():
+    if not LISTS_DIR.exists():
+        return []
+    return sorted(
+        file_path.stem
+        for file_path in LISTS_DIR.glob("*.txt")
+        if file_path.is_file()
+    )
 
 system_prompt = """
 You are an assistant calender manager with access to tools.
@@ -564,10 +576,15 @@ def ask_gpt54(user_input, system_prompt, results, previous_response_id=None, use
     else:
         raw_prompt = user_input
 
+    available_lists = get_available_lists()
+    lists_line = ", ".join(available_lists) if available_lists else "(none)"
+
     # Prepend time context to every user request before sending it to the model.
     formatted_request = (
         f"Current UTC time: {now_utc.strftime('%Y-%m-%d, %a %H:%M:%S  %z')}\n"
         f"Current Local time: {now_local.strftime('%Y-%m-%d, %a %H:%M:%S  %z')}\n"
+        f"Available lists: {lists_line}\n"
+        f"##############################"
         f"Request:{raw_prompt}"
     )
     user_content = [{"type": "input_text", "text": formatted_request}]
@@ -744,6 +761,7 @@ def api_session_init():
 
 
 if __name__ == "__main__":
+    LISTS_DIR.mkdir(parents=True, exist_ok=True)
     secret = load_value_file('secrets.txt')
     USERNAME = secret['USERNAME']
     PASSWORD =  secret['PASSWORD']
