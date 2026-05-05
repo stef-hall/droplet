@@ -49,7 +49,7 @@ textarea {
   overflow-anchor: none;
   scroll-behavior: smooth;
   padding: 0;
-  padding-bottom: 20px;
+  padding-bottom: 40px;
   -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 calc(100% - 72px), transparent 100%);
   mask-image: linear-gradient(to bottom, #000 0%, #000 calc(100% - 72px), transparent 100%);
   scrollbar-width: thin;
@@ -147,7 +147,7 @@ textarea {
 
 .msg {
   display: flex;
-  margin: 60px 0px;
+  margin: 80px 0px;
   width: min(var(--content-width), 100%);
   margin-left: auto;
   margin-right: auto;
@@ -176,7 +176,7 @@ textarea {
   max-width: min(680px, 86%);
   border: 1px solid var(--line);
   border-radius: 27px;
-  padding: 10px 16px;
+  padding: 9px 16px;
   line-height: 1.6;
   white-space: pre-wrap;
 }
