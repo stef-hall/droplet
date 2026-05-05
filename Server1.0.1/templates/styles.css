@@ -224,6 +224,35 @@ textarea {
   text-shadow: 0 1px 1px rgba(0, 0, 0, 0.08);
 }
 
+.bubble.md {
+  display: block;
+}
+
+.bubble.md p {
+  margin: 0;
+}
+
+.bubble.md p + p {
+  margin-top: 8px;
+}
+
+.bubble.md ul {
+  margin: 8px 0 0;
+  padding-left: 18px;
+}
+
+.bubble.md li + li {
+  margin-top: 4px;
+}
+
+.bubble.md code {
+  background: rgba(0, 0, 0, 0.08);
+  border-radius: 6px;
+  padding: 1px 5px;
+  font-family: "Consolas", "SFMono-Regular", Menlo, monospace;
+  font-size: 0.9em;
+}
+
 .initial-assistant-message .bubble {
   opacity: 0;
   color: var(--bg);

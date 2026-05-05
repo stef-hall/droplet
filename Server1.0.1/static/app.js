@@ -36,13 +36,65 @@ function setSessionId(sessionId) {
   localStorage.setItem(SESSION_KEY, sessionId);
 }
 
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function renderInlineMarkdown(text) {
+  let out = escapeHtml(text);
+  out = out.replace(/`([^`]+)`/g, "<code>$1</code>");
+  out = out.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+  out = out.replace(/\*([^*\n]+)\*/g, "<em>$1</em>");
+  return out;
+}
+
+function renderMarkdown(text) {
+  const source = String(text ?? "").replace(/\r\n/g, "\n");
+  const lines = source.split("\n");
+  const chunks = [];
+  let listBuffer = [];
+
+  function flushList() {
+    if (listBuffer.length === 0) return;
+    const items = listBuffer.map((item) => `<li>${renderInlineMarkdown(item)}</li>`).join("");
+    chunks.push(`<ul>${items}</ul>`);
+    listBuffer = [];
+  }
+
+  for (const rawLine of lines) {
+    const line = rawLine.trimEnd();
+    if (!line.trim()) {
+      flushList();
+      continue;
+    }
+    if (/^[-*]\s+/.test(line)) {
+      listBuffer.push(line.replace(/^[-*]\s+/, ""));
+      continue;
+    }
+    flushList();
+    chunks.push(`<p>${renderInlineMarkdown(line)}</p>`);
+  }
+  flushList();
+  return chunks.join("");
+}
+
 function appendMessage(role, text) {
   const item = document.createElement("article");
   item.className = `msg ${role} entering`;
 
   const bubble = document.createElement("div");
   bubble.className = "bubble";
-  bubble.textContent = text;
+  if (role === "assistant") {
+    bubble.classList.add("md");
+    bubble.innerHTML = renderMarkdown(text);
+  } else {
+    bubble.textContent = text;
+  }
 
   item.appendChild(bubble);
   feedEl.appendChild(item);
@@ -112,7 +164,12 @@ function resolveThinkingMessage(text, role = "assistant") {
 
   const bubble = document.createElement("div");
   bubble.className = "bubble";
-  bubble.textContent = text;
+  if (role === "assistant") {
+    bubble.classList.add("md");
+    bubble.innerHTML = renderMarkdown(text);
+  } else {
+    bubble.textContent = text;
+  }
   item.appendChild(bubble);
 
   requestAnimationFrame(() => {
