@@ -106,6 +106,7 @@ function appendMessage(role, text) {
   const bubble = document.createElement("div");
   bubble.className = "bubble";
   if (role === "assistant") {
+    bubble.classList.add("assistant-enter");
     bubble.classList.add("md");
     bubble.innerHTML = renderMarkdown(text);
   } else {
@@ -181,6 +182,7 @@ function resolveThinkingMessage(text, role = "assistant") {
   const bubble = document.createElement("div");
   bubble.className = "bubble";
   if (role === "assistant") {
+    bubble.classList.add("assistant-enter");
     bubble.classList.add("md");
     bubble.innerHTML = renderMarkdown(text);
   } else {
