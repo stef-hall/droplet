@@ -553,7 +553,7 @@ if (chatSettingsEl) {
     if (chatMenuTriggerEl) {
       chatMenuTriggerEl.setAttribute("aria-expanded", "false");
     }
-    setMetaStatus("Settings coming soon.", { autoFade: true, fadeDelayMs: 2400 });
+    window.location.href = "/settings";
   });
 }
 
