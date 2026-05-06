@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import ast
 import operator as op
-from flask import Flask, jsonify, render_template, request, send_from_directory # type: ignore
+from flask import Flask, Response, jsonify, render_template, request, send_from_directory, stream_with_context # type: ignore
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import Lock
 
@@ -40,6 +40,31 @@ def _log_json(label, payload):
     stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     pretty = json.dumps(payload, indent=2, ensure_ascii=False, default=str)
     print(f"[{stamp}] [{label}] {pretty}", flush=True)
+
+
+def _tool_name_to_status_label(tool_name: str) -> str:
+    label_map = {
+        "AddEvent": "Adding Event...",
+        "GetEvents": "Getting Events...",
+        "DeleteEvent": "Deleting...",
+        "EditEvent": "Editing Event...",
+        "ReadList": "Reading List...",
+        "EditList": "Updating List...",
+        "GetWeather": "Getting Weather...",
+    }
+    return label_map.get(tool_name, f"Running {tool_name}...")
+
+
+def _batch_status_label(function_calls: list[dict]) -> str:
+    names = [str(call.get("name", "")) for call in function_calls if call.get("name")]
+    if not names:
+        return "Running Tools..."
+    if len(names) == 1:
+        return _tool_name_to_status_label(names[0])
+    unique_names = list(dict.fromkeys(names))
+    if len(unique_names) == 1:
+        return f"{_tool_name_to_status_label(unique_names[0]).rstrip('.')} x{len(names)}..."
+    return "Running Multiple Steps..."
 
 
 def _prune_sessions(now_ts: float):
@@ -124,7 +149,8 @@ Rules:
 - After any tool execution, always return a user-facing message: a brief status update if more work or input remains, or a confirmation when the task is finished
 - The "message" field may contain markdown for formatting (e.g. **bold**, *italics*, bullet lists, and `code`)
 - For one-tap user replies, use this exact markdown line format: [[send: your suggested user message]]
-- Use quick responses in the format: [[send: visible assistant text|hidden user message]] inline text, as obvious follow up's if your not completley comfortable taking action. (e.g. [[send: Want me to add a Run after that too? | Yes, add a Run afterwards]])
+- Use quick responses in the format: [[send: visible assistant text|hidden user message]] inline text, as obvious follow up's if your not completley comfortable taking action. 
+- If you ever send a response that contains an exact solution to your question, offer it as an instant quick response(e.g. what time or duration should the call with your grandma be? If you want, I can use [[send: 5 PM and make the call 1 hour | Okay, 5 PM and for 1 hour].)
 - For the quick responses, the text before "|" is what the assistant shows inline, and the text after "|" is the exact user message sends on click. Use these to make sentence to read naturally from the assistant's perspective.
 - Always return a state. RUNNING = Operating Tools/Thinking, WAITING = Waiting for User Input, DONE = ONLY when completley finished your task.
 - Users can be impressed with particularly well visual laid out messages, or where clear thought has gone into it. Users should feel impressed.
@@ -1000,12 +1026,14 @@ def ask_gpt54(user_input, system_prompt, results, previous_response_id=None, use
     return response
 
 
-def run_secretariat(prompt_text, image_data_url=None, previous_response_id=None, user_timezone=None, location_context=None, max_turns=12):
+def run_secretariat(prompt_text, image_data_url=None, previous_response_id=None, user_timezone=None, location_context=None, max_turns=12, status_callback=None):
     results = []
     state = "RUNNING"
     assistant_message = ""
     current_response_id = previous_response_id
     for turn_idx in range(max_turns):
+        if status_callback:
+            status_callback("Thinking...")
         _log("TURN_START", f"{turn_idx + 1}/{max_turns}")
         user_turn = {"prompt": prompt_text, "image_data_url": image_data_url}
         response = ask_gpt54(
@@ -1044,6 +1072,8 @@ def run_secretariat(prompt_text, image_data_url=None, previous_response_id=None,
 
         if saw_function_call:
             _log("TOOL_BATCH", f"Executing {len(function_calls)} tool call(s)")
+            if status_callback:
+                status_callback(_batch_status_label(function_calls))
             results.extend(_execute_function_calls_parallel(function_calls))
             continue
 
@@ -1128,6 +1158,123 @@ def api_secretariat():
             },
         )
         return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.post("/api/secretariat/stream")
+def api_secretariat_stream():
+    _log("API_SECRETARIAT_STREAM", "request_received")
+    payload = request.get_json(silent=True) or {}
+    prompt_text = str(payload.get("prompt", "")).strip()
+    image_data_url = payload.get("image_data_url")
+    session_id = str(payload.get("session_id", "")).strip() or str(uuid.uuid4())
+    now_ts = datetime.now(timezone.utc).timestamp()
+    with session_store_lock:
+        _prune_sessions(now_ts)
+        session_data = session_store.get(session_id, {})
+    previous_response_id = session_data.get("previous_response_id")
+    payload_timezone = str(payload.get("timezone", "")).strip()
+    payload_location = payload.get("location") if isinstance(payload.get("location"), dict) else {}
+    payload_latitude = _coerce_float(payload_location.get("latitude"))
+    payload_longitude = _coerce_float(payload_location.get("longitude"))
+    payload_accuracy = _coerce_float(payload_location.get("accuracy_m"))
+
+    user_timezone = payload_timezone or session_data.get("timezone")
+    weather_location = session_data.get("weather_location")
+    if payload_latitude is not None and payload_longitude is not None:
+        weather_location = {
+            "latitude": payload_latitude,
+            "longitude": payload_longitude,
+            "accuracy_m": payload_accuracy,
+        }
+
+    if not prompt_text:
+        return jsonify({"ok": False, "error": "Prompt is required."}), 400
+
+    def stream():
+        try:
+            def emit(payload_obj):
+                return json.dumps(payload_obj, ensure_ascii=False) + "\n"
+
+            results = []
+            state = "RUNNING"
+            assistant_message = ""
+            current_response_id = previous_response_id
+            max_turns = 12
+
+            for turn_idx in range(max_turns):
+                _log("TURN_START", f"{turn_idx + 1}/{max_turns}")
+                yield emit({"type": "status", "label": "Thinking..."})
+
+                user_turn = {"prompt": prompt_text, "image_data_url": image_data_url}
+                response = ask_gpt54(
+                    user_turn,
+                    system_prompt,
+                    results,
+                    current_response_id,
+                    user_timezone=user_timezone,
+                    location_context=weather_location,
+                )
+                current_response_id = response.id
+                response_data = response.model_dump()
+                results = []
+                saw_function_call = False
+                function_calls = []
+                _log_json("MODEL_OUTPUT", response_data.get("output", []))
+
+                for content in response_data.get("output", []):
+                    if content.get("type") == "message" and content.get("content"):
+                        text_payload = content["content"][0].get("text", "")
+                        try:
+                            parsed = json.loads(text_payload)
+                            state = parsed.get("state", "RUNNING")
+                            assistant_message = parsed.get("message", "")
+                        except Exception:
+                            state = "RUNNING"
+                            assistant_message = text_payload
+
+                    if content.get("type") == "function_call":
+                        saw_function_call = True
+                        function_calls.append({
+                            "name": content["name"],
+                            "args": json.loads(content["arguments"]),
+                            "call_id": content["call_id"],
+                        })
+
+                if saw_function_call:
+                    _log("TOOL_BATCH", f"Executing {len(function_calls)} tool call(s)")
+                    yield emit({"type": "status", "label": _batch_status_label(function_calls)})
+                    results.extend(_execute_function_calls_parallel(function_calls))
+                    continue
+
+                if state in {"WAITING", "DONE"}:
+                    _log("TURN_END", f"state={state}")
+                    break
+
+            result = {
+                "state": state,
+                "message": assistant_message or "Request timed out.",
+                "previous_response_id": current_response_id,
+            }
+            with session_store_lock:
+                session_store[session_id] = {
+                    "previous_response_id": result.get("previous_response_id"),
+                    "timezone": user_timezone,
+                    "weather_location": weather_location,
+                    "last_seen_ts": now_ts,
+                }
+            yield emit({"type": "final", "ok": True, "session_id": session_id, **result})
+        except Exception as e:
+            _log_json(
+                "API_SECRETARIAT_STREAM_ERROR",
+                {
+                    "error_type": type(e).__name__,
+                    "error": str(e),
+                    "traceback": traceback.format_exc(),
+                },
+            )
+            yield json.dumps({"type": "final", "ok": False, "error": str(e)}, ensure_ascii=False) + "\n"
+
+    return Response(stream_with_context(stream()), mimetype="application/x-ndjson")
 
 
 @app.post("/api/session/init")

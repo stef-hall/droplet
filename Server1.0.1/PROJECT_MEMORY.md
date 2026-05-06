@@ -26,6 +26,7 @@ Last updated: 2026-05-06
 
 ## Session notes
 - 2026-05-06: User asked for persistent memory to avoid forgetting context.
+- 2026-05-06: Added live backend-driven status updates for chat processing (`Thinking...`, `Getting Events...`, `Adding Event...`, `Deleting...`) via streamed API responses.
 
 ## How to use this memory
 - At session start: read this file first.

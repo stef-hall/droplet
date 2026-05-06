@@ -209,6 +209,13 @@ function appendThinkingMessage() {
   ensureFeedPinnedToBottom();
 }
 
+function updateThinkingLabel(text) {
+  const labelEl = document.querySelector("#thinking-message .thinking-label");
+  if (labelEl) {
+    labelEl.textContent = text || "Thinking...";
+  }
+}
+
 function removeThinkingMessage() {
   const item = document.getElementById("thinking-message");
   if (item) item.remove();
@@ -310,9 +317,10 @@ async function submitPromptText(prompt) {
   autoSizePrompt();
   setMetaStatus("Thinking...");
   appendThinkingMessage();
+  updateThinkingLabel("Thinking...");
 
   try {
-    const response = await fetch("/api/secretariat", {
+    const response = await fetch("/api/secretariat/stream", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -324,9 +332,46 @@ async function submitPromptText(prompt) {
       })
     });
 
-    const data = await response.json();
-    if (!response.ok || !data.ok) {
-      throw new Error(data.error || "Request failed.");
+    if (!response.ok || !response.body) {
+      throw new Error("Request failed.");
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let finalPayload = null;
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let newlineIndex = buffer.indexOf("\n");
+      while (newlineIndex >= 0) {
+        const line = buffer.slice(0, newlineIndex).trim();
+        buffer = buffer.slice(newlineIndex + 1);
+        if (line) {
+          let evt = null;
+          try {
+            evt = JSON.parse(line);
+          } catch (_) {
+            evt = null;
+          }
+          if (evt && evt.type === "status") {
+            const label = evt.label || "Thinking...";
+            setMetaStatus(label);
+            updateThinkingLabel(label);
+          }
+          if (evt && evt.type === "final") {
+            finalPayload = evt;
+          }
+        }
+        newlineIndex = buffer.indexOf("\n");
+      }
+    }
+
+    const data = finalPayload;
+    if (!data || !data.ok) {
+      throw new Error((data && data.error) || "Request failed.");
     }
 
     currentSessionId = String(data.session_id || "");
