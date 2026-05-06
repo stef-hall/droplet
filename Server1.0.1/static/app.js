@@ -14,6 +14,38 @@ const isTouchDevice = window.matchMedia("(pointer: coarse)").matches;
 let attachedImageDataUrl = null;
 let composerDocked = false;
 let doneFadeTimer = null;
+let detectedTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+let detectedLocation = null;
+
+function getBrowserLocation() {
+  return new Promise((resolve) => {
+    if (!("geolocation" in navigator)) {
+      resolve(null);
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const coords = position && position.coords ? position.coords : null;
+        if (!coords) {
+          resolve(null);
+          return;
+        }
+        resolve({
+          latitude: coords.latitude,
+          longitude: coords.longitude,
+          accuracy_m: coords.accuracy
+        });
+      },
+      () => resolve(null),
+      {
+        enableHighAccuracy: false,
+        timeout: 5000,
+        maximumAge: 30 * 60 * 1000
+      }
+    );
+  });
+}
 
 function keepPromptFocused() {
   if (!promptInput) return;
@@ -243,12 +275,17 @@ async function attachImageFile(file) {
 }
 
 async function initSession() {
-  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+  detectedTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+  detectedLocation = await getBrowserLocation();
   try {
     const response = await fetch("/api/session/init", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ session_id: getSessionId(), timezone })
+      body: JSON.stringify({
+        session_id: getSessionId(),
+        timezone: detectedTimezone,
+        location: detectedLocation
+      })
     });
     const data = await response.json();
     if (response.ok && data.ok) {
@@ -273,7 +310,9 @@ async function submitPromptText(prompt) {
       body: JSON.stringify({
         prompt,
         session_id: getSessionId(),
-        image_data_url: attachedImageDataUrl
+        image_data_url: attachedImageDataUrl,
+        timezone: detectedTimezone,
+        location: detectedLocation
       })
     });
 

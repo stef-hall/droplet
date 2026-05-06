@@ -16,6 +16,8 @@ import base64
 import mimetypes
 import uuid
 import traceback
+from urllib.parse import urlencode
+from urllib.request import urlopen
 from pathlib import Path
 
 global USERNAME, PASSWORD, api_key
@@ -46,6 +48,38 @@ def get_available_lists():
         if file_path.is_file()
     )
 
+
+WEATHER_CODE_DESCRIPTIONS = {
+    0: "Clear sky",
+    1: "Mainly clear",
+    2: "Partly cloudy",
+    3: "Overcast",
+    45: "Fog",
+    48: "Depositing rime fog",
+    51: "Light drizzle",
+    53: "Moderate drizzle",
+    55: "Dense drizzle",
+    56: "Light freezing drizzle",
+    57: "Dense freezing drizzle",
+    61: "Slight rain",
+    63: "Moderate rain",
+    65: "Heavy rain",
+    66: "Light freezing rain",
+    67: "Heavy freezing rain",
+    71: "Slight snow fall",
+    73: "Moderate snow fall",
+    75: "Heavy snow fall",
+    77: "Snow grains",
+    80: "Slight rain showers",
+    81: "Moderate rain showers",
+    82: "Violent rain showers",
+    85: "Slight snow showers",
+    86: "Heavy snow showers",
+    95: "Thunderstorm",
+    96: "Thunderstorm with slight hail",
+    99: "Thunderstorm with heavy hail",
+}
+
 system_prompt = """
 You are an assistant calender manager with access to tools.
 
@@ -67,6 +101,7 @@ Rules:
 - Take the initative, but offer quick responses to cater or undo your actions if uncertain. 
 - always use local timezone for interacting with calender
 - interpret the requested event time in the local timezone first to resolve the correct calendar date and time, then convert that resolved local datetime into UTC
+- weather context may be provided with each request; use it to improve scheduling suggestions (especially for outdoor activities)
 - apply extra reasoning scrutiny around meridians (AM/PM), especially 12:00 times
 - treat "noon" as exactly 12:00 PM (12:00 local)
 - treat "midnight" as exactly 12:00 AM (00:00 local) and resolve whether it means start-of-day vs next-day from context
@@ -245,6 +280,35 @@ tools = [
                 }
             },
             "required": ["uid"],
+            "additionalProperties": False
+        }
+    },
+    {
+        "type": "function",
+        "name": "GetWeather",
+        "description": "Fetch current weather, or hourly forecast data within a requested time range, for a specific latitude and longitude.",
+        "strict": False,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "latitude": {
+                    "type": "number",
+                    "description": "Latitude in decimal degrees."
+                },
+                "longitude": {
+                    "type": "number",
+                    "description": "Longitude in decimal degrees."
+                },
+                "start_time": {
+                    "type": "string",
+                    "description": "Optional start of requested weather window in ISO-8601 format (e.g. 2026-05-06T09:00:00+12:00)."
+                },
+                "end_time": {
+                    "type": "string",
+                    "description": "Optional end of requested weather window in ISO-8601 format (e.g. 2026-05-06T18:00:00+12:00). Must be after start_time."
+                }
+            },
+            "required": ["latitude", "longitude"],
             "additionalProperties": False
         }
     }
@@ -466,6 +530,163 @@ def EditEvent(uid, title=None, start=None, finish=None, location=None, descripti
     return {"status": "not_found"}
 
 
+def GetWeather(latitude, longitude, start_time=None, end_time=None):
+    params = {
+        "latitude": latitude,
+        "longitude": longitude,
+        "current": ",".join([
+            "temperature_2m",
+            "apparent_temperature",
+            "precipitation",
+            "rain",
+            "showers",
+            "snowfall",
+            "weather_code",
+            "wind_speed_10m",
+            "wind_gusts_10m",
+        ]),
+        "hourly": ",".join([
+            "temperature_2m",
+            "apparent_temperature",
+            "precipitation",
+            "rain",
+            "showers",
+            "snowfall",
+            "weather_code",
+            "wind_speed_10m",
+            "wind_gusts_10m",
+        ]),
+        "timezone": "auto",
+    }
+    if start_time is not None and end_time is not None:
+        params["start_hour"] = start_time.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:00")
+        params["end_hour"] = end_time.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:00")
+    url = f"https://api.open-meteo.com/v1/forecast?{urlencode(params)}"
+    with urlopen(url, timeout=8) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+
+    current = payload.get("current", {}) if isinstance(payload, dict) else {}
+    weather_code = current.get("weather_code")
+    description = WEATHER_CODE_DESCRIPTIONS.get(weather_code, "Unknown conditions")
+
+    response = {
+        "status": "success",
+        "latitude": payload.get("latitude", latitude),
+        "longitude": payload.get("longitude", longitude),
+        "timezone": payload.get("timezone"),
+        "timezone_abbreviation": payload.get("timezone_abbreviation"),
+        "current": {
+            "time": current.get("time"),
+            "temperature_c": current.get("temperature_2m"),
+            "feels_like_c": current.get("apparent_temperature"),
+            "precipitation_mm": current.get("precipitation"),
+            "rain_mm": current.get("rain"),
+            "showers_mm": current.get("showers"),
+            "snowfall_cm": current.get("snowfall"),
+            "wind_speed_kmh": current.get("wind_speed_10m"),
+            "wind_gusts_kmh": current.get("wind_gusts_10m"),
+            "weather_code": weather_code,
+            "conditions": description,
+        },
+    }
+    if start_time is None or end_time is None:
+        return response
+
+    hourly = payload.get("hourly", {}) if isinstance(payload, dict) else {}
+    times = hourly.get("time", []) if isinstance(hourly, dict) else []
+    forecast = []
+    keys = {
+        "temperature_2m": "temperature_c",
+        "apparent_temperature": "feels_like_c",
+        "precipitation": "precipitation_mm",
+        "rain": "rain_mm",
+        "showers": "showers_mm",
+        "snowfall": "snowfall_cm",
+        "wind_speed_10m": "wind_speed_kmh",
+        "wind_gusts_10m": "wind_gusts_kmh",
+        "weather_code": "weather_code",
+    }
+
+    for idx, point_time in enumerate(times):
+        row = {"time": point_time}
+        weather_code = None
+        for source_key, target_key in keys.items():
+            values = hourly.get(source_key, [])
+            value = values[idx] if idx < len(values) else None
+            row[target_key] = value
+            if source_key == "weather_code":
+                weather_code = value
+        row["conditions"] = WEATHER_CODE_DESCRIPTIONS.get(weather_code, "Unknown conditions")
+        forecast.append(row)
+
+    response["requested_range"] = {
+        "start_time_utc": start_time.astimezone(timezone.utc).isoformat(),
+        "end_time_utc": end_time.astimezone(timezone.utc).isoformat(),
+    }
+    response["forecast"] = forecast
+    return response
+
+
+def _format_weather_for_prompt(weather_data):
+    if not weather_data or not isinstance(weather_data, dict):
+        return "Weather: unavailable"
+    current = weather_data.get("current") if isinstance(weather_data, dict) else {}
+    if not isinstance(current, dict):
+        return "Weather: unavailable"
+
+    conditions = current.get("conditions", "Unknown")
+    temp = current.get("temperature_c")
+    feels_like = current.get("feels_like_c")
+    precip = current.get("precipitation_mm")
+    wind = current.get("wind_speed_kmh")
+    wtime = current.get("time", "unknown time")
+
+    return (
+        f"Weather now ({wtime}): {conditions}; "
+        f"temp {temp}°C; feels like {feels_like}°C; "
+        f"precip {precip} mm; wind {wind} km/h"
+    )
+
+
+def _format_location_for_prompt(location_data):
+    if not isinstance(location_data, dict):
+        return "Location: unavailable"
+    latitude = location_data.get("latitude")
+    longitude = location_data.get("longitude")
+    accuracy = location_data.get("accuracy_m")
+    if latitude is None or longitude is None:
+        return "Location: unavailable"
+    if accuracy is None:
+        return f"Known location: lat {latitude}, long {longitude}"
+    return f"Known location: lat {latitude}, long {longitude} (accuracy ~{accuracy} m)"
+
+
+def _coerce_float(value):
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _parse_iso_datetime(value):
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
 def ToolUse(name, args):
     _log_json("TOOL_DEPLOY", {"tool": name, "args": args})
 
@@ -606,6 +827,71 @@ def ToolUse(name, args):
                 "error": str(e),
             }
 
+    # Returns current weather for coordinates, or hourly forecast for a requested range
+    if name == "GetWeather":
+        latitude = _coerce_float(args.get("latitude"))
+        longitude = _coerce_float(args.get("longitude"))
+        if latitude is None or longitude is None:
+            return {
+                "status": "failed",
+                "tool": "GetWeather",
+                "location": {"latitude": args.get("latitude"), "longitude": args.get("longitude")},
+                "error": "Latitude and longitude must be numeric values.",
+            }
+        start_time_raw = args.get("start_time")
+        end_time_raw = args.get("end_time")
+        start_time = _parse_iso_datetime(start_time_raw)
+        end_time = _parse_iso_datetime(end_time_raw)
+        if (start_time_raw is None) != (end_time_raw is None):
+            return {
+                "status": "failed",
+                "tool": "GetWeather",
+                "location": {"latitude": latitude, "longitude": longitude},
+                "error": "start_time and end_time must be provided together.",
+            }
+        if (start_time_raw is not None and start_time is None) or (end_time_raw is not None and end_time is None):
+            return {
+                "status": "failed",
+                "tool": "GetWeather",
+                "location": {"latitude": latitude, "longitude": longitude},
+                "error": "start_time and end_time must be valid ISO-8601 datetime values.",
+            }
+        if start_time and end_time and end_time <= start_time:
+            return {
+                "status": "failed",
+                "tool": "GetWeather",
+                "location": {"latitude": latitude, "longitude": longitude},
+                "error": "end_time must be after start_time.",
+            }
+        try:
+            output = GetWeather(
+                latitude=latitude,
+                longitude=longitude,
+                start_time=start_time,
+                end_time=end_time,
+            )
+            return {
+                "status": "success",
+                "tool": "GetWeather",
+                "location": {"latitude": latitude, "longitude": longitude},
+                "range": {
+                    "start_time": start_time.isoformat() if start_time else None,
+                    "end_time": end_time.isoformat() if end_time else None,
+                },
+                "result": output,
+            }
+        except Exception as e:
+            return {
+                "status": "failed",
+                "tool": "GetWeather",
+                "location": {"latitude": latitude, "longitude": longitude},
+                "range": {
+                    "start_time": start_time.isoformat() if start_time else None,
+                    "end_time": end_time.isoformat() if end_time else None,
+                },
+                "error": str(e),
+            }
+
     return {
         "status": "failed",
         "tool": name,
@@ -659,7 +945,7 @@ def _execute_function_calls_parallel(function_calls):
 
 
 
-def ask_gpt54(user_input, system_prompt, results, previous_response_id=None, user_timezone=None):
+def ask_gpt54(user_input, system_prompt, results, previous_response_id=None, user_timezone=None, weather_context=None, location_context=None):
     # Build a fresh OpenAI client for each request.
     client = OpenAI(api_key=api_key)
 
@@ -689,6 +975,8 @@ def ask_gpt54(user_input, system_prompt, results, previous_response_id=None, use
     formatted_request = (
         f"Current UTC time: {now_utc.strftime('%Y-%m-%d, %a %H:%M:%S  %z')}\n"
         f"Current Local time: {now_local.strftime('%Y-%m-%d, %a %H:%M:%S  %z')}\n"
+        f"{_format_location_for_prompt(location_context)}\n"
+        f"{_format_weather_for_prompt(weather_context)}\n"
         f"Available lists: {lists_line}\n"
         f"##############################\n"
         f"Request: {raw_prompt}"
@@ -732,7 +1020,7 @@ def ask_gpt54(user_input, system_prompt, results, previous_response_id=None, use
     return response
 
 
-def run_secretariat(prompt_text,image_data_url=None, previous_response_id=None, user_timezone=None, max_turns=12):
+def run_secretariat(prompt_text, image_data_url=None, previous_response_id=None, user_timezone=None, weather_context=None, location_context=None, max_turns=12):
     results = []
     state = "RUNNING"
     assistant_message = ""
@@ -746,6 +1034,8 @@ def run_secretariat(prompt_text,image_data_url=None, previous_response_id=None, 
             results,
             current_response_id,
             user_timezone=user_timezone,
+            weather_context=weather_context,
+            location_context=location_context,
         )
         current_response_id = response.id
         response_data = response.model_dump()
@@ -811,21 +1101,47 @@ def api_secretariat():
     session_id = str(payload.get("session_id", "")).strip() or str(uuid.uuid4())
     session_data = session_store.get(session_id, {})
     previous_response_id = session_data.get("previous_response_id")
-    user_timezone = session_data.get("timezone")
+    payload_timezone = str(payload.get("timezone", "")).strip()
+    payload_location = payload.get("location") if isinstance(payload.get("location"), dict) else {}
+    payload_latitude = _coerce_float(payload_location.get("latitude"))
+    payload_longitude = _coerce_float(payload_location.get("longitude"))
+    payload_accuracy = _coerce_float(payload_location.get("accuracy_m"))
+
+    user_timezone = payload_timezone or session_data.get("timezone")
+    weather_location = session_data.get("weather_location")
+    if payload_latitude is not None and payload_longitude is not None:
+        weather_location = {
+            "latitude": payload_latitude,
+            "longitude": payload_longitude,
+            "accuracy_m": payload_accuracy,
+        }
 
     if not prompt_text:
         return jsonify({"ok": False, "error": "Prompt is required."}), 400
 
     try:
+        weather_context = None
+        if isinstance(weather_location, dict):
+            latitude = weather_location.get("latitude")
+            longitude = weather_location.get("longitude")
+            if latitude is not None and longitude is not None:
+                try:
+                    weather_context = GetWeather(latitude=latitude, longitude=longitude)
+                except Exception as weather_error:
+                    _log("WEATHER_ERROR", str(weather_error))
+
         result = run_secretariat(
             prompt_text,
             image_data_url=image_data_url,
             previous_response_id=previous_response_id,
             user_timezone=user_timezone,
+            weather_context=weather_context,
+            location_context=weather_location,
         )
         session_store[session_id] = {
             "previous_response_id": result.get("previous_response_id"),
             "timezone": user_timezone,
+            "weather_location": weather_location,
         }
         _log_json("API_SECRETARIAT_RESULT", {"session_id": session_id, **result})
         return jsonify({"ok": True, "session_id": session_id, **result})
@@ -846,13 +1162,23 @@ def api_session_init():
     payload = request.get_json(silent=True) or {}
     session_id = str(payload.get("session_id", "")).strip() or str(uuid.uuid4())
     timezone_name = str(payload.get("timezone", "")).strip()
+    location = payload.get("location") if isinstance(payload.get("location"), dict) else {}
+    latitude = _coerce_float(location.get("latitude"))
+    longitude = _coerce_float(location.get("longitude"))
+    location_accuracy_m = _coerce_float(location.get("accuracy_m"))
 
     session_data = session_store.get(
         session_id,
-        {"previous_response_id": None, "timezone": None},
+        {"previous_response_id": None, "timezone": None, "weather_location": None},
     )
     if timezone_name:
         session_data["timezone"] = timezone_name
+    if latitude is not None and longitude is not None:
+        session_data["weather_location"] = {
+            "latitude": latitude,
+            "longitude": longitude,
+            "accuracy_m": location_accuracy_m,
+        }
     session_store[session_id] = session_data
 
     return jsonify(
@@ -860,6 +1186,7 @@ def api_session_init():
             "ok": True,
             "session_id": session_id,
             "timezone": session_data.get("timezone"),
+            "weather_location": session_data.get("weather_location"),
         }
     )
 
