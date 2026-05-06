@@ -156,7 +156,7 @@ function appendMessage(role, text) {
   requestAnimationFrame(() => {
     item.classList.remove("entering");
   });
-  scrollFeedToBottom();
+  ensureFeedPinnedToBottom();
 }
 
 function autoSizePrompt() {
@@ -165,7 +165,15 @@ function autoSizePrompt() {
 }
 
 function scrollFeedToBottom() {
-  feedEl.scrollTo({ top: feedEl.scrollHeight, behavior: "smooth" });
+  feedEl.scrollTop = feedEl.scrollHeight;
+}
+
+function ensureFeedPinnedToBottom() {
+  scrollFeedToBottom();
+  requestAnimationFrame(() => {
+    scrollFeedToBottom();
+    setTimeout(scrollFeedToBottom, 80);
+  });
 }
 
 function setMetaStatus(text, { autoFade = false, fadeDelayMs = 4000 } = {}) {
@@ -198,7 +206,7 @@ function appendThinkingMessage() {
     </div>
   `;
   feedEl.appendChild(item);
-  scrollFeedToBottom();
+  ensureFeedPinnedToBottom();
 }
 
 function removeThinkingMessage() {
@@ -231,7 +239,7 @@ function resolveThinkingMessage(text, role = "assistant") {
   requestAnimationFrame(() => {
     item.classList.remove("entering");
   });
-  scrollFeedToBottom();
+  ensureFeedPinnedToBottom();
 }
 
 function toDataUrl(file) {

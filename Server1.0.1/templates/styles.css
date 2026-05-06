@@ -22,7 +22,8 @@ body {
 
 body {
   margin: 0;
-  min-height: 100dvh;
+  height: 100dvh;
+  overflow: hidden;
   background: var(--bg);
   color: var(--text);
   font-family: "Segoe UI", Arial, sans-serif;
@@ -35,17 +36,18 @@ textarea {
 }
 
 .app-shell {
-  min-height: 100dvh;
+  height: 100dvh;
   width: 100%;
   max-width: none;
   margin: 0 auto;
   display: grid;
-  grid-template-rows: 1fr auto auto;
+  grid-template-rows: minmax(0, 1fr) auto auto auto;
   padding: calc(16px + env(safe-area-inset-top)) 18px calc(14px + env(safe-area-inset-bottom));
   gap: 10px;
 }
 
 .chat-feed {
+  min-height: 0;
   overflow-y: auto;
   overflow-anchor: none;
   scroll-behavior: smooth;
@@ -352,7 +354,7 @@ textarea {
   background: var(--panel);
   padding: 14px;
   box-shadow: 0 3px 7px rgba(17, 24, 39, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.9);
-  margin-bottom: 40px;
+  margin-bottom: 0;
   --float-offset: 0px;
   --dock-start-offset: 0px;
   transform: translateY(0);
@@ -477,7 +479,7 @@ textarea {
 
 @media (max-width: 640px) {
   .app-shell {
-    min-height: 100dvh;
+    height: 100dvh;
     padding: calc(10px + env(safe-area-inset-top)) 10px calc(8px + env(safe-area-inset-bottom));
   }
 
@@ -507,7 +509,7 @@ textarea {
   }
 
   .composer {
-    margin-bottom: 8px;
+    margin-bottom: 0;
     padding: 10px;
   }
 
