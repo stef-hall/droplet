@@ -337,17 +337,22 @@ def load_value_file(path: str) -> dict[str, str]:
 
 
 def AddEvent(title, start, finish, location, description, rrule):
-    event = f"""BEGIN:VCALENDAR
-VERSION:2.0
-BEGIN:VEVENT
-SUMMARY:{title}
-DTSTART:{start}
-DTEND:{finish}
-LOCATION:{location}
-DESCRIPTION:{description}
-RRULE:{rrule}
-END:VEVENT
-END:VCALENDAR"""
+    event_lines = [
+        "BEGIN:VCALENDAR",
+        "VERSION:2.0",
+        "BEGIN:VEVENT",
+        f"SUMMARY:{title}",
+        f"DTSTART:{start}",
+        f"DTEND:{finish}",
+    ]
+    if location:
+        event_lines.append(f"LOCATION:{location}")
+    if description:
+        event_lines.append(f"DESCRIPTION:{description}")
+    if rrule:
+        event_lines.append(f"RRULE:{rrule}")
+    event_lines.extend(["END:VEVENT", "END:VCALENDAR"])
+    event = "\n".join(event_lines)
     client = DAVClient(
         url="https://caldav.icloud.com",
         username=USERNAME,
@@ -530,44 +535,43 @@ def EditEvent(uid, title=None, start=None, finish=None, location=None, descripti
     return {"status": "not_found"}
 
 
-def GetWeather(latitude, longitude, start_time=None, end_time=None):
+def GetWeather(latitude, longitude, start_time=None, end_time=None, field_names=None):
+    field_names = field_names or {
+        "temperature": "Tempc",
+        "precipitation": "Precip",
+        "wind_speed": "Wind_Speed",
+        "conditions": "conditions",
+    }
+
     params = {
         "latitude": latitude,
         "longitude": longitude,
         "current": ",".join([
             "temperature_2m",
-            "apparent_temperature",
             "precipitation",
-            "rain",
-            "showers",
-            "snowfall",
             "weather_code",
             "wind_speed_10m",
-            "wind_gusts_10m",
         ]),
         "hourly": ",".join([
             "temperature_2m",
-            "apparent_temperature",
             "precipitation",
-            "rain",
-            "showers",
-            "snowfall",
             "weather_code",
             "wind_speed_10m",
-            "wind_gusts_10m",
         ]),
         "timezone": "auto",
     }
+
     if start_time is not None and end_time is not None:
         params["start_hour"] = start_time.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:00")
         params["end_hour"] = end_time.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:00")
+
     url = f"https://api.open-meteo.com/v1/forecast?{urlencode(params)}"
+
     with urlopen(url, timeout=8) as response:
         payload = json.loads(response.read().decode("utf-8"))
 
     current = payload.get("current", {}) if isinstance(payload, dict) else {}
     weather_code = current.get("weather_code")
-    description = WEATHER_CODE_DESCRIPTIONS.get(weather_code, "Unknown conditions")
 
     response = {
         "status": "success",
@@ -577,75 +581,37 @@ def GetWeather(latitude, longitude, start_time=None, end_time=None):
         "timezone_abbreviation": payload.get("timezone_abbreviation"),
         "current": {
             "time": current.get("time"),
-            "temperature_c": current.get("temperature_2m"),
-            "feels_like_c": current.get("apparent_temperature"),
-            "precipitation_mm": current.get("precipitation"),
-            "rain_mm": current.get("rain"),
-            "showers_mm": current.get("showers"),
-            "snowfall_cm": current.get("snowfall"),
-            "wind_speed_kmh": current.get("wind_speed_10m"),
-            "wind_gusts_kmh": current.get("wind_gusts_10m"),
-            "weather_code": weather_code,
-            "conditions": description,
+            field_names["temperature"]: current.get("temperature_2m"),
+            field_names["precipitation"]: current.get("precipitation"),
+            field_names["wind_speed"]: current.get("wind_speed_10m"),
+            field_names["conditions"]: WEATHER_CODE_DESCRIPTIONS.get(weather_code, "Unknown conditions"),
         },
     }
+
     if start_time is None or end_time is None:
         return response
 
     hourly = payload.get("hourly", {}) if isinstance(payload, dict) else {}
-    times = hourly.get("time", []) if isinstance(hourly, dict) else []
-    forecast = []
-    keys = {
-        "temperature_2m": "temperature_c",
-        "apparent_temperature": "feels_like_c",
-        "precipitation": "precipitation_mm",
-        "rain": "rain_mm",
-        "showers": "showers_mm",
-        "snowfall": "snowfall_cm",
-        "wind_speed_10m": "wind_speed_kmh",
-        "wind_gusts_10m": "wind_gusts_kmh",
-        "weather_code": "weather_code",
-    }
-
-    for idx, point_time in enumerate(times):
-        row = {"time": point_time}
-        weather_code = None
-        for source_key, target_key in keys.items():
-            values = hourly.get(source_key, [])
-            value = values[idx] if idx < len(values) else None
-            row[target_key] = value
-            if source_key == "weather_code":
-                weather_code = value
-        row["conditions"] = WEATHER_CODE_DESCRIPTIONS.get(weather_code, "Unknown conditions")
-        forecast.append(row)
+    weather_codes = hourly.get("weather_code", [])
 
     response["requested_range"] = {
         "start_time_utc": start_time.astimezone(timezone.utc).isoformat(),
         "end_time_utc": end_time.astimezone(timezone.utc).isoformat(),
     }
-    response["forecast"] = forecast
+
+    response["forecast"] = {
+        "time": hourly.get("time", []),
+        field_names["temperature"]: hourly.get("temperature_2m", []),
+        field_names["precipitation"]: hourly.get("precipitation", []),
+        field_names["wind_speed"]: hourly.get("wind_speed_10m", []),
+        field_names["conditions"]: [
+            WEATHER_CODE_DESCRIPTIONS.get(code, "Unknown conditions")
+            for code in weather_codes
+        ],
+    }
+
     return response
 
-
-def _format_weather_for_prompt(weather_data):
-    if not weather_data or not isinstance(weather_data, dict):
-        return "Weather: unavailable"
-    current = weather_data.get("current") if isinstance(weather_data, dict) else {}
-    if not isinstance(current, dict):
-        return "Weather: unavailable"
-
-    conditions = current.get("conditions", "Unknown")
-    temp = current.get("temperature_c")
-    feels_like = current.get("feels_like_c")
-    precip = current.get("precipitation_mm")
-    wind = current.get("wind_speed_kmh")
-    wtime = current.get("time", "unknown time")
-
-    return (
-        f"Weather now ({wtime}): {conditions}; "
-        f"temp {temp}°C; feels like {feels_like}°C; "
-        f"precip {precip} mm; wind {wind} km/h"
-    )
 
 
 def _format_location_for_prompt(location_data):
@@ -945,7 +911,7 @@ def _execute_function_calls_parallel(function_calls):
 
 
 
-def ask_gpt54(user_input, system_prompt, results, previous_response_id=None, user_timezone=None, weather_context=None, location_context=None):
+def ask_gpt54(user_input, system_prompt, results, previous_response_id=None, user_timezone=None, location_context=None):
     # Build a fresh OpenAI client for each request.
     client = OpenAI(api_key=api_key)
 
@@ -976,7 +942,6 @@ def ask_gpt54(user_input, system_prompt, results, previous_response_id=None, use
         f"Current UTC time: {now_utc.strftime('%Y-%m-%d, %a %H:%M:%S  %z')}\n"
         f"Current Local time: {now_local.strftime('%Y-%m-%d, %a %H:%M:%S  %z')}\n"
         f"{_format_location_for_prompt(location_context)}\n"
-        f"{_format_weather_for_prompt(weather_context)}\n"
         f"Available lists: {lists_line}\n"
         f"##############################\n"
         f"Request: {raw_prompt}"
@@ -1020,7 +985,7 @@ def ask_gpt54(user_input, system_prompt, results, previous_response_id=None, use
     return response
 
 
-def run_secretariat(prompt_text, image_data_url=None, previous_response_id=None, user_timezone=None, weather_context=None, location_context=None, max_turns=12):
+def run_secretariat(prompt_text, image_data_url=None, previous_response_id=None, user_timezone=None, location_context=None, max_turns=12):
     results = []
     state = "RUNNING"
     assistant_message = ""
@@ -1034,7 +999,6 @@ def run_secretariat(prompt_text, image_data_url=None, previous_response_id=None,
             results,
             current_response_id,
             user_timezone=user_timezone,
-            weather_context=weather_context,
             location_context=location_context,
         )
         current_response_id = response.id
@@ -1120,22 +1084,11 @@ def api_secretariat():
         return jsonify({"ok": False, "error": "Prompt is required."}), 400
 
     try:
-        weather_context = None
-        if isinstance(weather_location, dict):
-            latitude = weather_location.get("latitude")
-            longitude = weather_location.get("longitude")
-            if latitude is not None and longitude is not None:
-                try:
-                    weather_context = GetWeather(latitude=latitude, longitude=longitude)
-                except Exception as weather_error:
-                    _log("WEATHER_ERROR", str(weather_error))
-
         result = run_secretariat(
             prompt_text,
             image_data_url=image_data_url,
             previous_response_id=previous_response_id,
             user_timezone=user_timezone,
-            weather_context=weather_context,
             location_context=weather_location,
         )
         session_store[session_id] = {
@@ -1202,3 +1155,4 @@ if __name__ == "__main__":
 """
 Eating a sammy
 """
+
