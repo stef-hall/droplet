@@ -1,14 +1,44 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+import argparse
 import json
 from pathlib import Path
 from urllib.parse import urlencode
 from urllib.request import urlopen
+import re
 
 
 _get_user_caldav_calendars_fn = None
 _lists_dir = Path(__file__).resolve().parent / "lists"
+
+def offset_to_z(dt_str: str):
+    """
+    '20260507T150000+12:00' -> ('20260507T030000Z', '+12:00')
+    """
+    m = re.search(r'([+-]\d{2}:\d{2})$', dt_str)
+    if not m:
+        raise ValueError("Datetime must end with offset like +12:00")
+    offset = m.group(1)
+    dt = datetime.fromisoformat(
+        dt_str[:4] + "-" + dt_str[4:6] + "-" + dt_str[6:8] +
+        "T" + dt_str[9:11] + ":" + dt_str[11:13] + ":" + dt_str[13:15] +
+        offset
+    )
+    z = dt.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    return z, offset
+
+
+def z_to_offset(z_str: str, offset: str):
+    """
+    '20260507T030000Z', '+12:00' -> '20260507T150000+12:00'
+    """
+    dt = datetime.strptime(z_str, "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
+    sign = 1 if offset[0] == "+" else -1
+    hours = int(offset[1:3])
+    minutes = int(offset[4:6])
+    tz = timezone(sign * timedelta(hours=hours, minutes=minutes))
+    return dt.astimezone(tz).strftime("%Y%m%dT%H%M%S") + offset
 
 
 def configure_tools(get_user_caldav_calendars, lists_dir: Path | None = None):
@@ -80,26 +110,53 @@ def AddEvent(user_id, title, start, finish, location, description, rrule):
 
 
 def GetEvents(user_id, start, end):
-    def parse_utc_z(ts):
-        return datetime.strptime(ts, "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
+    start_dt, offset = offset_to_z(start)
+    end_dt, offset = offset_to_z(end)
 
-    start = parse_utc_z(start)
-    end = parse_utc_z(end)
+    if end_dt <= start_dt:
+        raise ValueError("`end` must be after `start`.")
+
     calendars = _get_user_caldav_calendars(int(user_id))
     results = []
     for cal in calendars:
-        events = cal.date_search(start=start, end=end)
+        try:
+            events = cal.date_search(start=start_dt, end=end_dt)
+        except Exception:
+            # Some CalDAV providers are unreliable with date_search.
+            # Fallback: scan calendar events and filter by DTSTART when possible.
+            events = cal.events()
         for event in events:
-            data = event.vobject_instance
+            try:
+                data = event.vobject_instance
+            except Exception:
+                continue
             if not data or not hasattr(data, "vevent"):
                 continue
 
             vevent = data.vevent
+            event_start = None
+            if hasattr(vevent, "dtstart"):
+                dt_value = vevent.dtstart.value
+                if isinstance(dt_value, datetime):
+                    event_start = dt_value if dt_value.tzinfo else dt_value.replace(tzinfo=timezone.utc)
+                else:
+                    try:
+                        event_start = datetime.fromisoformat(str(dt_value))
+                        if event_start.tzinfo is None:
+                            event_start = event_start.replace(tzinfo=timezone.utc)
+                    except Exception:
+                        event_start = None
+
+            if event_start is not None:
+                event_start_utc = event_start.astimezone(timezone.utc)
+                if not (start_dt <= event_start_utc <= end_dt):
+                    continue
+
             results.append(
                 {
                     "uid": str(vevent.uid.value),
-                    "start": str(vevent.dtstart.value),
-                    "end": str(vevent.dtend.value) if hasattr(vevent, "dtend") else None,
+                    "start": str(z_to_offset(vevent.dtstart.value, offset) ),
+                    "end": str(z_to_offset(vevent.dtstart.value, offset)) if hasattr(vevent, "dtend") else None,
                     "summary": str(vevent.summary.value) if hasattr(vevent, "summary") else None,
                     "location": str(vevent.location.value) if hasattr(vevent, "location") else None,
                     "description": str(vevent.description.value) if hasattr(vevent, "description") else None,
@@ -313,3 +370,23 @@ def GetWeather(latitude, longitude, start_time=None, end_time=None, field_names=
     }
 
     return response
+
+
+
+if __name__ == "__main__":
+    from server import LISTS_DIR, _get_user_caldav_calendars
+
+    configure_tools(_get_user_caldav_calendars, LISTS_DIR)
+
+    data = {
+      "tool": "GetEvents",
+      "args": {
+        "start": "20260507T113236+12:00",
+        "end": "20260509T113236+12:00"
+      }
+    }
+    data = data['args']
+
+    response = GetEvents(3, start=data['start'], end=data['end'])
+
+    print(response)

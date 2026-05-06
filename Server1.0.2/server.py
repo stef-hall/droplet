@@ -445,18 +445,18 @@ tools = [
     {
         "type": "function",
         "name": "GetEvents",
-        "description": "Retrieve all calendar events within a given UTC time range (inclusive of start, exclusive of end). Returns events with their UID, start time, end time, and summary.",
+        "description": "Retrieve all calendar events within a given time range (inclusive of start, exclusive of end). Returns events with their UID, start time, end time, and summary.",
         "strict": True,
         "parameters": {
             "type": "object",
             "properties": {
                 "start": {
                     "type": "string",
-                    "description": "Start of the time range in UTC using format YYYYMMDDTHHMMSSZ (e.g. 20260501T000000Z)"
+                    "description": "Start of the time range in LOCAL TIMEZONE using format YYYYMMDDTHHMMSS+XX:XX (e.g. 20260501T000000+12:00)"
                 },
                 "end": {
                     "type": "string",
-                    "description": "End of the time range in UTC using format YYYYMMDDTHHMMSSZ (e.g. 20260507T000000Z)"
+                    "description": "End of the time range in LOCAL TIMEZONE using format YYYYMMDDTHHMMSS+XX:XX (e.g. 20260501T000000+12:00)"
                 }
             },
             "required": ["start", "end"],
