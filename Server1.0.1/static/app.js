@@ -8,7 +8,6 @@ const attachmentPill = document.getElementById("attachment-pill");
 const clearAttachmentBtn = document.getElementById("clear-attachment");
 const composerEl = document.getElementById("secretariat-form");
 const initialAssistantMessageEl = document.getElementById("initial-assistant-message");
-const SESSION_KEY = "secretariat_session_id";
 const MAX_PROMPT_HEIGHT = 180;
 const isTouchDevice = window.matchMedia("(pointer: coarse)").matches;
 let attachedImageDataUrl = null;
@@ -16,6 +15,7 @@ let composerDocked = false;
 let doneFadeTimer = null;
 let detectedTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
 let detectedLocation = null;
+let currentSessionId = "";
 
 function getBrowserLocation() {
   return new Promise((resolve) => {
@@ -60,15 +60,6 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-function getSessionId() {
-  return localStorage.getItem(SESSION_KEY) || "";
-}
-
-function setSessionId(sessionId) {
-  if (!sessionId) return;
-  localStorage.setItem(SESSION_KEY, sessionId);
-}
-
 function escapeHtml(value) {
   return String(value)
     .replaceAll("&", "&amp;")
@@ -91,7 +82,7 @@ function renderInlineMarkdown(text) {
 
     const escapedVisibleText = escapeHtml(visibleText);
     const escapedReply = escapeHtml(replyText);
-    return `<button type="button" class="quick-reply-inline" data-reply="${escapedReply}" title="${escapedReply}">${escapedVisibleText}</button>`;
+    return `<button type="button" class="quick-reply-inline" data-reply="${escapedReply}">${escapedVisibleText}</button>`;
   });
   out = out.replace(/`([^`]+)`/g, "<code>$1</code>");
   out = out.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
@@ -282,14 +273,14 @@ async function initSession() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        session_id: getSessionId(),
+        session_id: currentSessionId,
         timezone: detectedTimezone,
         location: detectedLocation
       })
     });
     const data = await response.json();
     if (response.ok && data.ok) {
-      setSessionId(data.session_id);
+      currentSessionId = String(data.session_id || "");
     }
   } catch (_) {
     // Non-fatal.
@@ -309,7 +300,7 @@ async function submitPromptText(prompt) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         prompt,
-        session_id: getSessionId(),
+        session_id: currentSessionId,
         image_data_url: attachedImageDataUrl,
         timezone: detectedTimezone,
         location: detectedLocation
@@ -321,7 +312,7 @@ async function submitPromptText(prompt) {
       throw new Error(data.error || "Request failed.");
     }
 
-    setSessionId(data.session_id);
+    currentSessionId = String(data.session_id || "");
     resolveThinkingMessage(data.message || "No message returned.", "assistant");
     const stateLabelMap = {
       WAITING: "Waiting...",
