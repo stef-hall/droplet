@@ -299,7 +299,7 @@ tools = [
     {
         "type": "function",
         "name": "GetWeather",
-        "description": "Fetch current weather, or hourly forecast data within a requested time range, for a specific latitude and longitude.",
+        "description": "Fetch current weather or hourly forecast data for a specific latitude and longitude. CRITICAL TIME RULE: start_time and end_time must stay as the user's intended LOCAL wall-clock time (with explicit offset) for the weather location, and the local hour must remain unchanged (example: requested 3:00 PM local must be sent as 15:00 local, not converted to 03:00Z). Use ISO-8601 with offset (e.g. 2026-05-07T15:00:00+12:00). When summarizing forecast results, map rows to the requested local time window and treat the response timezone field as authoritative for display.",
         "strict": False,
         "parameters": {
             "type": "object",
@@ -314,11 +314,11 @@ tools = [
                 },
                 "start_time": {
                     "type": "string",
-                    "description": "Optional start of requested weather window in ISO-8601 format (e.g. 2026-05-06T09:00:00+12:00)."
+                    "description": "Optional local start of requested weather window in ISO-8601 with explicit offset (e.g. 2026-05-07T15:00:00+12:00 for 3 PM local). Keep the same local hour the user asked for; do not pre-convert to UTC."
                 },
                 "end_time": {
                     "type": "string",
-                    "description": "Optional end of requested weather window in ISO-8601 format (e.g. 2026-05-06T18:00:00+12:00). Must be after start_time."
+                    "description": "Optional local end of requested weather window in ISO-8601 with explicit offset (e.g. 2026-05-07T16:00:00+12:00). Keep local hour semantics and do not pre-convert to UTC. Must be after start_time."
                 }
             },
             "required": ["latitude", "longitude"],
@@ -575,8 +575,9 @@ def GetWeather(latitude, longitude, start_time=None, end_time=None, field_names=
     }
 
     if start_time is not None and end_time is not None:
-        params["start_hour"] = start_time.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:00")
-        params["end_hour"] = end_time.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:00")
+        # Keep user-requested local wall-clock hours for weather window selection.
+        params["start_hour"] = start_time.strftime("%Y-%m-%dT%H:00")
+        params["end_hour"] = end_time.strftime("%Y-%m-%dT%H:00")
 
     url = f"https://api.open-meteo.com/v1/forecast?{urlencode(params)}"
 
@@ -662,8 +663,8 @@ def _parse_iso_datetime(value):
     except ValueError:
         return None
     if parsed.tzinfo is None:
-        return parsed.replace(tzinfo=timezone.utc)
-    return parsed.astimezone(timezone.utc)
+        return None
+    return parsed
 
 
 def ToolUse(name, args):
@@ -833,7 +834,7 @@ def ToolUse(name, args):
                 "status": "failed",
                 "tool": "GetWeather",
                 "location": {"latitude": latitude, "longitude": longitude},
-                "error": "start_time and end_time must be valid ISO-8601 datetime values.",
+                "error": "start_time and end_time must be valid ISO-8601 datetime values with explicit timezone offsets.",
             }
         if start_time and end_time and end_time <= start_time:
             return {
