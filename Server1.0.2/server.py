@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import ast
 import operator as op
-from flask import Flask, Response, jsonify, render_template, request, send_from_directory, session, stream_with_context # type: ignore
+from flask import Flask, Response, jsonify, redirect, render_template, request, send_from_directory, session, stream_with_context # type: ignore
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import Lock
 import sqlite3
@@ -27,10 +27,11 @@ from urllib.request import urlopen
 from pathlib import Path
 from werkzeug.security import check_password_hash, generate_password_hash
 
-global USERNAME, PASSWORD, api_key
+global api_key
 warnings.simplefilter("ignore", DeprecationWarning)
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRETARIAT_APP_SECRET", "replace-me-in-production")
+api_key = ""
 session_store = {}
 session_store_lock = Lock()
 SESSION_TTL_SECONDS = 6 * 60 * 60
@@ -122,6 +123,19 @@ def _init_db():
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS user_settings (
+                user_id INTEGER PRIMARY KEY,
+                caldav_url TEXT,
+                caldav_username TEXT,
+                caldav_password TEXT,
+                caldav_calendar TEXT,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (user_id) REFERENCES users (id)
+            )
+            """
+        )
         conn.commit()
 
 
@@ -139,6 +153,65 @@ def _require_auth():
     if not user_id:
         return jsonify({"ok": False, "error": "Authentication required."}), 401
     return None
+
+
+def _get_user_settings(user_id: int):
+    with _db_conn() as conn:
+        return conn.execute(
+            """
+            SELECT user_id, caldav_url, caldav_username, caldav_password, caldav_calendar, updated_at
+            FROM user_settings
+            WHERE user_id = ?
+            """,
+            (user_id,),
+        ).fetchone()
+
+
+def _get_user_caldav_settings(user_id: int) -> dict[str, str]:
+    row = _get_user_settings(user_id)
+    if not row:
+        raise ValueError("CalDAV settings are missing. Open Settings and add your CalDAV URL, username, and password.")
+
+    caldav_url = str(row["caldav_url"] or "").strip()
+    caldav_username = str(row["caldav_username"] or "").strip()
+    caldav_password = str(row["caldav_password"] or "")
+    caldav_calendar = str(row["caldav_calendar"] or "").strip()
+
+    if not caldav_url or not caldav_username or not caldav_password:
+        raise ValueError("CalDAV settings are incomplete. Open Settings and add your CalDAV URL, username, and password.")
+
+    return {
+        "url": caldav_url,
+        "username": caldav_username,
+        "password": caldav_password,
+        "calendar": caldav_calendar,
+    }
+
+
+def _get_user_caldav_calendars(user_id: int):
+    settings = _get_user_caldav_settings(user_id)
+    client = DAVClient(
+        url=settings["url"],
+        username=settings["username"],
+        password=settings["password"],
+    )
+    principal = client.principal()
+    calendars = principal.calendars()
+    if not calendars:
+        raise ValueError("No calendars are available for this CalDAV account.")
+
+    preferred_calendar = settings["calendar"].strip().lower()
+    if preferred_calendar:
+        matching = [
+            calendar
+            for calendar in calendars
+            if str(calendar.get_display_name() or "").strip().lower() == preferred_calendar
+        ]
+        if not matching:
+            raise ValueError(f'Calendar "{settings["calendar"]}" was not found for this CalDAV account.')
+        return matching
+
+    return calendars
 
 
 def _utc_now():
@@ -568,7 +641,7 @@ def load_value_file(path: str) -> dict[str, str]:
     return data
 
 
-def AddEvent(title, start, finish, location, description, rrule):
+def AddEvent(user_id, title, start, finish, location, description, rrule):
     event_lines = [
         "BEGIN:VCALENDAR",
         "VERSION:2.0",
@@ -585,31 +658,19 @@ def AddEvent(title, start, finish, location, description, rrule):
         event_lines.append(f"RRULE:{rrule}")
     event_lines.extend(["END:VEVENT", "END:VCALENDAR"])
     event = "\n".join(event_lines)
-    client = DAVClient(
-        url="https://caldav.icloud.com",
-        username=USERNAME,
-        password=PASSWORD
-    )
-    principal = client.principal()
-    calendars = principal.calendars()
-    calendar = calendars[0]  # first iCloud calendar
+    calendars = _get_user_caldav_calendars(int(user_id))
+    calendar = calendars[0]
     calendar.add_event(event)
     return {'status' : 'Complete'}
 
 
-def GetEvents(start, end):
+def GetEvents(user_id, start, end):
     def parse_utc_z(ts):
         return datetime.strptime(ts, "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
 
     start = parse_utc_z(start)
     end = parse_utc_z(end)
-    client = DAVClient(
-        url="https://caldav.icloud.com",
-        username=USERNAME,
-        password=PASSWORD
-    )
-    principal = client.principal()
-    calendars = principal.calendars()
+    calendars = _get_user_caldav_calendars(int(user_id))
     results = []
     for cal in calendars:
         events = cal.date_search(start=start, end=end)
@@ -631,14 +692,8 @@ def GetEvents(start, end):
     return results
 
 
-def DeleteEvent(uid):
-    client = DAVClient(
-        url="https://caldav.icloud.com",
-        username=USERNAME,
-        password=PASSWORD
-    )
-    principal = client.principal()
-    calendars = principal.calendars()
+def DeleteEvent(user_id, uid):
+    calendars = _get_user_caldav_calendars(int(user_id))
     for cal in calendars:
         for event in cal.events():
             data = event.vobject_instance
@@ -705,14 +760,8 @@ def _build_event_ics(uid, title, start, finish, location="", description="", rru
     return "\n".join(lines)
 
 
-def EditEvent(uid, title=None, start=None, finish=None, location=None, description=None, rrule=None):
-    client = DAVClient(
-        url="https://caldav.icloud.com",
-        username=USERNAME,
-        password=PASSWORD
-    )
-    principal = client.principal()
-    calendars = principal.calendars()
+def EditEvent(user_id, uid, title=None, start=None, finish=None, location=None, description=None, rrule=None):
+    calendars = _get_user_caldav_calendars(int(user_id))
     for cal in calendars:
         for event in cal.events():
             data = event.vobject_instance
@@ -886,7 +935,7 @@ def _parse_iso_datetime(value):
     return parsed
 
 
-def ToolUse(name, args):
+def ToolUse(name, args, user_id=None):
     _log_json("TOOL_DEPLOY", {"tool": name, "args": args})
 
     # Add Calender Event
@@ -899,6 +948,7 @@ def ToolUse(name, args):
         rrule = args.get("rrule", "")
         try:
             output = AddEvent(
+                user_id=user_id,
                 title=title,
                 start=start,
                 finish=finish,
@@ -923,6 +973,7 @@ def ToolUse(name, args):
         end = args.get("end")
         try:
             output = GetEvents(
+                user_id=user_id,
                 start=start,
                 end=end,
             )
@@ -940,6 +991,7 @@ def ToolUse(name, args):
         uid = args.get('uid')
         try:
             output = DeleteEvent(
+                user_id=user_id,
                 uid=uid
             )
             if isinstance(output, dict):
@@ -1004,6 +1056,7 @@ def ToolUse(name, args):
         rrule = args.get("rrule")
         try:
             output = EditEvent(
+                user_id=user_id,
                 uid=uid,
                 title=title,
                 start=start,
@@ -1099,13 +1152,13 @@ def ToolUse(name, args):
     }
 
 
-def _execute_function_calls_parallel(function_calls):
+def _execute_function_calls_parallel(function_calls, user_id=None):
     if not function_calls:
         return []
 
     if len(function_calls) == 1:
         call = function_calls[0]
-        result = ToolUse(call["name"], call["args"])
+        result = ToolUse(call["name"], call["args"], user_id=user_id)
         return [{
             "type": "function_call_output",
             "call_id": call["call_id"],
@@ -1118,7 +1171,7 @@ def _execute_function_calls_parallel(function_calls):
         batch = function_calls[i:i + batch_size]
         with ThreadPoolExecutor(max_workers=len(batch)) as executor:
             future_to_call = {
-                executor.submit(ToolUse, call["name"], call["args"]): call
+                executor.submit(ToolUse, call["name"], call["args"], user_id): call
                 for call in batch
             }
             for future in as_completed(future_to_call):
@@ -1218,7 +1271,7 @@ def ask_gpt54(user_input, system_prompt, results, previous_response_id=None, use
     return response
 
 
-def run_secretariat(prompt_text, image_data_url=None, previous_response_id=None, user_timezone=None, location_context=None, max_turns=12, status_callback=None):
+def run_secretariat(prompt_text, image_data_url=None, previous_response_id=None, user_timezone=None, location_context=None, max_turns=12, status_callback=None, user_id=None):
     results = []
     state = "RUNNING"
     assistant_message = ""
@@ -1266,7 +1319,7 @@ def run_secretariat(prompt_text, image_data_url=None, previous_response_id=None,
             _log("TOOL_BATCH", f"Executing {len(function_calls)} tool call(s)")
             if status_callback:
                 status_callback(_batch_status_label(function_calls))
-            results.extend(_execute_function_calls_parallel(function_calls))
+            results.extend(_execute_function_calls_parallel(function_calls, user_id=user_id))
             continue
 
         if state in {"WAITING", "DONE"}:
@@ -1287,6 +1340,15 @@ def run_secretariat(prompt_text, image_data_url=None, previous_response_id=None,
 @app.get("/")
 def home():
     return render_template("Secretariat.html")
+
+
+@app.get("/settings")
+def settings_page():
+    _restore_auth_from_trusted_device()
+    if not session.get("user_id"):
+        return redirect("/")
+    return render_template("settings.html")
+
 
 @app.get("/templates/styles.css")
 def template_styles():
@@ -1371,6 +1433,107 @@ def api_auth_signout():
     return response
 
 
+@app.get("/api/settings/caldav")
+def api_settings_caldav_get():
+    auth_error = _require_auth()
+    if auth_error:
+        return auth_error
+
+    user_id = int(session["user_id"])
+    row = _get_user_settings(user_id)
+    settings_payload = {
+        "caldav_url": str(row["caldav_url"] or "").strip() if row else "",
+        "caldav_username": str(row["caldav_username"] or "").strip() if row else "",
+        "caldav_calendar": str(row["caldav_calendar"] or "").strip() if row else "",
+        "has_password": bool(str(row["caldav_password"] or "")) if row else False,
+    }
+    return jsonify({"ok": True, "settings": settings_payload})
+
+
+@app.post("/api/settings/caldav")
+def api_settings_caldav_save():
+    auth_error = _require_auth()
+    if auth_error:
+        return auth_error
+
+    payload = request.get_json(silent=True) or {}
+    user_id = int(session["user_id"])
+    caldav_url = str(payload.get("caldav_url", "")).strip()
+    caldav_username = str(payload.get("caldav_username", "")).strip()
+    caldav_calendar = str(payload.get("caldav_calendar", "")).strip()
+    caldav_password_incoming = payload.get("caldav_password")
+    caldav_password_incoming = "" if caldav_password_incoming is None else str(caldav_password_incoming)
+    updated_at = _utc_now().isoformat()
+
+    existing = _get_user_settings(user_id)
+    caldav_password = caldav_password_incoming if caldav_password_incoming else str(existing["caldav_password"] or "") if existing else ""
+
+    with _db_conn() as conn:
+        if existing:
+            conn.execute(
+                """
+                UPDATE user_settings
+                SET caldav_url = ?, caldav_username = ?, caldav_password = ?, caldav_calendar = ?, updated_at = ?
+                WHERE user_id = ?
+                """,
+                (caldav_url, caldav_username, caldav_password, caldav_calendar, updated_at, user_id),
+            )
+        else:
+            conn.execute(
+                """
+                INSERT INTO user_settings (user_id, caldav_url, caldav_username, caldav_password, caldav_calendar, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (user_id, caldav_url, caldav_username, caldav_password, caldav_calendar, updated_at),
+            )
+        conn.commit()
+
+    return jsonify({
+        "ok": True,
+        "settings": {
+            "caldav_url": caldav_url,
+            "caldav_username": caldav_username,
+            "caldav_calendar": caldav_calendar,
+            "has_password": bool(caldav_password),
+        },
+    })
+
+
+@app.post("/api/account/delete")
+def api_account_delete():
+    auth_error = _require_auth()
+    if auth_error:
+        return auth_error
+
+    payload = request.get_json(silent=True) or {}
+    confirmation_email = _normalize_email(payload.get("email", ""))
+    current_email = _normalize_email(session.get("email", ""))
+    user_id = int(session["user_id"])
+
+    if not confirmation_email or confirmation_email != current_email:
+        return jsonify({"ok": False, "error": "Enter your username exactly to delete this account."}), 400
+
+    with _db_conn() as conn:
+        conn.execute("DELETE FROM trusted_devices WHERE user_id = ?", (user_id,))
+        conn.execute("DELETE FROM user_settings WHERE user_id = ?", (user_id,))
+        conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
+        conn.commit()
+
+    with session_store_lock:
+        stale_session_ids = [
+            sid
+            for sid, data in session_store.items()
+            if int(data.get("user_id", 0) or 0) == user_id
+        ]
+        for sid in stale_session_ids:
+            session_store.pop(sid, None)
+
+    session.clear()
+    response = jsonify({"ok": True})
+    _clear_trusted_device_cookie(response)
+    return response
+
+
 @app.get("/api/auth/devices")
 def api_auth_devices():
     auth_error = _require_auth()
@@ -1449,10 +1612,13 @@ def api_secretariat():
     prompt_text = str(payload.get("prompt", "")).strip()
     image_data_url = payload.get("image_data_url")
     session_id = str(payload.get("session_id", "")).strip() or str(uuid.uuid4())
+    user_id = int(session["user_id"])
     now_ts = datetime.now(timezone.utc).timestamp()
     with session_store_lock:
         _prune_sessions(now_ts)
         session_data = session_store.get(session_id, {})
+    if session_data.get("user_id") not in (None, user_id):
+        session_data = {}
     previous_response_id = session_data.get("previous_response_id")
     payload_timezone = str(payload.get("timezone", "")).strip()
     payload_location = payload.get("location") if isinstance(payload.get("location"), dict) else {}
@@ -1479,9 +1645,11 @@ def api_secretariat():
             previous_response_id=previous_response_id,
             user_timezone=user_timezone,
             location_context=weather_location,
+            user_id=user_id,
         )
         with session_store_lock:
             session_store[session_id] = {
+                "user_id": user_id,
                 "previous_response_id": result.get("previous_response_id"),
                 "timezone": user_timezone,
                 "weather_location": weather_location,
@@ -1511,10 +1679,13 @@ def api_secretariat_stream():
     prompt_text = str(payload.get("prompt", "")).strip()
     image_data_url = payload.get("image_data_url")
     session_id = str(payload.get("session_id", "")).strip() or str(uuid.uuid4())
+    user_id = int(session["user_id"])
     now_ts = datetime.now(timezone.utc).timestamp()
     with session_store_lock:
         _prune_sessions(now_ts)
         session_data = session_store.get(session_id, {})
+    if session_data.get("user_id") not in (None, user_id):
+        session_data = {}
     previous_response_id = session_data.get("previous_response_id")
     payload_timezone = str(payload.get("timezone", "")).strip()
     payload_location = payload.get("location") if isinstance(payload.get("location"), dict) else {}
@@ -1587,7 +1758,7 @@ def api_secretariat_stream():
                 if saw_function_call:
                     _log("TOOL_BATCH", f"Executing {len(function_calls)} tool call(s)")
                     yield emit({"type": "status", "label": _batch_status_label(function_calls)})
-                    results.extend(_execute_function_calls_parallel(function_calls))
+                    results.extend(_execute_function_calls_parallel(function_calls, user_id=user_id))
                     continue
 
                 if state in {"WAITING", "DONE"}:
@@ -1601,6 +1772,7 @@ def api_secretariat_stream():
             }
             with session_store_lock:
                 session_store[session_id] = {
+                    "user_id": user_id,
                     "previous_response_id": result.get("previous_response_id"),
                     "timezone": user_timezone,
                     "weather_location": weather_location,
@@ -1628,6 +1800,7 @@ def api_session_init():
         return auth_error
     payload = request.get_json(silent=True) or {}
     session_id = str(payload.get("session_id", "")).strip() or str(uuid.uuid4())
+    user_id = int(session["user_id"])
     now_ts = datetime.now(timezone.utc).timestamp()
     timezone_name = str(payload.get("timezone", "")).strip()
     location = payload.get("location") if isinstance(payload.get("location"), dict) else {}
@@ -1639,8 +1812,10 @@ def api_session_init():
         _prune_sessions(now_ts)
         session_data = session_store.get(
             session_id,
-            {"previous_response_id": None, "timezone": None, "weather_location": None, "last_seen_ts": now_ts},
+            {"user_id": user_id, "previous_response_id": None, "timezone": None, "weather_location": None, "last_seen_ts": now_ts},
         )
+        if session_data.get("user_id") not in (None, user_id):
+            session_data = {"user_id": user_id, "previous_response_id": None, "timezone": None, "weather_location": None, "last_seen_ts": now_ts}
         if timezone_name:
             session_data["timezone"] = timezone_name
         if latitude is not None and longitude is not None:
@@ -1650,6 +1825,7 @@ def api_session_init():
                 "accuracy_m": location_accuracy_m,
             }
         session_data["last_seen_ts"] = now_ts
+        session_data["user_id"] = user_id
         session_store[session_id] = session_data
 
     return jsonify(
@@ -1666,8 +1842,6 @@ if __name__ == "__main__":
     LISTS_DIR.mkdir(parents=True, exist_ok=True)
     _init_db()
     secret = load_value_file('secrets.txt')
-    USERNAME = secret['USERNAME']
-    PASSWORD =  secret['PASSWORD']
     api_key = secret['api_key']
     app.run(host="127.0.0.1", port=8000, debug=False)
 
