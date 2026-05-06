@@ -9,7 +9,7 @@ import sqlite3
 import re
 import os
 
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 from caldav import DAVClient # type: ignore
 from openai import OpenAI # type: ignore
@@ -20,6 +20,8 @@ import base64
 import mimetypes
 import uuid
 import traceback
+import secrets
+import hashlib
 from urllib.parse import urlencode
 from urllib.request import urlopen
 from pathlib import Path
@@ -32,6 +34,8 @@ app.secret_key = os.environ.get("SECRETARIAT_APP_SECRET", "replace-me-in-product
 session_store = {}
 session_store_lock = Lock()
 SESSION_TTL_SECONDS = 6 * 60 * 60
+TRUSTED_DEVICE_COOKIE = "secretariat_trusted_device"
+TRUSTED_DEVICE_DAYS = 60
 MAX_PARALLEL_TOOL_CALLS = 10
 LISTS_DIR = Path(__file__).resolve().parent / "lists"
 DB_PATH = Path(__file__).resolve().parent / "secretariat.db"
@@ -101,6 +105,23 @@ def _init_db():
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS trusted_devices (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                token_hash TEXT NOT NULL UNIQUE,
+                device_label TEXT,
+                user_agent TEXT,
+                created_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                last_used_at TEXT NOT NULL,
+                last_used_ip TEXT,
+                revoked_at TEXT,
+                FOREIGN KEY (user_id) REFERENCES users (id)
+            )
+            """
+        )
         conn.commit()
 
 
@@ -113,10 +134,135 @@ def _valid_email(email: str) -> bool:
 
 
 def _require_auth():
+    _restore_auth_from_trusted_device()
     user_id = session.get("user_id")
     if not user_id:
         return jsonify({"ok": False, "error": "Authentication required."}), 401
     return None
+
+
+def _utc_now():
+    return datetime.now(timezone.utc)
+
+
+def _device_token_hash(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def _client_ip() -> str | None:
+    xff = request.headers.get("X-Forwarded-For", "")
+    if xff:
+        return xff.split(",")[0].strip() or None
+    return request.remote_addr
+
+
+def _restore_auth_from_trusted_device() -> bool:
+    if session.get("user_id") and session.get("email"):
+        return True
+
+    token = request.cookies.get(TRUSTED_DEVICE_COOKIE, "")
+    if not token:
+        return False
+
+    token_hash = _device_token_hash(token)
+    now_iso = _utc_now().isoformat()
+    with _db_conn() as conn:
+        row = conn.execute(
+            """
+            SELECT td.id AS trusted_device_id, u.id AS user_id, u.email AS email
+            FROM trusted_devices td
+            JOIN users u ON u.id = td.user_id
+            WHERE td.token_hash = ?
+              AND td.revoked_at IS NULL
+              AND td.expires_at > ?
+            """,
+            (token_hash, now_iso),
+        ).fetchone()
+        if not row:
+            return False
+        conn.execute(
+            """
+            UPDATE trusted_devices
+            SET last_used_at = ?, last_used_ip = ?
+            WHERE id = ?
+            """,
+            (now_iso, _client_ip(), int(row["trusted_device_id"])),
+        )
+        conn.commit()
+
+    session["user_id"] = int(row["user_id"])
+    session["email"] = str(row["email"])
+    return True
+
+
+def _set_trusted_device_cookie(response: Response, token: str, expires_at: datetime):
+    response.set_cookie(
+        TRUSTED_DEVICE_COOKIE,
+        token,
+        httponly=True,
+        secure=not app.debug,
+        samesite="Lax",
+        expires=expires_at,
+    )
+
+
+def _clear_trusted_device_cookie(response: Response):
+    response.set_cookie(
+        TRUSTED_DEVICE_COOKIE,
+        "",
+        httponly=True,
+        secure=not app.debug,
+        samesite="Lax",
+        expires=0,
+    )
+
+
+def _issue_trusted_device(user_id: int, device_label: str | None = None):
+    token = secrets.token_urlsafe(48)
+    token_hash = _device_token_hash(token)
+    now = _utc_now()
+    expires_at = now + timedelta(days=TRUSTED_DEVICE_DAYS)
+    safe_user_agent = str(request.headers.get("User-Agent", ""))[:512]
+    safe_label = (device_label or safe_user_agent or "Trusted device")[:120]
+
+    with _db_conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO trusted_devices (
+                user_id, token_hash, device_label, user_agent, created_at, expires_at, last_used_at, last_used_ip, revoked_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)
+            """,
+            (
+                user_id,
+                token_hash,
+                safe_label,
+                safe_user_agent,
+                now.isoformat(),
+                expires_at.isoformat(),
+                now.isoformat(),
+                _client_ip(),
+            ),
+        )
+        conn.commit()
+    return token, expires_at
+
+
+def _revoke_trusted_device_by_cookie():
+    token = request.cookies.get(TRUSTED_DEVICE_COOKIE, "")
+    if not token:
+        return
+    token_hash = _device_token_hash(token)
+    now_iso = _utc_now().isoformat()
+    with _db_conn() as conn:
+        conn.execute(
+            """
+            UPDATE trusted_devices
+            SET revoked_at = ?
+            WHERE token_hash = ? AND revoked_at IS NULL
+            """,
+            (now_iso, token_hash),
+        )
+        conn.commit()
 
 
 _init_db()
@@ -1149,6 +1295,7 @@ def template_styles():
 
 @app.get("/api/auth/me")
 def api_auth_me():
+    _restore_auth_from_trusted_device()
     user_id = session.get("user_id")
     email = session.get("email")
     if not user_id or not email:
@@ -1190,6 +1337,8 @@ def api_auth_signin():
     payload = request.get_json(silent=True) or {}
     email = _normalize_email(payload.get("email", ""))
     password = str(payload.get("password", ""))
+    trust_device = bool(payload.get("trust_device", False))
+    device_label = str(payload.get("device_label", "")).strip()
 
     with _db_conn() as conn:
         row = conn.execute(
@@ -1200,14 +1349,93 @@ def api_auth_signin():
     if not row or not check_password_hash(str(row["password_hash"]), password):
         return jsonify({"ok": False, "error": "Invalid username or password."}), 401
 
-    session["user_id"] = int(row["id"])
-    session["email"] = str(row["email"])
-    return jsonify({"ok": True, "user": {"id": int(row['id']), "email": str(row['email'])}})
+    user_id = int(row["id"])
+    user_email = str(row["email"])
+    session["user_id"] = user_id
+    session["email"] = user_email
+    response = jsonify({"ok": True, "user": {"id": user_id, "email": user_email}})
+
+    if trust_device:
+        token, expires_at = _issue_trusted_device(user_id, device_label=device_label or None)
+        _set_trusted_device_cookie(response, token, expires_at)
+
+    return response
 
 
 @app.post("/api/auth/signout")
 def api_auth_signout():
+    _revoke_trusted_device_by_cookie()
     session.clear()
+    response = jsonify({"ok": True})
+    _clear_trusted_device_cookie(response)
+    return response
+
+
+@app.get("/api/auth/devices")
+def api_auth_devices():
+    auth_error = _require_auth()
+    if auth_error:
+        return auth_error
+
+    user_id = int(session["user_id"])
+    now_iso = _utc_now().isoformat()
+    with _db_conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT id, device_label, user_agent, created_at, expires_at, last_used_at, last_used_ip
+            FROM trusted_devices
+            WHERE user_id = ?
+              AND revoked_at IS NULL
+              AND expires_at > ?
+            ORDER BY last_used_at DESC
+            """,
+            (user_id, now_iso),
+        ).fetchall()
+
+    devices = [
+        {
+            "id": int(row["id"]),
+            "label": str(row["device_label"] or ""),
+            "user_agent": str(row["user_agent"] or ""),
+            "created_at": str(row["created_at"]),
+            "expires_at": str(row["expires_at"]),
+            "last_used_at": str(row["last_used_at"]),
+            "last_used_ip": str(row["last_used_ip"] or ""),
+        }
+        for row in rows
+    ]
+    return jsonify({"ok": True, "devices": devices})
+
+
+@app.post("/api/auth/devices/revoke")
+def api_auth_revoke_device():
+    auth_error = _require_auth()
+    if auth_error:
+        return auth_error
+
+    payload = request.get_json(silent=True) or {}
+    device_id = int(payload.get("device_id", 0))
+    if device_id <= 0:
+        return jsonify({"ok": False, "error": "Valid device_id is required."}), 400
+
+    user_id = int(session["user_id"])
+    now_iso = _utc_now().isoformat()
+    with _db_conn() as conn:
+        cursor = conn.execute(
+            """
+            UPDATE trusted_devices
+            SET revoked_at = ?
+            WHERE id = ?
+              AND user_id = ?
+              AND revoked_at IS NULL
+            """,
+            (now_iso, device_id, user_id),
+        )
+        conn.commit()
+        changed = int(cursor.rowcount or 0)
+
+    if changed == 0:
+        return jsonify({"ok": False, "error": "Trusted device not found."}), 404
     return jsonify({"ok": True})
 
 

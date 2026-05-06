@@ -15,9 +15,14 @@ const authPasswordEl = document.getElementById("auth-password");
 const authSubmitEl = document.getElementById("auth-submit");
 const authToggleEl = document.getElementById("auth-toggle");
 const authSignoutEl = document.getElementById("auth-signout");
-const topSignoutEl = document.getElementById("top-signout");
+const chatMenuTriggerEl = document.getElementById("chat-menu-trigger");
+const chatMenuEl = document.getElementById("chat-menu");
+const chatSettingsEl = document.getElementById("chat-settings");
+const chatSignoutEl = document.getElementById("chat-signout");
 const authSubtitleEl = document.getElementById("auth-subtitle");
 const authStatusEl = document.getElementById("auth-status");
+const authTrustDeviceEl = document.getElementById("auth-trust-device");
+const authTrustWrapEl = document.getElementById("auth-trust-wrap");
 const MAX_PROMPT_HEIGHT = 180;
 const isTouchDevice = window.matchMedia("(pointer: coarse)").matches;
 let attachedImageDataUrl = null;
@@ -307,8 +312,14 @@ function updateAuthUi() {
   if (authSignoutEl) {
     authSignoutEl.classList.toggle("hidden", !isAuthenticated);
   }
-  if (topSignoutEl) {
-    topSignoutEl.classList.toggle("hidden", !isAuthenticated);
+  if (!isAuthenticated && chatMenuEl) {
+    chatMenuEl.classList.add("hidden");
+    if (chatMenuTriggerEl) {
+      chatMenuTriggerEl.setAttribute("aria-expanded", "false");
+    }
+  }
+  if (chatSignoutEl) {
+    chatSignoutEl.disabled = !isAuthenticated;
   }
   if (authSubmitEl) {
     authSubmitEl.textContent = isSignupMode ? "Sign Up" : "Sign In";
@@ -320,6 +331,9 @@ function updateAuthUi() {
   }
   if (authSubtitleEl) {
     authSubtitleEl.textContent = isSignupMode ? "Create your account." : "Sign in to continue.";
+  }
+  if (authTrustWrapEl) {
+    authTrustWrapEl.classList.toggle("hidden", isSignupMode);
   }
 }
 
@@ -471,13 +485,19 @@ authFormEl.addEventListener("submit", async (event) => {
   event.preventDefault();
   const email = (authEmailEl.value || "").trim();
   const password = authPasswordEl.value || "";
+  const trustDevice = Boolean(authTrustDeviceEl && authTrustDeviceEl.checked && !isSignupMode);
   const endpoint = isSignupMode ? "/api/auth/signup" : "/api/auth/signin";
   setAuthStatus("Working...");
   try {
     const response = await fetch(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password })
+      body: JSON.stringify({
+        email,
+        password,
+        trust_device: trustDevice,
+        device_label: navigator.userAgent || "Browser device"
+      })
     });
     const data = await response.json();
     if (!response.ok || !data.ok) {
@@ -502,13 +522,57 @@ async function signOut() {
   isAuthenticated = false;
   currentSessionId = "";
   updateAuthUi();
+  if (chatMenuEl) {
+    chatMenuEl.classList.add("hidden");
+  }
+  if (chatMenuTriggerEl) {
+    chatMenuTriggerEl.setAttribute("aria-expanded", "false");
+  }
   setAuthStatus("Signed out.");
 }
 
 authSignoutEl.addEventListener("click", signOut);
-if (topSignoutEl) {
-  topSignoutEl.addEventListener("click", signOut);
+if (chatSignoutEl) {
+  chatSignoutEl.addEventListener("click", signOut);
 }
+
+if (chatMenuTriggerEl && chatMenuEl) {
+  chatMenuTriggerEl.addEventListener("click", (event) => {
+    event.stopPropagation();
+    const isOpen = !chatMenuEl.classList.contains("hidden");
+    chatMenuEl.classList.toggle("hidden", isOpen);
+    chatMenuTriggerEl.setAttribute("aria-expanded", String(!isOpen));
+  });
+}
+
+if (chatSettingsEl) {
+  chatSettingsEl.addEventListener("click", () => {
+    if (chatMenuEl) {
+      chatMenuEl.classList.add("hidden");
+    }
+    if (chatMenuTriggerEl) {
+      chatMenuTriggerEl.setAttribute("aria-expanded", "false");
+    }
+    setMetaStatus("Settings coming soon.", { autoFade: true, fadeDelayMs: 2400 });
+  });
+}
+
+if (chatSignoutEl) {
+  chatSignoutEl.addEventListener("click", () => {
+    if (!isAuthenticated) {
+      setMetaStatus("You're already signed out.", { autoFade: true, fadeDelayMs: 2200 });
+    }
+  });
+}
+
+document.addEventListener("click", (event) => {
+  if (!chatMenuEl || !chatMenuTriggerEl) return;
+  const target = event.target;
+  if (!(target instanceof Node)) return;
+  if (chatMenuEl.contains(target) || chatMenuTriggerEl.contains(target)) return;
+  chatMenuEl.classList.add("hidden");
+  chatMenuTriggerEl.setAttribute("aria-expanded", "false");
+});
 
 autoSizePrompt();
 initializeComposerFloating();

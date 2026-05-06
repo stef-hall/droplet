@@ -32,6 +32,19 @@
   </section>
 
   <main class="app-shell">
+    <header class="chat-header">
+      <div class="chat-header-spacer" aria-hidden="true"></div>
+      <div class="chat-menu-wrap">
+        <button id="chat-menu-trigger" type="button" class="chat-menu-trigger" aria-label="Open menu" aria-haspopup="true" aria-expanded="false">
+          <img src="/static/icons/user.png" alt="" class="chat-menu-trigger-icon" aria-hidden="true">
+        </button>
+        <div id="chat-menu" class="chat-menu hidden" role="menu" aria-label="Account menu">
+          <button id="chat-settings" type="button" class="chat-menu-item" role="menuitem">Settings</button>
+          <button id="chat-signout" type="button" class="chat-menu-item" role="menuitem">Sign out</button>
+        </div>
+      </div>
+    </header>
+
     <section id="chat-feed" class="chat-feed" aria-live="polite">
       <article id="initial-assistant-message" class="msg assistant initial-assistant-message hero">
         <div class="bubble">What do you need help scheduling today?</div>
