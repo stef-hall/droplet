@@ -4,6 +4,7 @@ import ast
 import operator as op
 from flask import Flask, jsonify, render_template, request, send_from_directory # type: ignore
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from threading import Lock
 
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
@@ -24,6 +25,8 @@ global USERNAME, PASSWORD, api_key
 warnings.simplefilter("ignore", DeprecationWarning)
 app = Flask(__name__)
 session_store = {}
+session_store_lock = Lock()
+SESSION_TTL_SECONDS = 6 * 60 * 60
 MAX_PARALLEL_TOOL_CALLS = 10
 LISTS_DIR = Path(__file__).resolve().parent / "lists"
 
@@ -37,6 +40,16 @@ def _log_json(label, payload):
     stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     pretty = json.dumps(payload, indent=2, ensure_ascii=False, default=str)
     print(f"[{stamp}] [{label}] {pretty}", flush=True)
+
+
+def _prune_sessions(now_ts: float):
+    stale_ids = [
+        sid
+        for sid, data in session_store.items()
+        if now_ts - float(data.get("last_seen_ts", now_ts)) > SESSION_TTL_SECONDS
+    ]
+    for sid in stale_ids:
+        session_store.pop(sid, None)
 
 
 def get_available_lists():
@@ -1063,7 +1076,10 @@ def api_secretariat():
     prompt_text = str(payload.get("prompt", "")).strip()
     image_data_url = payload.get("image_data_url")
     session_id = str(payload.get("session_id", "")).strip() or str(uuid.uuid4())
-    session_data = session_store.get(session_id, {})
+    now_ts = datetime.now(timezone.utc).timestamp()
+    with session_store_lock:
+        _prune_sessions(now_ts)
+        session_data = session_store.get(session_id, {})
     previous_response_id = session_data.get("previous_response_id")
     payload_timezone = str(payload.get("timezone", "")).strip()
     payload_location = payload.get("location") if isinstance(payload.get("location"), dict) else {}
@@ -1091,11 +1107,13 @@ def api_secretariat():
             user_timezone=user_timezone,
             location_context=weather_location,
         )
-        session_store[session_id] = {
-            "previous_response_id": result.get("previous_response_id"),
-            "timezone": user_timezone,
-            "weather_location": weather_location,
-        }
+        with session_store_lock:
+            session_store[session_id] = {
+                "previous_response_id": result.get("previous_response_id"),
+                "timezone": user_timezone,
+                "weather_location": weather_location,
+                "last_seen_ts": now_ts,
+            }
         _log_json("API_SECRETARIAT_RESULT", {"session_id": session_id, **result})
         return jsonify({"ok": True, "session_id": session_id, **result})
     except Exception as e:
@@ -1114,25 +1132,29 @@ def api_secretariat():
 def api_session_init():
     payload = request.get_json(silent=True) or {}
     session_id = str(payload.get("session_id", "")).strip() or str(uuid.uuid4())
+    now_ts = datetime.now(timezone.utc).timestamp()
     timezone_name = str(payload.get("timezone", "")).strip()
     location = payload.get("location") if isinstance(payload.get("location"), dict) else {}
     latitude = _coerce_float(location.get("latitude"))
     longitude = _coerce_float(location.get("longitude"))
     location_accuracy_m = _coerce_float(location.get("accuracy_m"))
 
-    session_data = session_store.get(
-        session_id,
-        {"previous_response_id": None, "timezone": None, "weather_location": None},
-    )
-    if timezone_name:
-        session_data["timezone"] = timezone_name
-    if latitude is not None and longitude is not None:
-        session_data["weather_location"] = {
-            "latitude": latitude,
-            "longitude": longitude,
-            "accuracy_m": location_accuracy_m,
-        }
-    session_store[session_id] = session_data
+    with session_store_lock:
+        _prune_sessions(now_ts)
+        session_data = session_store.get(
+            session_id,
+            {"previous_response_id": None, "timezone": None, "weather_location": None, "last_seen_ts": now_ts},
+        )
+        if timezone_name:
+            session_data["timezone"] = timezone_name
+        if latitude is not None and longitude is not None:
+            session_data["weather_location"] = {
+                "latitude": latitude,
+                "longitude": longitude,
+                "accuracy_m": location_accuracy_m,
+            }
+        session_data["last_seen_ts"] = now_ts
+        session_store[session_id] = session_data
 
     return jsonify(
         {

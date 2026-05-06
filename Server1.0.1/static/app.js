@@ -16,6 +16,7 @@ let doneFadeTimer = null;
 let detectedTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
 let detectedLocation = null;
 let currentSessionId = "";
+let initSessionPromise = null;
 
 function getBrowserLocation() {
   return new Promise((resolve) => {
@@ -288,6 +289,14 @@ async function initSession() {
 }
 
 async function submitPromptText(prompt) {
+  if (initSessionPromise) {
+    try {
+      await initSessionPromise;
+    } catch (_) {
+      // Non-fatal.
+    }
+  }
+
   appendMessage("user", prompt);
   promptInput.value = "";
   autoSizePrompt();
@@ -329,7 +338,7 @@ async function submitPromptText(prompt) {
   }
 }
 
-initSession();
+initSessionPromise = initSession();
 autoSizePrompt();
 initializeComposerFloating();
 
