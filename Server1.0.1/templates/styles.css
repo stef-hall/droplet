@@ -338,6 +338,7 @@ textarea {
 }
 
 .msg.user .bubble {
+  font-weight: 400;
   background: var(--user);
   box-shadow: 0 1px 5px rgba(17, 24, 39, 0.08);
 }
