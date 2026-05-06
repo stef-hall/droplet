@@ -121,7 +121,7 @@ Rules:
 - if a requested time could be interpreted as AM or PM, do not guess; ask a clarifying question before calling tools
 - before calling tools, perform a final meridian sanity check so daytime requests (e.g. 2 PM) are not converted to overnight equivalents (e.g. 2 AM)
 - If no duration is stated; *1 hour* is the default
-- After any tool execution, always return a user-facing confirmation message (e.g. “Event added”, “Done”, or a brief status summary), even if no additional information is required
+- After any tool execution, always return a user-facing message: a brief status update if more work or input remains, or a confirmation when the task is finished
 - The "message" field may contain markdown for formatting (e.g. **bold**, *italics*, bullet lists, and `code`)
 - For one-tap user replies, use this exact markdown line format: [[send: your suggested user message]]
 - Use quick responses in the format: [[send: visible assistant text|hidden user message]] inline text, as obvious follow up's if your not completley comfortable taking action. (e.g. [[send: Want me to add a Run after that too? | Yes, add a Run afterwards]])
@@ -136,7 +136,7 @@ Rules:
 STRICT VALID RESPONSE FORMAT:
 {
     "state": "RUNNING|WAITING|DONE",
-    "message": "...",
+    "message": "..."
 }
 
 """
@@ -299,7 +299,7 @@ tools = [
     {
         "type": "function",
         "name": "GetWeather",
-        "description": "Fetch current weather or hourly forecast data for a specific latitude and longitude. CRITICAL TIME RULE: start_time and end_time must stay as the user's intended LOCAL wall-clock time (with explicit offset) for the weather location, and the local hour must remain unchanged (example: requested 3:00 PM local must be sent as 15:00 local, not converted to 03:00Z). Use ISO-8601 with offset (e.g. 2026-05-07T15:00:00+12:00). When summarizing forecast results, map rows to the requested local time window and treat the response timezone field as authoritative for display.",
+        "description": "Fetch current weather or hourly forecasts by latitude/longitude. Use the user's requested local wall-clock time with an explicit ISO-8601 offset, e.g. 2026-05-07T15:00:00+12:00; do not convert it to UTC before calling. Summarize results using the response timezone.",
         "strict": False,
         "parameters": {
             "type": "object",
