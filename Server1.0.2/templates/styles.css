@@ -51,7 +51,7 @@ textarea {
   margin: 0 auto;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto auto auto;
-  gap: 10px;
+  padding-bottom: 10px;
 }
 
 .chat-header {
@@ -133,7 +133,7 @@ textarea {
   background: #fff;
   box-shadow: 0 8px 18px rgba(0, 0, 0, 0.1);
   padding: 6px 3px 6px 3px;
-  
+
   z-index: 12;
 }
 
@@ -170,8 +170,20 @@ textarea {
   scroll-behavior: smooth;
   padding: 0;
   padding-bottom: 60px;
-  -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 calc(100% - 72px), transparent 100%);
-  mask-image: linear-gradient(to bottom, #000 0%, #000 calc(100% - 72px), transparent 100%);
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 36px,
+    #000 calc(100% - 72px),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 36px,
+    #000 calc(100% - 72px),
+    transparent 100%
+  );
   scrollbar-width: thin;
   scrollbar-color: rgba(120, 120, 120, 0.55) transparent;
 }
