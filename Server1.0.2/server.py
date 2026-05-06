@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import ast
 import operator as op
-from flask import Flask, Response, jsonify, render_template, request, send_from_directory, stream_with_context # type: ignore
+from flask import Flask, Response, jsonify, render_template, request, send_from_directory, session, stream_with_context # type: ignore
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import Lock
+import sqlite3
+import re
+import os
 
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
@@ -20,15 +23,18 @@ import traceback
 from urllib.parse import urlencode
 from urllib.request import urlopen
 from pathlib import Path
+from werkzeug.security import check_password_hash, generate_password_hash
 
 global USERNAME, PASSWORD, api_key
 warnings.simplefilter("ignore", DeprecationWarning)
 app = Flask(__name__)
+app.secret_key = os.environ.get("SECRETARIAT_APP_SECRET", "replace-me-in-production")
 session_store = {}
 session_store_lock = Lock()
 SESSION_TTL_SECONDS = 6 * 60 * 60
 MAX_PARALLEL_TOOL_CALLS = 10
 LISTS_DIR = Path(__file__).resolve().parent / "lists"
+DB_PATH = Path(__file__).resolve().parent / "secretariat.db"
 
 
 def _log(label, message):
@@ -75,6 +81,45 @@ def _prune_sessions(now_ts: float):
     ]
     for sid in stale_ids:
         session_store.pop(sid, None)
+
+
+def _db_conn():
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def _init_db():
+    with _db_conn() as conn:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                email TEXT NOT NULL UNIQUE,
+                password_hash TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.commit()
+
+
+def _normalize_email(email: str) -> str:
+    return str(email or "").strip().lower()
+
+
+def _valid_email(email: str) -> bool:
+    return bool(email)
+
+
+def _require_auth():
+    user_id = session.get("user_id")
+    if not user_id:
+        return jsonify({"ok": False, "error": "Authentication required."}), 401
+    return None
+
+
+_init_db()
 
 
 def get_available_lists():
@@ -1095,15 +1140,82 @@ def run_secretariat(prompt_text, image_data_url=None, previous_response_id=None,
 
 @app.get("/")
 def home():
-    return render_template("index.html")
+    return render_template("Secretariat.html")
 
 @app.get("/templates/styles.css")
 def template_styles():
     return send_from_directory("templates", "styles.css")
 
 
+@app.get("/api/auth/me")
+def api_auth_me():
+    user_id = session.get("user_id")
+    email = session.get("email")
+    if not user_id or not email:
+        return jsonify({"ok": True, "authenticated": False})
+    return jsonify({"ok": True, "authenticated": True, "user": {"id": user_id, "email": email}})
+
+
+@app.post("/api/auth/signup")
+def api_auth_signup():
+    payload = request.get_json(silent=True) or {}
+    email = _normalize_email(payload.get("email", ""))
+    password = str(payload.get("password", "")).strip()
+
+    if not _valid_email(email):
+        return jsonify({"ok": False, "error": "Username is required."}), 400
+    if not password:
+        return jsonify({"ok": False, "error": "Password is required."}), 400
+
+    password_hash = generate_password_hash(password)
+    created_at = datetime.now(timezone.utc).isoformat()
+    try:
+        with _db_conn() as conn:
+            cursor = conn.execute(
+                "INSERT INTO users (email, password_hash, created_at) VALUES (?, ?, ?)",
+                (email, password_hash, created_at),
+            )
+            conn.commit()
+            user_id = int(cursor.lastrowid)
+    except sqlite3.IntegrityError:
+        return jsonify({"ok": False, "error": "An account with that username already exists."}), 409
+
+    session["user_id"] = user_id
+    session["email"] = email
+    return jsonify({"ok": True, "user": {"id": user_id, "email": email}})
+
+
+@app.post("/api/auth/signin")
+def api_auth_signin():
+    payload = request.get_json(silent=True) or {}
+    email = _normalize_email(payload.get("email", ""))
+    password = str(payload.get("password", ""))
+
+    with _db_conn() as conn:
+        row = conn.execute(
+            "SELECT id, email, password_hash FROM users WHERE email = ?",
+            (email,),
+        ).fetchone()
+
+    if not row or not check_password_hash(str(row["password_hash"]), password):
+        return jsonify({"ok": False, "error": "Invalid username or password."}), 401
+
+    session["user_id"] = int(row["id"])
+    session["email"] = str(row["email"])
+    return jsonify({"ok": True, "user": {"id": int(row['id']), "email": str(row['email'])}})
+
+
+@app.post("/api/auth/signout")
+def api_auth_signout():
+    session.clear()
+    return jsonify({"ok": True})
+
+
 @app.post("/api/secretariat")
 def api_secretariat():
+    auth_error = _require_auth()
+    if auth_error:
+        return auth_error
     _log("API_SECRETARIAT", "request_received")
     payload = request.get_json(silent=True) or {}
     prompt_text = str(payload.get("prompt", "")).strip()
@@ -1163,6 +1275,9 @@ def api_secretariat():
 
 @app.post("/api/secretariat/stream")
 def api_secretariat_stream():
+    auth_error = _require_auth()
+    if auth_error:
+        return auth_error
     _log("API_SECRETARIAT_STREAM", "request_received")
     payload = request.get_json(silent=True) or {}
     prompt_text = str(payload.get("prompt", "")).strip()
@@ -1280,6 +1395,9 @@ def api_secretariat_stream():
 
 @app.post("/api/session/init")
 def api_session_init():
+    auth_error = _require_auth()
+    if auth_error:
+        return auth_error
     payload = request.get_json(silent=True) or {}
     session_id = str(payload.get("session_id", "")).strip() or str(uuid.uuid4())
     now_ts = datetime.now(timezone.utc).timestamp()
@@ -1318,6 +1436,7 @@ def api_session_init():
 
 if __name__ == "__main__":
     LISTS_DIR.mkdir(parents=True, exist_ok=True)
+    _init_db()
     secret = load_value_file('secrets.txt')
     USERNAME = secret['USERNAME']
     PASSWORD =  secret['PASSWORD']

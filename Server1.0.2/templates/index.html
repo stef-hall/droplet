@@ -1,0 +1,60 @@
+﻿<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Secretariat</title>
+  <meta name="theme-color" content="#f4f4f4">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Secretariat">
+  <meta name="format-detection" content="telephone=no">
+  <link rel="manifest" href="/static/manifest.webmanifest">
+  <link rel="icon" href="/static/icons/icon-192.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/static/icons/icon-192.svg">
+  <link rel="stylesheet" href="/templates/styles.css">
+</head>
+<body>
+  <section id="auth-overlay" class="auth-overlay hidden" aria-live="polite">
+    <div class="auth-card">
+      <h1>Welcome to Secretariat</h1>
+      <p id="auth-subtitle">Sign in to continue.</p>
+      <form id="auth-form" class="auth-form">
+        <input id="auth-email" type="email" placeholder="Email" autocomplete="email" required>
+        <input id="auth-password" type="password" placeholder="Password" autocomplete="current-password" required>
+        <button id="auth-submit" type="submit">Sign In</button>
+      </form>
+      <button id="auth-toggle" type="button" class="auth-toggle">Need an account? Sign up</button>
+      <button id="auth-signout" type="button" class="auth-signout hidden">Sign out</button>
+      <div id="auth-status" class="auth-status"></div>
+    </div>
+  </section>
+
+  <main class="app-shell">
+    <section id="chat-feed" class="chat-feed" aria-live="polite">
+      <article id="initial-assistant-message" class="msg assistant initial-assistant-message hero">
+        <div class="bubble">What do you need help scheduling today?</div>
+      </article>
+    </section>
+
+    <div class="attachment-row">
+      <div id="attachment-pill" class="attachment-pill hidden">
+        <span>+1 attachment</span>
+        <button type="button" id="clear-attachment" class="pill-clear" aria-label="Remove attachment">🗙</button>
+      </div>
+    </div>
+
+    <form id="secretariat-form" class="composer">
+      <button type="button" id="add-attachment" class="icon-btn" aria-label="Add">+</button>
+      <input id="image-upload" type="file" accept="image/*" class="hidden-file-input">
+      <textarea id="prompt" placeholder="Ask anything..." rows="1" required></textarea>
+      <button type="submit" class="send-btn" aria-label="Send">↪</button>
+    </form>
+
+    <div id="meta" class="meta"></div>
+  </main>
+
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>
