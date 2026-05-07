@@ -356,14 +356,14 @@ if __name__ == "__main__":
     finish="20260507T154324+12:00"
 )
     print(response)
+    
 
     response = GetEvents(3,
     start="20260507T000000+12:00",
     end="20260508T000000+12:00"
     )
     print(response)
-
-    
+   
 
     response = AddEvent(3,
     title="Working AddEvent",
