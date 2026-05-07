@@ -202,6 +202,9 @@ def _build_event_ics(uid, title, start, finish, location="", description="", rru
 
 
 def EditEvent(user_id, uid, title=None, start=None, finish=None, location=None, description=None, rrule=None):
+    start,offset = offset_to_z(start)
+    finish,offset = offset_to_z(finish)
+
     calendars = _get_user_caldav_calendars(int(user_id))
     for cal in calendars:
         for event in cal.events():
@@ -221,8 +224,8 @@ def EditEvent(user_id, uid, title=None, start=None, finish=None, location=None, 
             current_rrule = str(vevent.rrule.value) if hasattr(vevent, "rrule") else ""
 
             new_title = title if title is not None else current_title
-            new_start, offset = offset_to_z(start) if start is not None else (current_start, None)
-            new_finish, offset = offset_to_z(finish) if finish is not None else (current_finish, None)
+            new_start = start.strftime("%Y%m%dT%H%M%SZ") if start is not None else (current_start, None)
+            new_finish = finish.strftime("%Y%m%dT%H%M%SZ") if finish is not None else (current_finish, None)
             new_location = location if location is not None else current_location
             new_description = description if description is not None else current_description
             new_rrule = rrule if rrule is not None else current_rrule
@@ -239,6 +242,8 @@ def EditEvent(user_id, uid, title=None, start=None, finish=None, location=None, 
                 description=new_description,
                 rrule=new_rrule,
             )
+            print(new_start)
+
             event.delete()
             cal.add_event(new_event)
             return {
@@ -345,18 +350,20 @@ if __name__ == "__main__":
 
     configure_tools(_get_user_caldav_calendars, LISTS_DIR)
 
-    response = GetEvents(3,
-    start="20260507T000000+12:00",
-    end="20260508T000000+12:00"
-    )
-    print(response)
-
     response = EditEvent(3,
     uid="4ee17d9e-bfc6-404f-b8f2-591aca809962",
     start="20260507T144324+12:00",
     finish="20260507T154324+12:00"
 )
     print(response)
+
+    response = GetEvents(3,
+    start="20260507T000000+12:00",
+    end="20260508T000000+12:00"
+    )
+    print(response)
+
+    
 
     response = AddEvent(3,
     title="Working AddEvent",
