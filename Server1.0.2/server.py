@@ -419,11 +419,11 @@ tools = [
                 },
                 "start": {
                     "type": "string",
-                    "description": "Event start time in UTC time iCalendar format (e.g. 20260502T150000Z)"
+                    "description": "Event start time in LOCAL TIMEZONE using format YYYYMMDDTHHMMSS+XX:XX (e.g. 20260501T000000+12:00)"
                 },
                 "finish": {
                     "type": "string",
-                    "description": "Event end time in UTC time iCalendar format (e.g. 20260502T160000Z)"
+                    "description": "Event end time in LOCAL TIMEZONE using format YYYYMMDDTHHMMSS+XX:XX (e.g. 20260501T000000+12:00)"
                 },
                 "location": {
                     "type": "string",
@@ -536,11 +536,11 @@ tools = [
                 },
                 "start": {
                     "type": "string",
-                    "description": "Updated event start time in UTC time iCalendar format (e.g. 20260502T150000Z). Optional."
+                    "description": "Updated event start time in LOCAL TIMEZONE using format YYYYMMDDTHHMMSS+XX:XX (e.g. 20260501T000000+12:00). Optional."
                 },
                 "finish": {
                     "type": "string",
-                    "description": "Updated event end time in UTC time iCalendar format (e.g. 20260502T160000Z). Optional."
+                    "description": "Updated event end time in LOCAL TIMEZONE using format YYYYMMDDTHHMMSS+XX:XX (e.g. 20260501T000000+12:00). Optional."
                 },
                 "location": {
                     "type": "string",
