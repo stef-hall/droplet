@@ -865,17 +865,8 @@ textarea {
 
 @media (max-width: 640px) {
   .app-shell {
-    background:red;
     height: 100dvh;
     padding: 38px 10px 00px 10px;
-  }
-
-  .chat-feed {
-    background: #0080ff;
-  }
-
-  body {
-    background: pink;
   }
 
   .chat-feed .msg:first-child {
