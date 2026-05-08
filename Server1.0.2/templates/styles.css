@@ -867,6 +867,41 @@ textarea {
   .app-shell {
     height: 100dvh;
     padding: 38px 10px 00px 10px;
+    background:rgba(0, 0, 255, 0.288);
+    
+  }
+
+  .app-shell {
+    overflow: hidden;
+    overscroll-behavior: none;
+    touch-action: none;
+  }
+
+  .composer {
+    overflow: hidden;
+    overscroll-behavior: none;
+    touch-action: none;
+  }
+
+  textarea {
+    overflow: hidden;
+    resize: none;
+    touch-action: none;
+    overscroll-behavior: none;
+  }
+
+  body {
+    overflow: hidden;
+    overscroll-behavior: none;
+    touch-action: none;
+  }
+
+  body {
+    background:rgba(218, 49, 77, 0.308);
+  }
+
+  .chat-feed {
+    background: rgba(0, 128, 0, 0.493);
   }
 
   .chat-feed .msg:first-child {
