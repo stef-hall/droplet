@@ -101,8 +101,8 @@ textarea {
   border: 0;
   background: transparent;
   color: #222;
-  width: 20px;
-  height: 20px;
+  width: 15px;
+  height: 15px;
   border-radius: 0;
   cursor: pointer;
   line-height: 0;
@@ -122,8 +122,8 @@ textarea {
 }
 
 .chat-menu-trigger-icon {
-  width: 30px;
-  height: 30px;
+  width: 27px;
+  height: 27px;
   margin-right:6px;
   object-fit: contain;
   display: block;
@@ -416,17 +416,18 @@ textarea {
 }
 
 .quick-reply-inline {
-    margin: 2px;
-    border: 0;
-    background: transparent;
-    color: #000408;
-    font: inherit;
-    padding: 0;
-    cursor: pointer;
-    text-decoration: underline;
-    text-underline-offset: 2px;
-    text-decoration-style: solid;
-    text-decoration-color: #0080ff;
+  text-align: left;
+  margin: 2px;
+  border: 0;
+  background: transparent;
+  color: #000408;
+  font: inherit;
+  padding: 0;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-style: solid;
+  text-decoration-color: #0080ff;
 }
 
 .quick-reply-inline::after {
@@ -924,9 +925,6 @@ textarea {
     right: 0;
   }
 
-  
-
-
   .chat-feed {
     padding-bottom: 60px;
   }
@@ -935,10 +933,9 @@ textarea {
     position: sticky;
     position: -webkit-sticky;
     z-index: 5;
-    margin-bottom: 10px;
+    margin-bottom: 6px;
     padding: 7px 9px 7px 9px;
     touch-action: none;
-
   }
 
   .meta {
@@ -965,7 +962,7 @@ textarea {
 
   .bubble {
     max-width: 70%;
-    padding: 6px 14px;
+    padding: 6px 12px;
   }
 
   .settings-page {
