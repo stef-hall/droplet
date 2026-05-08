@@ -880,14 +880,16 @@ textarea {
   }
 
   .chat-feed {
-    padding-bottom: 16px;
-    -webkit-mask-image: none;
-    mask-image: none;
+    padding-bottom: 60px;
   }
 
   .composer {
+    position: sticky;
+    bottom: max(10px, env(safe-area-inset-bottom));
+    z-index: 5;
     margin-bottom: 0;
-    padding: 10px;
+    padding: 7px 10px 7px 10px;
+
   }
 
   .meta {
