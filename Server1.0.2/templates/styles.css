@@ -861,11 +861,11 @@ textarea {
   }
 
   .chat-feed .msg:first-child {
-    margin-top: 24px;
+    margin-top: 20vh;
   }
 
   .chat-feed .initial-assistant-message.hero:first-child {
-    margin-top: 24px;
+    margin-top: 20vh;
     justify-content: flex-start;
   }
 
@@ -892,7 +892,7 @@ textarea {
     bottom: max(10px, env(safe-area-inset-bottom));
     z-index: 5;
     margin-bottom: 0;
-    padding: 7px 10px 7px 10px;
+    padding: 8px 10px 8px 10px;
 
   }
 
