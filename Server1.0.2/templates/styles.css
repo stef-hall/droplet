@@ -921,6 +921,13 @@ textarea {
   }
 
   .chat-feed {
+    background: red;
+  }
+  .attachment-row {
+    background: green;
+  }
+
+  .chat-feed {
     padding-bottom: 60px;
   }
 
