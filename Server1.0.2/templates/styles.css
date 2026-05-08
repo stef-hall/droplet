@@ -857,7 +857,7 @@ textarea {
 @media (max-width: 640px) {
   .app-shell {
     height: 100dvh;
-    padding: 10px;
+    padding: 10px 10px 0;
   }
 
   .chat-feed .msg:first-child {
@@ -888,6 +888,12 @@ textarea {
   .composer {
     margin-bottom: 0;
     padding: 10px;
+  }
+
+  .meta {
+    display: none;
+    height: 0;
+    padding: 0;
   }
 
   .chat-header {
