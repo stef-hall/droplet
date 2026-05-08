@@ -71,6 +71,10 @@ textarea {
     border-bottom:1px solid #0000000d;
 }
 
+.is-pwa .chat-header{
+  padding-top: 50px;
+}
+
 .chat-header-left,
 .chat-header-right {
   width: 50%;
@@ -920,12 +924,8 @@ textarea {
     right: 0;
   }
 
-  .chat-feed {
-    background: red;
-  }
-  .attachment-row {
-    background: green;
-  }
+  
+
 
   .chat-feed {
     padding-bottom: 60px;
@@ -936,7 +936,7 @@ textarea {
     position: -webkit-sticky;
     z-index: 5;
     margin-bottom: 10px;
-    padding: 8px 10px 8px 10px;
+    padding: 7px 9px 7px 9px;
     touch-action: none;
 
   }
@@ -984,6 +984,10 @@ textarea {
   .settings-primary,
   .settings-danger {
     width: 100%;
+  }
+
+  #prompt {
+    font-size:1rem;
   }
 }
 

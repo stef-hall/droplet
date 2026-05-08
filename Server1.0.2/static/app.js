@@ -62,6 +62,16 @@ let isAuthenticated = false;
   fixHeaderForIOSKeyboard();
 })();
 
+const isPWA =
+  window.matchMedia("(display-mode: standalone)").matches ||
+  window.navigator.standalone === true;
+
+document.documentElement.classList.toggle("is-pwa", isPWA);
+document.documentElement.classList.toggle("is-browser", !isPWA);
+
+
+
+
 
 
 function getBrowserLocation() {
