@@ -62,8 +62,13 @@ textarea {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 2px;
-    position: relative;
+    padding: 7px 10px 7px 10px;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 30;
+    border-bottom: 1px solid #00000026;
 }
 
 .chat-header-left,
@@ -113,8 +118,8 @@ textarea {
 }
 
 .chat-menu-trigger-icon {
-  width: 26px;
-  height: 26px;
+  width: 30px;
+  height: 30px;
   margin-right:6px;
   object-fit: contain;
   display: block;
@@ -183,6 +188,10 @@ textarea {
   );
   scrollbar-width: thin;
   scrollbar-color: rgba(120, 120, 120, 0.55) transparent;
+}
+
+.app-shell {
+  padding-top: 34px;
 }
 
 .chat-feed::-webkit-scrollbar {
@@ -857,7 +866,7 @@ textarea {
 @media (max-width: 640px) {
   .app-shell {
     height: 100dvh;
-    padding: 10px 10px 0;
+    padding: 38px 10px 0;
   }
 
   .chat-feed .msg:first-child {
@@ -880,7 +889,7 @@ textarea {
   }
 
   .chat-header {
-    background:#fff;
+    border-bottom:1px solid #0000000d;
   }
 
   .chat-feed {
@@ -889,7 +898,6 @@ textarea {
 
   .composer {
     position: sticky;
-    bottom: max(10px, env(safe-area-inset-bottom));
     z-index: 5;
     margin-bottom: 0;
     padding: 8px 10px 8px 10px;
