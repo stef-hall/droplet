@@ -302,7 +302,7 @@ textarea {
   display: inline-flex;
   align-items: center;
   width: fit-content;
-  max-width: min(680px, 86%);
+  max-width: min(680px, 60%);
   border: 1px solid var(--line);
   border-radius: 27px;
   padding: 9px 16px;
@@ -417,7 +417,7 @@ textarea {
 }
 
 .quick-reply-inline::after {
-  content: "\21AA";
+  content: "\21AA\FE0E";
   display: inline-block;
   width: 0;
   margin-left: 0;
@@ -917,7 +917,7 @@ textarea {
   }
 
   .bubble {
-    max-width: 92%;
+    max-width: 70%;
     padding: 6px 14px;
   }
 
