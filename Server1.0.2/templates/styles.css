@@ -879,6 +879,10 @@ textarea {
     margin: 18px 0;
   }
 
+  .chat-header {
+    background:#fff;
+  }
+
   .chat-feed {
     padding-bottom: 60px;
   }
@@ -904,8 +908,8 @@ textarea {
 
   .icon-btn,
   .send-btn {
-    width: 40px;
-    height: 40px;
+    width: 38px;
+    height: 38px;
   }
 
   .send-btn {
