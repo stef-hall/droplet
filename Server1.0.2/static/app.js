@@ -35,6 +35,35 @@ let initSessionPromise = null;
 let isSignupMode = false;
 let isAuthenticated = false;
 
+(function () {
+  const isMobile = window.matchMedia("(max-width: 768px)").matches;
+  if (!isMobile) return;
+
+  let ticking = false;
+
+  function fixHeaderForIOSKeyboard() {
+    if (ticking) return;
+
+    ticking = true;
+
+    requestAnimationFrame(() => {
+      const header = document.querySelector(".chat-header");
+      if (!header || !window.visualViewport) return;
+
+      header.style.transform = `translateY(${window.visualViewport.offsetTop}px)`;
+      ticking = false;
+    });
+  }
+
+  window.visualViewport?.addEventListener("resize", fixHeaderForIOSKeyboard);
+  window.visualViewport?.addEventListener("scroll", fixHeaderForIOSKeyboard);
+  window.addEventListener("load", fixHeaderForIOSKeyboard);
+
+  fixHeaderForIOSKeyboard();
+})();
+
+
+
 function getBrowserLocation() {
   return new Promise((resolve) => {
     if (!("geolocation" in navigator)) {

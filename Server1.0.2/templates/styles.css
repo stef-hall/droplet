@@ -68,7 +68,7 @@ textarea {
     left: 0;
     right: 0;
     z-index: 30;
-    border-bottom: 1px solid #00000026;
+    border-bottom:1px solid #0000000d;
 }
 
 .chat-header-left,
@@ -867,8 +867,6 @@ textarea {
   .app-shell {
     height: 100dvh;
     padding: 38px 10px 00px 10px;
-    background:rgba(0, 0, 255, 0.288);
-    
   }
 
   .app-shell {
@@ -896,14 +894,6 @@ textarea {
     touch-action: none;
   }
 
-  body {
-    background:rgba(218, 49, 77, 0.308);
-  }
-
-  .chat-feed {
-    background: rgba(0, 128, 0, 0.493);
-  }
-
   .chat-feed .msg:first-child {
     margin-top: 20vh;
   }
@@ -924,7 +914,10 @@ textarea {
   }
 
   .chat-header {
-    border-bottom:1px solid #0000000d;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
   }
 
   .chat-feed {
@@ -949,6 +942,8 @@ textarea {
 
   .chat-header {
     min-height: 28px;
+    transition: transform 0.18s ease-out;
+    will-change: transform;
   }
 
   .icon-btn,
