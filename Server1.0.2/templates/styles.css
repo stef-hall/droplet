@@ -58,15 +58,12 @@ textarea {
     width: 100%;
     justify-self: center;
     min-height: 30px;
-    /* border: 1px solid var(--line); */
-    /* border-radius: 999px; */
     background: #f4f4f4;
     display: flex;
     align-items: center;
     justify-content: space-between;
     padding: 2px;
     position: relative;
-    box-shadow: box-shadow: 0 8px 18px rgba(0, 0, 0, 0.1) ;
 }
 
 .chat-header-left,
@@ -420,9 +417,15 @@ textarea {
 }
 
 .quick-reply-inline::after {
-  content: " \21AA";
+  content: "\21AA";
+  display: inline-block;
+  width: 0;
+  margin-left: 0;
   opacity: 0;
-  transition: opacity 120ms ease;
+  white-space: nowrap;
+  line-height: inherit;
+  vertical-align: baseline;
+  transition: width 160ms ease, margin-left 160ms ease, opacity 120ms ease;
 }
 
 .quick-reply-inline:hover {
@@ -430,6 +433,8 @@ textarea {
 }
 
 .quick-reply-inline:hover::after {
+  width: 0.9em;
+  margin-left: 0.15em;
   opacity: 1;
 }
 
@@ -852,7 +857,6 @@ textarea {
 @media (max-width: 640px) {
   .app-shell {
     height: 100dvh;
-    padding: calc(10px + env(safe-area-inset-top)) 10px calc(8px + env(safe-area-inset-bottom));
   }
 
   .chat-feed .msg:first-child {

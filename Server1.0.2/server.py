@@ -562,7 +562,7 @@ tools = [
     {
         "type": "function",
         "name": "GetWeather",
-        "description": "Fetch current weather or hourly forecasts by latitude/longitude. Use the user's requested local wall-clock time with an explicit ISO-8601 offset, e.g. 2026-05-07T15:00:00+12:00; do not convert it to UTC before calling. Summarize results using the response timezone.",
+        "description": "Fetch current weather or hourly forecasts by latitude/longitude.",
         "strict": False,
         "parameters": {
             "type": "object",
@@ -577,11 +577,11 @@ tools = [
                 },
                 "start_time": {
                     "type": "string",
-                    "description": "Optional local start of requested weather window in ISO-8601 with explicit offset (e.g. 2026-05-07T15:00:00+12:00 for 3 PM local). Keep the same local hour the user asked for; do not pre-convert to UTC."
+                    "description": "Optional start of requested weather window. use requested areas respective TIMEZONE using format YYYYMMDDTHHMMSS+XX:XX (e.g. 20260501T000000+12:00)"
                 },
                 "end_time": {
                     "type": "string",
-                    "description": "Optional local end of requested weather window in ISO-8601 with explicit offset (e.g. 2026-05-07T16:00:00+12:00). Keep local hour semantics and do not pre-convert to UTC. Must be after start_time."
+                    "description": "Optional end of requested weather window.  . Must be after start_time."
                 }
             },
             "required": ["latitude", "longitude"],
@@ -1559,9 +1559,9 @@ if __name__ == "__main__":
     _init_db()
     secret = load_value_file('secrets.txt')
     api_key = secret['api_key']
-    app.run(host="127.0.0.1", port=8000, debug=False)
+    app.run(host="0.0.0.0", port=8000, debug=False)
 
 """
-twisting and shouting
+Certified Budware
 """
 
