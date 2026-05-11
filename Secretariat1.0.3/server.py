@@ -1694,7 +1694,7 @@ if __name__ == "__main__":
     _init_db()
     secret = load_value_file('secrets.txt')
     api_key = secret['api_key']
-    app.run(host="127.0.0.1", port=8000, debug=False)
+    app.run(host="0.0.0.0", port=8000, debug=False)
 
 """
 Swing Down Sweet Chariot
