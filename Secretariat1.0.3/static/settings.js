@@ -64,8 +64,12 @@ function createHeaderLeftTransition() {
   }
 
   headerLeftEl.classList.add("header-left-fx-ready");
+  headerLeftEl.classList.remove("header-left-visible");
+  void headerLeftEl.offsetWidth;
   requestAnimationFrame(() => {
-    headerLeftEl.classList.add("header-left-visible");
+    requestAnimationFrame(() => {
+      headerLeftEl.classList.add("header-left-visible");
+    });
   });
 
   const fadeMs = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 160;

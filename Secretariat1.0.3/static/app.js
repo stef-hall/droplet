@@ -87,8 +87,12 @@ function createHeaderLeftTransition() {
   }
 
   headerLeftEl.classList.add("header-left-fx-ready");
+  headerLeftEl.classList.remove("header-left-visible");
+  void headerLeftEl.offsetWidth;
   requestAnimationFrame(() => {
-    headerLeftEl.classList.add("header-left-visible");
+    requestAnimationFrame(() => {
+      headerLeftEl.classList.add("header-left-visible");
+    });
   });
 
   const fadeMs = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 160;
@@ -111,8 +115,25 @@ const headerLeftTransition = createHeaderLeftTransition();
 
 
 function getBrowserLocation() {
-  return new Promise((resolve) => {
+  return new Promise(async (resolve) => {
     if (!("geolocation" in navigator)) {
+      resolve(null);
+      return;
+    }
+
+    // Never trigger a prompt automatically. Only read location when permission is already granted.
+    if (!navigator.permissions || !navigator.permissions.query) {
+      resolve(null);
+      return;
+    }
+
+    try {
+      const permission = await navigator.permissions.query({ name: "geolocation" });
+      if (!permission || permission.state !== "granted") {
+        resolve(null);
+        return;
+      }
+    } catch (_) {
       resolve(null);
       return;
     }
