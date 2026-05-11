@@ -1,0 +1,16 @@
+| # | fix features |
+|---|---|
+| 1 | add time zone on Phone |
+| 2 | calculate drive distance |
+| 3 | phone shortcut loop response to done |
+| 4 | check open times |
+| 5 | timeout |
+| 6 | error logging |
+| 7 | shared list idea |
+| 8 | personality.md |
+| 9 | interaction with Grid Connect smart plug |
+| 10 | google wuery -takes too url with query |
+| 11 | communicate over calender ??? |
+| 12 | green quick response put texting composer |
+| 13 | random entry prompt: "What do you need help scheduling today?" |
+| 14 | go home and do ARLEC SMART THINGY |
