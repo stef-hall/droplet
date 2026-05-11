@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone, timedelta, date
 import argparse
 import json
 from pathlib import Path
@@ -15,6 +15,10 @@ _lists_dir = Path(__file__).resolve().parent / "lists"
 def offset_to_z(s):
     if s == None:
         return None, None
+    if isinstance(s, date) and not isinstance(s, datetime):
+        return s, None
+    if isinstance(s, str) and re.fullmatch(r"\d{8}", s):
+        return datetime.strptime(s, "%Y%m%d").date(), None
     dt = datetime.fromisoformat(
         f"{s[:4]}-{s[4:6]}-{s[6:8]}T{s[9:11]}:{s[11:13]}:{s[13:15]}{s[15:]}"
     )
@@ -23,12 +27,19 @@ def offset_to_z(s):
 
 
 def z_to_offset(z, offset):
-    if z == None or offset == None:
+    if z == None:
         return None
+    if isinstance(z, date) and not isinstance(z, datetime):
+        return z.strftime("%Y%m%d")
     if isinstance(z, datetime):
         dt = z.astimezone(timezone.utc)
     else:
+        if isinstance(z, str) and re.fullmatch(r"\d{8}", z):
+            return z
         dt = datetime.strptime(z, "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
+
+    if offset is None:
+        return dt.strftime("%Y%m%dT%H%M%SZ")
 
     offset_tz = datetime.fromisoformat("2000-01-01T00:00:00" + offset).tzinfo
     local = dt.astimezone(offset_tz)
