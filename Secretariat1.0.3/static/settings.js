@@ -18,6 +18,40 @@ const CALDAV_PROVIDER_URLS = {
   google: "https://apidata.googleusercontent.com/caldav/v2/",
 };
 
+(function () {
+  const isMobile = window.matchMedia("(max-width: 768px)").matches;
+  if (!isMobile) return;
+
+  let ticking = false;
+
+  function fixHeaderForIOSKeyboard() {
+    if (ticking) return;
+
+    ticking = true;
+
+    requestAnimationFrame(() => {
+      const header = document.querySelector(".chat-header");
+      if (!header || !window.visualViewport) return;
+
+      header.style.transform = `translateY(${window.visualViewport.offsetTop}px)`;
+      ticking = false;
+    });
+  }
+
+  window.visualViewport?.addEventListener("resize", fixHeaderForIOSKeyboard);
+  window.visualViewport?.addEventListener("scroll", fixHeaderForIOSKeyboard);
+  window.addEventListener("load", fixHeaderForIOSKeyboard);
+
+  fixHeaderForIOSKeyboard();
+})();
+
+const isPWA =
+  window.matchMedia("(display-mode: standalone)").matches ||
+  window.navigator.standalone === true;
+
+document.documentElement.classList.toggle("is-pwa", isPWA);
+document.documentElement.classList.toggle("is-browser", !isPWA);
+
 function providerFromUrl(url) {
   const clean = String(url || "").trim().toLowerCase();
   if (clean === CALDAV_PROVIDER_URLS.google.toLowerCase()) return "google";
