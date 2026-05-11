@@ -1,6 +1,6 @@
 :root {
   --bg: #fff;
-  --panel: #ffffff;
+  --header-bg: #f4f4f4;
   --text: #161616;
   --muted: #777;
   --line: #e4e4e4;
@@ -54,10 +54,12 @@ textarea {
 }
 
 .chat-header {
+    height:4.2%;
+    border-radius:4px;
     width: 100%;
     justify-self: center;
     min-height: 30px;
-    background: #f4f4f4;
+    background: var(--header-bg);
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -70,8 +72,8 @@ textarea {
     border-bottom:1px solid #0000000d;
 }
 
-.is-pwa .chat-header{
-  padding-top: 50px;
+.pwa-header-spacer {
+  display: none;
 }
 
 .chat-header-left,
@@ -88,6 +90,16 @@ textarea {
 .chat-header-right {
   justify-content: flex-end;
 }
+
+.chat-header-left.header-left-fx-ready {
+  opacity: 0;
+  transition: opacity 160ms ease;
+}
+
+.chat-header-left.header-left-fx-ready.header-left-visible {
+  opacity: 1;
+}
+
 
 .chat-menu-wrap {
   position: relative;
@@ -994,16 +1006,44 @@ textarea {
 .settings-back-link {
   display: inline-flex;
   align-items: center;
-  min-height: 30px;
-  padding: 0 10px;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  line-height: 0;
+  padding: 0;
   border-radius: 999px;
   color: #222;
   text-decoration: none;
-  font-size: 0.92rem;
+  border: 1px solid transparent;
+  overflow: hidden;
+  transform: scale(1);
+  transition: background-color 140ms ease, border-color 140ms ease, transform 140ms ease;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .settings-back-link:hover {
   background: rgba(0, 0, 0, 0.05);
+  border-color: rgba(0, 0, 0, 0.08);
+  transform: scale(1.1);
+}
+
+.settings-back-link:active {
+  transform: scale(0.95);
+}
+
+.settings-back-link:focus {
+  outline: none;
+}
+
+.settings-back-link:focus-visible {
+  box-shadow: 0 0 0 2px rgba(34, 34, 34, 0.22);
+}
+
+.settings-back-icon {
+  width: 27px;
+  height: 27px;
+  object-fit: contain;
+  display: block;
 }
 
 @media (max-width: 640px) {
@@ -1054,6 +1094,7 @@ textarea {
   }
 
   .chat-header {
+    min-height:45px;
     position: fixed;
     top: 0;
     left: 0;
@@ -1083,6 +1124,24 @@ textarea {
     min-height: 28px;
     transition: transform 0.18s ease-out;
     will-change: transform;
+  }
+
+  .chat-menu-trigger-icon {
+    width: 35px;
+    height: 35px;
+    margin-right:6px;
+    object-fit: contain;
+    display: block;
+    padding:3px;
+  }
+
+  .settings-back-icon {
+    width: 35px;
+    height: 35px;
+    margin-right:6px;
+    object-fit: contain;
+    display: block;
+    padding:3px;
   }
 
   .icon-btn,
@@ -1121,6 +1180,22 @@ textarea {
   #prompt {
     font-size:1rem;
   }
+
+.is-pwa .pwa-header-spacer {
+  display: block;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 50px;
+  background: var(--header-bg);
+  z-index: 29;
+}
+
+.is-pwa .chat-header{
+  margin-top: 45px;
+  
+}
 }
 
 
