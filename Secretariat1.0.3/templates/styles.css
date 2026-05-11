@@ -1016,6 +1016,7 @@ textarea {
   text-decoration: none;
   border: 1px solid transparent;
   overflow: hidden;
+  transform: scale(1);
   transition: background-color 140ms ease, border-color 140ms ease, transform 140ms ease;
   -webkit-tap-highlight-color: transparent;
 }
@@ -1023,10 +1024,11 @@ textarea {
 .settings-back-link:hover {
   background: rgba(0, 0, 0, 0.05);
   border-color: rgba(0, 0, 0, 0.08);
+  transform: scale(1.1);
 }
 
 .settings-back-link:active {
-  transform: scale(0.97);
+  transform: scale(0.95);
 }
 
 .settings-back-link:focus {

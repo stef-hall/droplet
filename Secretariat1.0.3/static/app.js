@@ -1,4 +1,4 @@
-const form = document.getElementById("secretariat-form");
+﻿const form = document.getElementById("secretariat-form");
 const promptInput = document.getElementById("prompt");
 const feedEl = document.getElementById("chat-feed");
 const metaEl = document.getElementById("meta");
@@ -81,6 +81,7 @@ const ALLOWED_DESKTOP_META_STATUSES = new Set([
 
   fixHeaderForIOSKeyboard();
 })();
+
 
 const isPWA =
   window.matchMedia("(display-mode: standalone)").matches ||

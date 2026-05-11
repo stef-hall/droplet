@@ -1,1 +1,0 @@
-Dont show quick responses unless already naturally appearing in response
