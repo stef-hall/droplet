@@ -31,11 +31,24 @@ const CALDAV_PROVIDER_URLS = {
     ticking = true;
 
     requestAnimationFrame(() => {
-      const header = document.querySelector(".chat-header");
-      if (!header || !window.visualViewport) return;
+      try {
+        if (!window.visualViewport) return;
 
-      header.style.transform = `translateY(${window.visualViewport.offsetTop}px)`;
-      ticking = false;
+        const isStandalone =
+          window.matchMedia("(display-mode: standalone)").matches ||
+          window.navigator.standalone === true;
+
+        const offsetTop = window.visualViewport.offsetTop;
+        const targets = isStandalone
+          ? document.querySelectorAll(".chat-header, .pwa-header-spacer")
+          : document.querySelectorAll(".chat-header");
+
+        targets.forEach((el) => {
+          el.style.transform = `translateY(${offsetTop}px)`;
+        });
+      } finally {
+        ticking = false;
+      }
     });
   }
 
@@ -251,3 +264,4 @@ requireAuth().then((user) => {
   if (!user) return;
   loadSettings();
 });
+

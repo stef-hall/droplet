@@ -1,4 +1,4 @@
-﻿const form = document.getElementById("secretariat-form");
+const form = document.getElementById("secretariat-form");
 const promptInput = document.getElementById("prompt");
 const feedEl = document.getElementById("chat-feed");
 const metaEl = document.getElementById("meta");
@@ -54,11 +54,24 @@ const ALLOWED_DESKTOP_META_STATUSES = new Set([
     ticking = true;
 
     requestAnimationFrame(() => {
-      const header = document.querySelector(".chat-header");
-      if (!header || !window.visualViewport) return;
+      try {
+        if (!window.visualViewport) return;
 
-      header.style.transform = `translateY(${window.visualViewport.offsetTop}px)`;
-      ticking = false;
+        const isStandalone =
+          window.matchMedia("(display-mode: standalone)").matches ||
+          window.navigator.standalone === true;
+
+        const offsetTop = window.visualViewport.offsetTop;
+        const targets = isStandalone
+          ? document.querySelectorAll(".chat-header, .pwa-header-spacer")
+          : document.querySelectorAll(".chat-header");
+
+        targets.forEach((el) => {
+          el.style.transform = `translateY(${offsetTop}px)`;
+        });
+      } finally {
+        ticking = false;
+      }
     });
   }
 
@@ -975,4 +988,5 @@ window.addEventListener("keydown", (event) => {
     autoSizePrompt();
   }
 });
+
 
