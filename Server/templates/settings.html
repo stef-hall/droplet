@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Secretariat Settings</title>
+  <meta name="theme-color" content="#f4f4f4">
+  <link rel="icon" href="/static/icons/icon-192.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/static/icons/icon-192.svg">
+  <link rel="stylesheet" href="/templates/styles.css">
+</head>
+<body>
+  <main class="app-shell settings-shell">
+    <header class="chat-header">
+      <div class="chat-header-left">
+        <a href="/" class="settings-back-link">Back to chat</a>
+      </div>
+      <div class="chat-header-right">
+        <div class="chat-menu-wrap">
+          <button id="chat-menu-trigger" type="button" class="chat-menu-trigger" aria-label="Open menu" aria-haspopup="true" aria-expanded="false">
+            <img src="/static/icons/user.png" alt="" class="chat-menu-trigger-icon" aria-hidden="true">
+          </button>
+          <div id="chat-menu" class="chat-menu hidden" role="menu" aria-label="Account menu">
+            <button id="chat-settings" type="button" class="chat-menu-item" role="menuitem" disabled aria-current="page">Settings</button>
+            <button id="chat-signout" type="button" class="chat-menu-item" role="menuitem">Sign out</button>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <section class="settings-page">
+      <div class="settings-grid">
+        <section class="settings-card">
+          <p class="settings-eyebrow">Account</p>
+          <h1>Calendar settings</h1>
+          <p class="settings-copy">Add the CalDAV connection details for this account. These values are stored per user, so each person can point Secretariat at their own calendar.</p>
+
+          <form id="caldav-settings-form" class="settings-form">
+            <label class="settings-field">
+              <span>Calendar provider</span>
+              <select id="caldav-provider" name="caldav_provider">
+                <option value="icloud">iCloud Calendar</option>
+                <option value="google">Google Calendar</option>
+              </select>
+            </label>
+
+            <label class="settings-field">
+              <span>Username</span>
+              <input id="caldav-username" name="caldav_username" type="text" placeholder="your CalDAV username" autocomplete="username">
+            </label>
+
+            <label class="settings-field">
+              <span>Password or app password</span>
+              <input id="caldav-password" name="caldav_password" type="password" placeholder="Leave blank to keep the current password" autocomplete="new-password">
+            </label>
+
+            <label class="settings-field">
+              <span>Calendar name</span>
+              <input id="caldav-calendar" name="caldav_calendar" type="text" placeholder="Optional. Uses your first calendar if left blank.">
+            </label>
+
+            <div class="settings-actions">
+              <button id="save-settings" type="submit" class="settings-primary">Save settings</button>
+              <p id="settings-status" class="settings-status" aria-live="polite"></p>
+            </div>
+          </form>
+        </section>
+
+        <section class="settings-card settings-card-danger">
+          <p class="settings-eyebrow settings-eyebrow-danger">Danger zone</p>
+          <h2>Delete this user</h2>
+          <p class="settings-copy">This permanently removes the account, stored CalDAV settings, trusted devices, and server-side session history for this user.</p>
+
+          <form id="delete-user-form" class="settings-form">
+            <label class="settings-field">
+              <span>Type your username to confirm</span>
+              <input id="delete-confirmation" name="delete_confirmation" type="text" placeholder="your username" autocomplete="off" required>
+            </label>
+
+            <div class="settings-actions">
+              <button id="delete-user-button" type="submit" class="settings-danger">Delete user</button>
+              <p id="delete-user-status" class="settings-status" aria-live="polite"></p>
+            </div>
+          </form>
+        </section>
+      </div>
+    </section>
+  </main>
+
+  <script src="/static/settings.js"></script>
+</body>
+</html>
