@@ -54,6 +54,8 @@ textarea {
 }
 
 .chat-header {
+    height:4.2%;
+    border-radius:4px;
     width: 100%;
     justify-self: center;
     min-height: 30px;
@@ -88,6 +90,16 @@ textarea {
 .chat-header-right {
   justify-content: flex-end;
 }
+
+.chat-header-left.header-left-fx-ready {
+  opacity: 0;
+  transition: opacity 160ms ease;
+}
+
+.chat-header-left.header-left-fx-ready.header-left-visible {
+  opacity: 1;
+}
+
 
 .chat-menu-wrap {
   position: relative;
@@ -994,16 +1006,24 @@ textarea {
 .settings-back-link {
   display: inline-flex;
   align-items: center;
-  min-height: 30px;
-  padding: 0 10px;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
   border-radius: 999px;
   color: #222;
   text-decoration: none;
-  font-size: 0.92rem;
 }
 
 .settings-back-link:hover {
   background: rgba(0, 0, 0, 0.05);
+}
+
+.settings-back-icon {
+  width: 27px;
+  height: 27px;
+  object-fit: contain;
+  display: block;
 }
 
 @media (max-width: 640px) {
@@ -1054,6 +1074,7 @@ textarea {
   }
 
   .chat-header {
+    min-height:45px;
     position: fixed;
     top: 0;
     left: 0;
