@@ -1,1 +1,6 @@
 secrets.txt
+Server/secretariat.db
+Server/lists/
+__pycache__/
+*.pyc
+**/secrets.txt

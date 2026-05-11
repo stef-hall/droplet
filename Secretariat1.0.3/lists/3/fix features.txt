@@ -14,3 +14,5 @@
 | 12 | green quick response put texting composer |
 | 13 | random entry prompt: "What do you need help scheduling today?" |
 | 14 | go home and do ARLEC SMART THINGY |
+| 15 | QR edit icon popout shift to green to bring to composer |
+| 16 | put meta in middle of header pwa |
