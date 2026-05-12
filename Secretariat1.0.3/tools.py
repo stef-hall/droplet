@@ -246,9 +246,9 @@ def _build_event_ics(uid, title, start, finish, location="", description="", rru
 
 def EditEvent(user_id, uid, title=None, start=None, finish=None, location=None, description=None, rrule=None):
     if start is not None:
-        start, offset = offset_to_z(start)
+        start, _ = offset_to_z(start)
     if finish is not None:
-        finish, offset = offset_to_z(finish)
+        finish, _ = offset_to_z(finish)
 
     calendars = _get_user_caldav_calendars(int(user_id))
     for cal in calendars:
@@ -261,54 +261,48 @@ def EditEvent(user_id, uid, title=None, start=None, finish=None, location=None, 
             if current_uid != uid:
                 continue
 
-            if title is not None:
-                if hasattr(vevent, "summary"):
-                    vevent.summary.value = title
-                else:
-                    vevent.add("summary").value = title
-            if start is not None:
-                if hasattr(vevent, "dtstart"):
-                    vevent.dtstart.value = start
-                else:
-                    vevent.add("dtstart").value = start
-            if finish is not None:
-                if hasattr(vevent, "dtend"):
-                    vevent.dtend.value = finish
-                else:
-                    vevent.add("dtend").value = finish
-            if location is not None:
-                if location == "":
-                    if hasattr(vevent, "location"):
-                        del vevent.location
-                elif hasattr(vevent, "location"):
-                    vevent.location.value = location
-                else:
-                    vevent.add("location").value = location
-            if description is not None:
-                if description == "":
-                    if hasattr(vevent, "description"):
-                        del vevent.description
-                elif hasattr(vevent, "description"):
-                    vevent.description.value = description
-                else:
-                    vevent.add("description").value = description
-            if rrule is not None:
-                if rrule == "":
-                    if hasattr(vevent, "rrule"):
-                        del vevent.rrule
-                elif hasattr(vevent, "rrule"):
-                    vevent.rrule.value = rrule
-                else:
-                    vevent.add("rrule").value = rrule
+            current_title = str(vevent.summary.value) if hasattr(vevent, "summary") else ""
+            current_start = getattr(vevent.dtstart, "value", None) if hasattr(vevent, "dtstart") else None
+            current_finish = getattr(vevent.dtend, "value", None) if hasattr(vevent, "dtend") else None
+            current_location = str(vevent.location.value) if hasattr(vevent, "location") else ""
+            current_description = str(vevent.description.value) if hasattr(vevent, "description") else ""
+            current_rrule = str(vevent.rrule.value) if hasattr(vevent, "rrule") else ""
 
-            if not hasattr(vevent, "summary") or not str(getattr(vevent.summary, "value", "")).strip():
+            new_title = title if title is not None else current_title
+            new_start = start if start is not None else current_start
+            new_finish = finish if finish is not None else current_finish
+            new_location = location if location is not None else current_location
+            new_description = description if description is not None else current_description
+            new_rrule = rrule if rrule is not None else current_rrule
+
+            if new_location is None:
+                new_location = ""
+            if new_description is None:
+                new_description = ""
+            if new_rrule is None:
+                new_rrule = ""
+
+            if not str(new_title).strip():
                 return {"status": "failed", "error": "Edited event is missing required field: title."}
-            if not hasattr(vevent, "dtstart") or getattr(vevent.dtstart, "value", None) is None:
+            if new_start is None:
                 return {"status": "failed", "error": "Edited event is missing required field: start."}
-            if not hasattr(vevent, "dtend") or getattr(vevent.dtend, "value", None) is None:
+            if new_finish is None:
                 return {"status": "failed", "error": "Edited event is missing required field: finish."}
 
+            start_ics = _to_utc_ics(new_start)
+            finish_ics = _to_utc_ics(new_finish)
+            replacement_ics = _build_event_ics(
+                uid=uid,
+                title=str(new_title),
+                start=start_ics,
+                finish=finish_ics,
+                location=str(new_location),
+                description=str(new_description),
+                rrule=str(new_rrule),
+            )
+
             try:
+                event.data = replacement_ics
                 event.save()
             except Exception as save_error:
                 message = str(save_error)
