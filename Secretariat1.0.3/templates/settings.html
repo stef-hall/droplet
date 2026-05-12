@@ -62,6 +62,14 @@
               <input id="caldav-calendar" name="caldav_calendar" type="text" placeholder="Optional. Uses your first calendar if left blank.">
             </label>
 
+            <label class="settings-field">
+              <span>Model</span>
+              <select id="assistant-model" name="assistant_model">
+                <option value="gpt-5.4-mini" selected>gpt-5.4-mini</option>
+                <option value="gpt-5.4">gpt-5.4</option>
+              </select>
+            </label>
+
             <div class="settings-actions">
               <button id="save-settings" type="submit" class="settings-primary">Save settings</button>
               <p id="settings-status" class="settings-status" aria-live="polite"></p>
