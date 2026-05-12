@@ -26,7 +26,7 @@ from urllib.parse import urlencode
 from urllib.request import urlopen
 from pathlib import Path
 from werkzeug.security import check_password_hash, generate_password_hash
-from tools import AddEvent, GetEvents, DeleteEvent, ReadList, EditList, DeleteList, EditEvent, GetWeather, configure_tools
+from tools import AddEvent, GetEvents, GetCalendarNames, DeleteEvent, ReadList, EditList, DeleteList, EditEvent, GetWeather, configure_tools
 
 global api_key
 warnings.simplefilter("ignore", DeprecationWarning)
@@ -66,6 +66,7 @@ def _tool_name_to_status_label(tool_name: str) -> str:
         "editlist": "Updating List...",
         "deletelist": "Deleting List...",
         "getweather": "Getting Weather...",
+        "getcalendarnames": "Getting Calendar Names...",
     }
     if normalized in label_map:
         return label_map[normalized]
@@ -686,6 +687,18 @@ tools = [
             "required": ["latitude", "longitude"],
             "additionalProperties": False
         }
+    },
+    {
+        "type": "function",
+        "name": "GetCalendarNames",
+        "description": "Gets all available calendar names for the authenticated CalDAV account.",
+        "strict": True,
+        "parameters": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+            "additionalProperties": False
+        }
     }
 ]
 
@@ -983,6 +996,22 @@ def ToolUse(name, args, user_id=None):
                     "start_time": start_time.isoformat() if start_time else None,
                     "end_time": end_time.isoformat() if end_time else None,
                 },
+                "error": str(e),
+            }
+
+    # Returns all available calendar names
+    if name == "GetCalendarNames":
+        try:
+            output = GetCalendarNames(user_id=user_id)
+            return {
+                "status": "success",
+                "tool": "GetCalendarNames",
+                "result": output,
+            }
+        except Exception as e:
+            return {
+                "status": "failed",
+                "tool": "GetCalendarNames",
                 "error": str(e),
             }
 

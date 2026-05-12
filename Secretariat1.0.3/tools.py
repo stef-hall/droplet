@@ -226,6 +226,14 @@ def GetEvents(user_id, start, end):
                 continue
     return [columns, *rows]
 
+def GetCalendarNames(user_id):
+    calendars = _get_user_caldav_calendars(int(user_id))
+    names = [str(cal.get_display_name() or "").strip() for cal in calendars]
+    return {
+        "status": "success",
+        "calendar_names": [name for name in names if name],
+    }
+
 
 def DeleteEvent(user_id, uid):
     calendars = _get_user_caldav_calendars(int(user_id))
