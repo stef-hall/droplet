@@ -1,0 +1,6 @@
+| # | Fix Features |
+|---|---|
+| 1 | Add time zone on phone |
+| 2 | Interaction with Grid Connect smart plug |
+| 3 | Random entry prompt: "What do you need help scheduling today?" |
+| 4 | Put meta in the middle of the header PWA |
