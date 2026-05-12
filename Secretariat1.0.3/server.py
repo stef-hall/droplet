@@ -488,6 +488,7 @@ Rules:
 - Consult your context window to check if you already have the relevant data, before running unessacary Get Tools. 
 - Don't use Em Dashes ("—").
 - CalDAV "reason Forbidden" AuthorizationError's are usually caused by trying to alter the wrong calender. If encountered; Supply the user with GetCalenderNames() and remind them to set the appropriate Calender in settings.
+- If the USER ever requests for you to "Restore", "Undo", "Bring Back", or "Recreate" an event - ESPECIALLY IF YOU'VE RECENTLY DELETED SOME EVENTS - your FIRST STEP is to look back in your context for the requested events information, then Add back an identical copy of that event
 - If someone calls you 'bud' you have to call them 'bud' back
 
 - When multiple tool actions are needed, plan them as ordered steps:
@@ -535,9 +536,13 @@ tools = [
                 "rrule": {
                     "type": "string",
                     "description": "Optional recurrence rule (RRULE) for repeating events in iCalendar format (e.g. 'FREQ=WEEKLY;INTERVAL=1'). Defines how the event repeats over time (weekly, monthly, etc). If not provided, the event is treated as a single occurrence."
+                },
+                "reminder_minutes_before": {
+                    "type": "integer",
+                    "description": "Optional reminder/alert lead time in minutes before event start (e.g. 10, 30, 60)."
                 }
             },
-            "required": ["title", "start", "finish", "location", "description", "rrule"],
+            "required": ["title", "start", "finish", "location", "description", "rrule", "reminder_minutes_before"],
             "additionalProperties": False
         }
     },
@@ -669,6 +674,10 @@ tools = [
                 "rrule": {
                     "type": "string",
                     "description": "Updated recurrence rule (RRULE). Optional."
+                },
+                "reminder_minutes_before": {
+                    "type": "integer",
+                    "description": "Updated reminder/alert lead time in minutes before event start. Optional."
                 }
             },
             "required": ["uid"],
@@ -790,6 +799,7 @@ def ToolUse(name, args, user_id=None):
         location = args.get("location", "")
         description = args.get("description", "")
         rrule = args.get("rrule", "")
+        reminder_minutes_before = args.get("reminder_minutes_before")
         try:
             output = AddEvent(
                 user_id=user_id,
@@ -798,7 +808,8 @@ def ToolUse(name, args, user_id=None):
                 finish=finish,
                 location=location,
                 description=description,
-                rrule=rrule
+                rrule=rrule,
+                reminder_minutes_before=reminder_minutes_before,
             )
             if isinstance(output, dict):
                 return {"status": "success", "tool": "AddEvent", "event": {"title": title, "start": start, "finish": finish}, "result": output}
@@ -823,7 +834,7 @@ def ToolUse(name, args, user_id=None):
             )
             if isinstance(output, list):
                 if output and isinstance(output[0], dict):
-                    columns = ["uid", "start", "end", "summary", "location", "description", "calendar"]
+                    columns = ["uid", "start", "end", "summary", "location", "description", "rrule", "reminder_minutes_before", "calendar"]
                     output = [columns] + [[event.get(column) for column in columns] for event in output]
                 elif output and isinstance(output[0], list):
                     pass
@@ -925,6 +936,7 @@ def ToolUse(name, args, user_id=None):
         location = args.get("location")
         description = args.get("description")
         rrule = args.get("rrule")
+        reminder_minutes_before = args.get("reminder_minutes_before")
         try:
             output = EditEvent(
                 user_id=user_id,
@@ -935,6 +947,7 @@ def ToolUse(name, args, user_id=None):
                 location=location,
                 description=description,
                 rrule=rrule,
+                reminder_minutes_before=reminder_minutes_before,
             )
             status = output.get("status") if isinstance(output, dict) else None
             if status == "not_found":
