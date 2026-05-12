@@ -13,30 +13,94 @@ _get_user_caldav_calendars_fn = None
 _lists_dir = Path(__file__).resolve().parent / "lists"
 
 def offset_to_z(s):
-    if s == None:
+    if s is None:
         return None, None
     if isinstance(s, date) and not isinstance(s, datetime):
         return s, None
-    if isinstance(s, str) and re.fullmatch(r"\d{8}", s):
-        return datetime.strptime(s, "%Y%m%d").date(), None
-    dt = datetime.fromisoformat(
-        f"{s[:4]}-{s[4:6]}-{s[6:8]}T{s[9:11]}:{s[11:13]}:{s[13:15]}{s[15:]}"
-    )
-    offset = s[15:]
+    if isinstance(s, datetime):
+        if s.tzinfo is None:
+            return s.replace(tzinfo=timezone.utc), "+00:00"
+        offset_td = s.utcoffset()
+        if offset_td is None:
+            return s.astimezone(timezone.utc), "+00:00"
+        total_minutes = int(offset_td.total_seconds() // 60)
+        sign = "+" if total_minutes >= 0 else "-"
+        total_minutes = abs(total_minutes)
+        hours = total_minutes // 60
+        minutes = total_minutes % 60
+        offset = f"{sign}{hours:02d}:{minutes:02d}"
+        return s.astimezone(timezone.utc), offset
+
+    if not isinstance(s, str):
+        raise ValueError(f"Unsupported datetime value type: {type(s)!r}")
+
+    text = s.strip()
+    if re.fullmatch(r"\d{8}", text):
+        return datetime.strptime(text, "%Y%m%d").date(), None
+
+    # ICS UTC form: YYYYMMDDTHHMMSSZ
+    if re.fullmatch(r"\d{8}T\d{6}Z", text):
+        dt = datetime.strptime(text, "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
+        return dt, "+00:00"
+
+    # Compact local-with-offset form: YYYYMMDDTHHMMSS+HH:MM
+    if re.fullmatch(r"\d{8}T\d{6}[+-]\d{2}:\d{2}", text):
+        iso_text = (
+            f"{text[:4]}-{text[4:6]}-{text[6:8]}T"
+            f"{text[9:11]}:{text[11:13]}:{text[13:15]}{text[15:]}"
+        )
+        dt = datetime.fromisoformat(iso_text)
+        return dt.astimezone(timezone.utc), text[15:]
+
+    # Generic ISO handling (supports "YYYY-MM-DDTHH:MM:SS+HH:MM" and "...Z").
+    iso_text = text[:-1] + "+00:00" if text.endswith("Z") else text
+    dt = datetime.fromisoformat(iso_text)
+    if dt.tzinfo is None:
+        raise ValueError(f"Datetime value must include timezone offset: {s!r}")
+    offset_td = dt.utcoffset()
+    if offset_td is None:
+        offset = "+00:00"
+    else:
+        total_minutes = int(offset_td.total_seconds() // 60)
+        sign = "+" if total_minutes >= 0 else "-"
+        total_minutes = abs(total_minutes)
+        offset = f"{sign}{total_minutes // 60:02d}:{total_minutes % 60:02d}"
     return dt.astimezone(timezone.utc), offset
 
 
 def z_to_offset(z, offset):
-    if z == None:
+    if z is None:
         return None
     if isinstance(z, date) and not isinstance(z, datetime):
         return z.strftime("%Y%m%d")
     if isinstance(z, datetime):
-        dt = z.astimezone(timezone.utc)
+        if z.tzinfo is None:
+            dt = z.replace(tzinfo=timezone.utc)
+        else:
+            dt = z.astimezone(timezone.utc)
     else:
-        if isinstance(z, str) and re.fullmatch(r"\d{8}", z):
-            return z
-        dt = datetime.strptime(z, "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
+        if not isinstance(z, str):
+            return str(z)
+        text = z.strip()
+        if re.fullmatch(r"\d{8}", text):
+            return text
+        if re.fullmatch(r"\d{8}T\d{6}Z", text):
+            dt = datetime.strptime(text, "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
+        elif re.fullmatch(r"\d{8}T\d{6}[+-]\d{2}:\d{2}", text):
+            iso_text = (
+                f"{text[:4]}-{text[4:6]}-{text[6:8]}T"
+                f"{text[9:11]}:{text[11:13]}:{text[13:15]}{text[15:]}"
+            )
+            dt = datetime.fromisoformat(iso_text).astimezone(timezone.utc)
+        else:
+            iso_text = text[:-1] + "+00:00" if text.endswith("Z") else text
+            try:
+                parsed = datetime.fromisoformat(iso_text)
+            except ValueError:
+                return text
+            if parsed.tzinfo is None:
+                return text
+            dt = parsed.astimezone(timezone.utc)
 
     if offset is None:
         return dt.strftime("%Y%m%dT%H%M%SZ")
@@ -246,9 +310,9 @@ def _build_event_ics(uid, title, start, finish, location="", description="", rru
 
 def EditEvent(user_id, uid, title=None, start=None, finish=None, location=None, description=None, rrule=None):
     if start is not None:
-        start, offset = offset_to_z(start)
+        start, _ = offset_to_z(start)
     if finish is not None:
-        finish, offset = offset_to_z(finish)
+        finish, _ = offset_to_z(finish)
 
     calendars = _get_user_caldav_calendars(int(user_id))
     for cal in calendars:
@@ -261,54 +325,48 @@ def EditEvent(user_id, uid, title=None, start=None, finish=None, location=None, 
             if current_uid != uid:
                 continue
 
-            if title is not None:
-                if hasattr(vevent, "summary"):
-                    vevent.summary.value = title
-                else:
-                    vevent.add("summary").value = title
-            if start is not None:
-                if hasattr(vevent, "dtstart"):
-                    vevent.dtstart.value = start
-                else:
-                    vevent.add("dtstart").value = start
-            if finish is not None:
-                if hasattr(vevent, "dtend"):
-                    vevent.dtend.value = finish
-                else:
-                    vevent.add("dtend").value = finish
-            if location is not None:
-                if location == "":
-                    if hasattr(vevent, "location"):
-                        del vevent.location
-                elif hasattr(vevent, "location"):
-                    vevent.location.value = location
-                else:
-                    vevent.add("location").value = location
-            if description is not None:
-                if description == "":
-                    if hasattr(vevent, "description"):
-                        del vevent.description
-                elif hasattr(vevent, "description"):
-                    vevent.description.value = description
-                else:
-                    vevent.add("description").value = description
-            if rrule is not None:
-                if rrule == "":
-                    if hasattr(vevent, "rrule"):
-                        del vevent.rrule
-                elif hasattr(vevent, "rrule"):
-                    vevent.rrule.value = rrule
-                else:
-                    vevent.add("rrule").value = rrule
+            current_title = str(vevent.summary.value) if hasattr(vevent, "summary") else ""
+            current_start = getattr(vevent.dtstart, "value", None) if hasattr(vevent, "dtstart") else None
+            current_finish = getattr(vevent.dtend, "value", None) if hasattr(vevent, "dtend") else None
+            current_location = str(vevent.location.value) if hasattr(vevent, "location") else ""
+            current_description = str(vevent.description.value) if hasattr(vevent, "description") else ""
+            current_rrule = str(vevent.rrule.value) if hasattr(vevent, "rrule") else ""
 
-            if not hasattr(vevent, "summary") or not str(getattr(vevent.summary, "value", "")).strip():
+            new_title = title if title is not None else current_title
+            new_start = start if start is not None else current_start
+            new_finish = finish if finish is not None else current_finish
+            new_location = location if location is not None else current_location
+            new_description = description if description is not None else current_description
+            new_rrule = rrule if rrule is not None else current_rrule
+
+            if new_location is None:
+                new_location = ""
+            if new_description is None:
+                new_description = ""
+            if new_rrule is None:
+                new_rrule = ""
+
+            if not str(new_title).strip():
                 return {"status": "failed", "error": "Edited event is missing required field: title."}
-            if not hasattr(vevent, "dtstart") or getattr(vevent.dtstart, "value", None) is None:
+            if new_start is None:
                 return {"status": "failed", "error": "Edited event is missing required field: start."}
-            if not hasattr(vevent, "dtend") or getattr(vevent.dtend, "value", None) is None:
+            if new_finish is None:
                 return {"status": "failed", "error": "Edited event is missing required field: finish."}
 
+            start_ics = _to_utc_ics(new_start)
+            finish_ics = _to_utc_ics(new_finish)
+            replacement_ics = _build_event_ics(
+                uid=uid,
+                title=str(new_title),
+                start=start_ics,
+                finish=finish_ics,
+                location=str(new_location),
+                description=str(new_description),
+                rrule=str(new_rrule),
+            )
+
             try:
+                event.data = replacement_ics
                 event.save()
             except Exception as save_error:
                 message = str(save_error)
@@ -424,23 +482,24 @@ if __name__ == "__main__":
 
     configure_tools(_get_user_caldav_calendars, LISTS_DIR)
 
+
     response = GetEvents(3,
     start="20260507T000000+12:00",
-    end="20260508T000000+12:00"
+    end="20260608T000000+12:00"
     )
-    print(response)
+    #print(response)
+
+
 
     response = EditEvent(3,
-    uid="82faec78-49c1-11f1-b1af-14f6d8b3976d",
-    title="Spaghetti dirve | Bruh"
-)
+        uid="f1c794d5-b32b-40ab-992f-d50568b06337",
+        start="20260512T180000+12:00",
+        finish="20260512T190000+12:00"
+    )
     print(response)
     quit()
     
-
-    
    
-
     response = AddEvent(3,
     title="Working AddEvent",
     start="20260507T142556+12:00",
