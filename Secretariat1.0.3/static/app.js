@@ -215,6 +215,7 @@ function decodeHtmlEntitiesDeep(value) {
 
 function renderInlineMarkdown(text) {
   let out = escapeHtml(text);
+  out = out.replace(/&lt;br\s*\/?&gt;/gi, "<br>");
   out = out.replace(/\[\[\s*send\s*:\s*([^\]]+?)\s*\]\]/gi, (_, payloadRaw) => {
     const payload = String(payloadRaw || "").trim();
     if (!payload) return "";
