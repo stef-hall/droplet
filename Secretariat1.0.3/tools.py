@@ -13,30 +13,94 @@ _get_user_caldav_calendars_fn = None
 _lists_dir = Path(__file__).resolve().parent / "lists"
 
 def offset_to_z(s):
-    if s == None:
+    if s is None:
         return None, None
     if isinstance(s, date) and not isinstance(s, datetime):
         return s, None
-    if isinstance(s, str) and re.fullmatch(r"\d{8}", s):
-        return datetime.strptime(s, "%Y%m%d").date(), None
-    dt = datetime.fromisoformat(
-        f"{s[:4]}-{s[4:6]}-{s[6:8]}T{s[9:11]}:{s[11:13]}:{s[13:15]}{s[15:]}"
-    )
-    offset = s[15:]
+    if isinstance(s, datetime):
+        if s.tzinfo is None:
+            return s.replace(tzinfo=timezone.utc), "+00:00"
+        offset_td = s.utcoffset()
+        if offset_td is None:
+            return s.astimezone(timezone.utc), "+00:00"
+        total_minutes = int(offset_td.total_seconds() // 60)
+        sign = "+" if total_minutes >= 0 else "-"
+        total_minutes = abs(total_minutes)
+        hours = total_minutes // 60
+        minutes = total_minutes % 60
+        offset = f"{sign}{hours:02d}:{minutes:02d}"
+        return s.astimezone(timezone.utc), offset
+
+    if not isinstance(s, str):
+        raise ValueError(f"Unsupported datetime value type: {type(s)!r}")
+
+    text = s.strip()
+    if re.fullmatch(r"\d{8}", text):
+        return datetime.strptime(text, "%Y%m%d").date(), None
+
+    # ICS UTC form: YYYYMMDDTHHMMSSZ
+    if re.fullmatch(r"\d{8}T\d{6}Z", text):
+        dt = datetime.strptime(text, "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
+        return dt, "+00:00"
+
+    # Compact local-with-offset form: YYYYMMDDTHHMMSS+HH:MM
+    if re.fullmatch(r"\d{8}T\d{6}[+-]\d{2}:\d{2}", text):
+        iso_text = (
+            f"{text[:4]}-{text[4:6]}-{text[6:8]}T"
+            f"{text[9:11]}:{text[11:13]}:{text[13:15]}{text[15:]}"
+        )
+        dt = datetime.fromisoformat(iso_text)
+        return dt.astimezone(timezone.utc), text[15:]
+
+    # Generic ISO handling (supports "YYYY-MM-DDTHH:MM:SS+HH:MM" and "...Z").
+    iso_text = text[:-1] + "+00:00" if text.endswith("Z") else text
+    dt = datetime.fromisoformat(iso_text)
+    if dt.tzinfo is None:
+        raise ValueError(f"Datetime value must include timezone offset: {s!r}")
+    offset_td = dt.utcoffset()
+    if offset_td is None:
+        offset = "+00:00"
+    else:
+        total_minutes = int(offset_td.total_seconds() // 60)
+        sign = "+" if total_minutes >= 0 else "-"
+        total_minutes = abs(total_minutes)
+        offset = f"{sign}{total_minutes // 60:02d}:{total_minutes % 60:02d}"
     return dt.astimezone(timezone.utc), offset
 
 
 def z_to_offset(z, offset):
-    if z == None:
+    if z is None:
         return None
     if isinstance(z, date) and not isinstance(z, datetime):
         return z.strftime("%Y%m%d")
     if isinstance(z, datetime):
-        dt = z.astimezone(timezone.utc)
+        if z.tzinfo is None:
+            dt = z.replace(tzinfo=timezone.utc)
+        else:
+            dt = z.astimezone(timezone.utc)
     else:
-        if isinstance(z, str) and re.fullmatch(r"\d{8}", z):
-            return z
-        dt = datetime.strptime(z, "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
+        if not isinstance(z, str):
+            return str(z)
+        text = z.strip()
+        if re.fullmatch(r"\d{8}", text):
+            return text
+        if re.fullmatch(r"\d{8}T\d{6}Z", text):
+            dt = datetime.strptime(text, "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
+        elif re.fullmatch(r"\d{8}T\d{6}[+-]\d{2}:\d{2}", text):
+            iso_text = (
+                f"{text[:4]}-{text[4:6]}-{text[6:8]}T"
+                f"{text[9:11]}:{text[11:13]}:{text[13:15]}{text[15:]}"
+            )
+            dt = datetime.fromisoformat(iso_text).astimezone(timezone.utc)
+        else:
+            iso_text = text[:-1] + "+00:00" if text.endswith("Z") else text
+            try:
+                parsed = datetime.fromisoformat(iso_text)
+            except ValueError:
+                return text
+            if parsed.tzinfo is None:
+                return text
+            dt = parsed.astimezone(timezone.utc)
 
     if offset is None:
         return dt.strftime("%Y%m%dT%H%M%SZ")
@@ -419,7 +483,15 @@ if __name__ == "__main__":
     configure_tools(_get_user_caldav_calendars, LISTS_DIR)
 
 
-    EditEvent(3,
+    response = GetEvents(3,
+    start="20260507T000000+12:00",
+    end="20260608T000000+12:00"
+    )
+    #print(response)
+
+
+
+    response = EditEvent(3,
         uid="f1c794d5-b32b-40ab-992f-d50568b06337",
         start="20260512T180000+12:00",
         finish="20260512T190000+12:00"
@@ -427,14 +499,7 @@ if __name__ == "__main__":
     print(response)
     quit()
     
-    response = GetEvents(3,
-    start="20260507T000000+12:00",
-    end="20260508T000000+12:00"
-    )
-    print(response)
-    
    
-
     response = AddEvent(3,
     title="Working AddEvent",
     start="20260507T142556+12:00",
