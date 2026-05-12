@@ -1116,8 +1116,8 @@ def ask_gpt54(user_input, system_prompt, results, previous_response_id=None, use
     lists_line = ", ".join(available_lists) if available_lists else "(none)"
 
     # Prepend time context to every user request before sending it to the model.
+    # Removed:         f"Current UTC time: {now_utc.strftime('%Y-%m-%d, %a %H:%M:%S  %z')}\n"
     formatted_request = (
-        f"Current UTC time: {now_utc.strftime('%Y-%m-%d, %a %H:%M:%S  %z')}\n"
         f"Current Local time: {now_local.strftime('%Y-%m-%d, %a %H:%M:%S  %z')}\n"
         f"{_format_location_for_prompt(location_context)}\n"
         f"Available lists: {lists_line}\n"
