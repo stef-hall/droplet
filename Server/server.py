@@ -26,7 +26,7 @@ from urllib.parse import urlencode
 from urllib.request import urlopen
 from pathlib import Path
 from werkzeug.security import check_password_hash, generate_password_hash
-from tools import AddEvent, GetEvents, DeleteEvent, ReadList, EditList, DeleteList, EditEvent, GetWeather, configure_tools
+from tools import AddEvent, GetEvents, GetCalendarNames, DeleteEvent, ReadList, EditList, DeleteList, EditEvent, GetWeather, configure_tools
 
 global api_key
 warnings.simplefilter("ignore", DeprecationWarning)
@@ -41,6 +41,8 @@ TRUSTED_DEVICE_DAYS = 60
 MAX_PARALLEL_TOOL_CALLS = 10
 LISTS_DIR = Path(__file__).resolve().parent / "lists"
 DB_PATH = Path(__file__).resolve().parent / "secretariat.db"
+DEFAULT_ASSISTANT_MODEL = "gpt-5.4"
+ALLOWED_ASSISTANT_MODELS = {"gpt-5.4-mini", "gpt-5.4"}
 
 
 def _log(label, message):
@@ -66,6 +68,7 @@ def _tool_name_to_status_label(tool_name: str) -> str:
         "editlist": "Updating List...",
         "deletelist": "Deleting List...",
         "getweather": "Getting Weather...",
+        "getcalendarnames": "Getting Calendar Names...",
     }
     if normalized in label_map:
         return label_map[normalized]
@@ -209,11 +212,16 @@ def _init_db():
                 caldav_username TEXT,
                 caldav_password TEXT,
                 caldav_calendar TEXT,
+                assistant_model TEXT,
                 updated_at TEXT NOT NULL,
                 FOREIGN KEY (user_id) REFERENCES users (id)
             )
             """
         )
+        columns = conn.execute("PRAGMA table_info(user_settings)").fetchall()
+        existing_column_names = {str(row["name"]) for row in columns}
+        if "assistant_model" not in existing_column_names:
+            conn.execute("ALTER TABLE user_settings ADD COLUMN assistant_model TEXT")
         conn.commit()
 
 
@@ -237,7 +245,7 @@ def _get_user_settings(user_id: int):
     with _db_conn() as conn:
         return conn.execute(
             """
-            SELECT user_id, caldav_url, caldav_username, caldav_password, caldav_calendar, updated_at
+            SELECT user_id, caldav_url, caldav_username, caldav_password, caldav_calendar, assistant_model, updated_at
             FROM user_settings
             WHERE user_id = ?
             """,
@@ -264,6 +272,13 @@ def _get_user_caldav_settings(user_id: int) -> dict[str, str]:
         "password": caldav_password,
         "calendar": caldav_calendar,
     }
+
+
+def _normalize_assistant_model(raw_model: str | None) -> str:
+    model = str(raw_model or "").strip()
+    if model in ALLOWED_ASSISTANT_MODELS:
+        return model
+    return DEFAULT_ASSISTANT_MODEL
 
 
 def _get_user_caldav_calendars(user_id: int):
@@ -452,7 +467,11 @@ Rules:
 - Avoid filler phrases. When mentioning defaults, do it briefly (example: "What time do you want? I'll default to 1 hour long.")
 - When asking for follow up details, be direct with the user. Don't ask "I can help with that I just need the detail duration..." Instead ask "How Long?". Also if multiple details are missing ask for all of them at once.
 - prefer tools over free-text when an action/data retrieval is needed
-- Take the initative, but offer Quick Responses to cater or undo your actions if uncertain. 
+- Use User clickable 'FastReplys' inline with text in the format: [[send: visible assistant text|hidden user message]], as convenient next steps to obvious follow up's. 
+- For the FastReplys, the text before "|" is what the assistant shows inline, and the text after "|" is the exact user message sends when clicked. Use the hidden user message and visibile assitant text to make sentence to read naturally from the assistant's perspective.
+- If you ever send a response that contains an exact solution to your question, offer it as a FastReplys. e.g. ... message: "what time or duration should the call with your grandma be? If you want, I can use [[send: 5 PM and make the call 1 hour | Okay, 5 PM and for 1 hour]" 
+- If a suggested action for the User to take is contained in your message, ALWAYS offer it as a FastReply, e.g. ... message: "The song descriptions are currently removed. If you want, [[send: I can add them back now. | Yes, add the song descriptions back.]]"
+- Take the initative, but offer FastReplys to cater or undo your actions. 
 - weather context can be requested via GetWeather(); use it to improve scheduling suggestions (especially for outdoor activities)
 - You operate ONLY in the local timezone. For interacting, and reasoning with events.
 - apply extra reasoning scrutiny around meridians (AM/PM), especially 12:00 times
@@ -464,13 +483,12 @@ Rules:
 - After any tool execution, always return a user-facing message: a brief status update if more work or input remains, or a confirmation when the task is finished
 - The "message" field may contain markdown for formatting (supported: # ## ### headings, **bold**, *italics*, bullet and numbered lists, inline `code`, fenced code blocks ```...```, and pipe tables like | a | b | with a separator row).
 - For one-tap user replies, use this exact markdown line format: [[send: your suggested user message]]
-- Use Quick Responses inline with text in the format: [[send: visible assistant text|hidden user message]], as obvious follow up's if your not completley comfortable taking action. 
-- If you ever send a response that contains an exact solution to your question, offer it as an instant quick response(e.g. what time or duration should the call with your grandma be? If you want, I can use [[send: 5 PM and make the call 1 hour | Okay, 5 PM and for 1 hour].)
-- For the Quick Responses, the text before "|" is what the assistant shows inline, and the text after "|" is the exact user message sends on click. Use these to make sentence to read naturally from the assistant's perspective.
 - Always return a state. RUNNING = Operating Tools/Thinking, WAITING = Waiting for User Input, DONE = ONLY when completley finished your task.
 - Users can be impressed with particularly well visual laid out messages, or where clear thought has gone into it. Users should feel impressed.
 - Consult your context window to check if you already have the relevant data, before running unessacary Get Tools. 
 - Don't use Em Dashes ("—").
+- CalDAV "reason Forbidden" AuthorizationError's are usually caused by trying to alter the wrong calender. If encountered; Supply the user with GetCalenderNames() and remind them to set the appropriate Calender in settings.
+- If the USER ever requests for you to "Restore", "Undo", "Bring Back", or "Recreate" an event - ESPECIALLY IF YOU'VE RECENTLY DELETED SOME EVENTS - your FIRST STEP is to look back in your context for the requested events information, then Add back an identical copy of that event
 - If someone calls you 'bud' you have to call them 'bud' back
 
 - When multiple tool actions are needed, plan them as ordered steps:
@@ -518,9 +536,13 @@ tools = [
                 "rrule": {
                     "type": "string",
                     "description": "Optional recurrence rule (RRULE) for repeating events in iCalendar format (e.g. 'FREQ=WEEKLY;INTERVAL=1'). Defines how the event repeats over time (weekly, monthly, etc). If not provided, the event is treated as a single occurrence."
+                },
+                "reminder_minutes_before": {
+                    "type": "integer",
+                    "description": "Optional reminder/alert lead time in minutes before event start (e.g. 10, 30, 60)."
                 }
             },
-            "required": ["title", "start", "finish", "location", "description", "rrule"],
+            "required": ["title", "start", "finish", "location", "description", "rrule", "reminder_minutes_before"],
             "additionalProperties": False
         }
     },
@@ -652,6 +674,10 @@ tools = [
                 "rrule": {
                     "type": "string",
                     "description": "Updated recurrence rule (RRULE). Optional."
+                },
+                "reminder_minutes_before": {
+                    "type": "integer",
+                    "description": "Updated reminder/alert lead time in minutes before event start. Optional."
                 }
             },
             "required": ["uid"],
@@ -684,6 +710,18 @@ tools = [
                 }
             },
             "required": ["latitude", "longitude"],
+            "additionalProperties": False
+        }
+    },
+    {
+        "type": "function",
+        "name": "GetCalendarNames",
+        "description": "Gets all available calendar names for the authenticated CalDAV account.",
+        "strict": True,
+        "parameters": {
+            "type": "object",
+            "properties": {},
+            "required": [],
             "additionalProperties": False
         }
     }
@@ -761,6 +799,7 @@ def ToolUse(name, args, user_id=None):
         location = args.get("location", "")
         description = args.get("description", "")
         rrule = args.get("rrule", "")
+        reminder_minutes_before = args.get("reminder_minutes_before")
         try:
             output = AddEvent(
                 user_id=user_id,
@@ -769,7 +808,8 @@ def ToolUse(name, args, user_id=None):
                 finish=finish,
                 location=location,
                 description=description,
-                rrule=rrule
+                rrule=rrule,
+                reminder_minutes_before=reminder_minutes_before,
             )
             if isinstance(output, dict):
                 return {"status": "success", "tool": "AddEvent", "event": {"title": title, "start": start, "finish": finish}, "result": output}
@@ -794,7 +834,7 @@ def ToolUse(name, args, user_id=None):
             )
             if isinstance(output, list):
                 if output and isinstance(output[0], dict):
-                    columns = ["uid", "start", "end", "summary", "location", "description", "calendar"]
+                    columns = ["uid", "start", "end", "summary", "location", "description", "rrule", "reminder_minutes_before", "calendar"]
                     output = [columns] + [[event.get(column) for column in columns] for event in output]
                 elif output and isinstance(output[0], list):
                     pass
@@ -896,6 +936,7 @@ def ToolUse(name, args, user_id=None):
         location = args.get("location")
         description = args.get("description")
         rrule = args.get("rrule")
+        reminder_minutes_before = args.get("reminder_minutes_before")
         try:
             output = EditEvent(
                 user_id=user_id,
@@ -906,6 +947,7 @@ def ToolUse(name, args, user_id=None):
                 location=location,
                 description=description,
                 rrule=rrule,
+                reminder_minutes_before=reminder_minutes_before,
             )
             status = output.get("status") if isinstance(output, dict) else None
             if status == "not_found":
@@ -986,6 +1028,22 @@ def ToolUse(name, args, user_id=None):
                 "error": str(e),
             }
 
+    # Returns all available calendar names
+    if name == "GetCalendarNames":
+        try:
+            output = GetCalendarNames(user_id=user_id)
+            return {
+                "status": "success",
+                "tool": "GetCalendarNames",
+                "result": output,
+            }
+        except Exception as e:
+            return {
+                "status": "failed",
+                "tool": "GetCalendarNames",
+                "error": str(e),
+            }
+
     return {
         "status": "failed",
         "tool": name,
@@ -1042,6 +1100,11 @@ def _execute_function_calls_parallel(function_calls, user_id=None):
 def ask_gpt54(user_input, system_prompt, results, previous_response_id=None, user_timezone=None, location_context=None, user_id=None):
     # Build a fresh OpenAI client for each request.
     client = OpenAI(api_key=api_key)
+    selected_model = DEFAULT_ASSISTANT_MODEL
+    if user_id is not None:
+        row = _get_user_settings(int(user_id))
+        if row:
+            selected_model = _normalize_assistant_model(row["assistant_model"])
 
     # Generate both UTC and local timestamps so the model can reason about time-sensitive requests.
     now_utc = datetime.now(timezone.utc)
@@ -1066,8 +1129,8 @@ def ask_gpt54(user_input, system_prompt, results, previous_response_id=None, use
     lists_line = ", ".join(available_lists) if available_lists else "(none)"
 
     # Prepend time context to every user request before sending it to the model.
+    # Removed:         f"Current UTC time: {now_utc.strftime('%Y-%m-%d, %a %H:%M:%S  %z')}\n"
     formatted_request = (
-        f"Current UTC time: {now_utc.strftime('%Y-%m-%d, %a %H:%M:%S  %z')}\n"
         f"Current Local time: {now_local.strftime('%Y-%m-%d, %a %H:%M:%S  %z')}\n"
         f"{_format_location_for_prompt(location_context)}\n"
         f"Available lists: {lists_line}\n"
@@ -1086,7 +1149,7 @@ def ask_gpt54(user_input, system_prompt, results, previous_response_id=None, use
             {"role": "user", "content": user_content},
         ]
         response = client.responses.create(
-            model="gpt-5.4",
+            model=selected_model,
             input=input_items,
             tools=tools,
             parallel_tool_calls=True,
@@ -1103,7 +1166,7 @@ def ask_gpt54(user_input, system_prompt, results, previous_response_id=None, use
 
         # Continue the same model conversation by passing previous_response_id.
         response = client.responses.create(
-            model="gpt-5.4",
+            model=selected_model,
             input=input_items,
             tools=tools,
             previous_response_id=previous_response_id,
@@ -1292,6 +1355,7 @@ def api_settings_caldav_get():
         "caldav_url": str(row["caldav_url"] or "").strip() if row else "",
         "caldav_username": str(row["caldav_username"] or "").strip() if row else "",
         "caldav_calendar": str(row["caldav_calendar"] or "").strip() if row else "",
+        "assistant_model": _normalize_assistant_model(row["assistant_model"] if row else None),
         "has_password": bool(str(row["caldav_password"] or "")) if row else False,
     }
     return jsonify({"ok": True, "settings": settings_payload})
@@ -1308,6 +1372,7 @@ def api_settings_caldav_save():
     caldav_url = str(payload.get("caldav_url", "")).strip()
     caldav_username = str(payload.get("caldav_username", "")).strip()
     caldav_calendar = str(payload.get("caldav_calendar", "")).strip()
+    assistant_model = _normalize_assistant_model(payload.get("assistant_model"))
     caldav_password_incoming = payload.get("caldav_password")
     caldav_password_incoming = "" if caldav_password_incoming is None else str(caldav_password_incoming)
     updated_at = _utc_now().isoformat()
@@ -1320,18 +1385,18 @@ def api_settings_caldav_save():
             conn.execute(
                 """
                 UPDATE user_settings
-                SET caldav_url = ?, caldav_username = ?, caldav_password = ?, caldav_calendar = ?, updated_at = ?
+                SET caldav_url = ?, caldav_username = ?, caldav_password = ?, caldav_calendar = ?, assistant_model = ?, updated_at = ?
                 WHERE user_id = ?
                 """,
-                (caldav_url, caldav_username, caldav_password, caldav_calendar, updated_at, user_id),
+                (caldav_url, caldav_username, caldav_password, caldav_calendar, assistant_model, updated_at, user_id),
             )
         else:
             conn.execute(
                 """
-                INSERT INTO user_settings (user_id, caldav_url, caldav_username, caldav_password, caldav_calendar, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO user_settings (user_id, caldav_url, caldav_username, caldav_password, caldav_calendar, assistant_model, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
-                (user_id, caldav_url, caldav_username, caldav_password, caldav_calendar, updated_at),
+                (user_id, caldav_url, caldav_username, caldav_password, caldav_calendar, assistant_model, updated_at),
             )
         conn.commit()
 
@@ -1341,6 +1406,7 @@ def api_settings_caldav_save():
             "caldav_url": caldav_url,
             "caldav_username": caldav_username,
             "caldav_calendar": caldav_calendar,
+            "assistant_model": assistant_model,
             "has_password": bool(caldav_password),
         },
     })

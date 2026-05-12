@@ -161,7 +161,34 @@ WEATHER_CODE_DESCRIPTIONS = {
 }
 
 
-def AddEvent(user_id, title, start, finish, location, description, rrule):
+def _normalize_reminder_minutes(value):
+    if value is None or value == "":
+        return None
+    minutes = int(value)
+    if minutes < 0:
+        raise ValueError("reminder_minutes_before must be >= 0")
+    return minutes
+
+
+def _extract_reminder_minutes(vevent):
+    if not hasattr(vevent, "valarm"):
+        return None
+    alarms = vevent.valarm
+    if not isinstance(alarms, list):
+        alarms = [alarms]
+    for alarm in alarms:
+        trigger = getattr(alarm, "trigger", None)
+        trigger_value = getattr(trigger, "value", None)
+        if isinstance(trigger_value, timedelta):
+            return int(abs(trigger_value.total_seconds()) // 60)
+        trigger_text = str(trigger_value or "").strip().upper()
+        match = re.fullmatch(r"-PT(\d+)M", trigger_text)
+        if match:
+            return int(match.group(1))
+    return None
+
+
+def AddEvent(user_id, title, start, finish, location, description, rrule, reminder_minutes_before=None):
     start, offset = offset_to_z(start)
     finish, offset = offset_to_z(finish)
     start = start.strftime("%Y%m%dT%H%M%SZ")
@@ -181,6 +208,17 @@ def AddEvent(user_id, title, start, finish, location, description, rrule):
         event_lines.append(f"DESCRIPTION:{description}")
     if rrule:
         event_lines.append(f"RRULE:{rrule}")
+    reminder_minutes = _normalize_reminder_minutes(reminder_minutes_before)
+    if reminder_minutes is not None:
+        event_lines.extend(
+            [
+                "BEGIN:VALARM",
+                f"TRIGGER:-PT{reminder_minutes}M",
+                "ACTION:DISPLAY",
+                "DESCRIPTION:Reminder",
+                "END:VALARM",
+            ]
+        )
 
     event_lines.extend(["END:VEVENT", "END:VCALENDAR"])
     event = "\n".join(event_lines)
@@ -194,7 +232,7 @@ def GetEvents(user_id, start, end):
     start, offset = offset_to_z(start)
     end, offset = offset_to_z(end)
     calendars = _get_user_caldav_calendars(int(user_id))
-    columns = ["uid", "start", "end", "summary", "location", "description", "rrule", "calendar"]
+    columns = ["uid", "start", "end", "summary", "location", "description", "rrule", "reminder_minutes_before", "calendar"]
     rows = []
     for cal in calendars:
         events = cal.date_search(start=start, end=end)
@@ -214,6 +252,7 @@ def GetEvents(user_id, start, end):
                         str(vevent.location.value) if hasattr(vevent, "location") else None,
                         str(vevent.description.value) if hasattr(vevent, "description") else None,
                         str(vevent.rrule.value) if hasattr(vevent, "rrule") else None,
+                        _extract_reminder_minutes(vevent),
                         cal.get_display_name(),
                     ]
                 )
@@ -225,6 +264,14 @@ def GetEvents(user_id, start, end):
                 )
                 continue
     return [columns, *rows]
+
+def GetCalendarNames(user_id):
+    calendars = _get_user_caldav_calendars(int(user_id))
+    names = [str(cal.get_display_name() or "").strip() for cal in calendars]
+    return {
+        "status": "success",
+        "calendar_names": [name for name in names if name],
+    }
 
 
 def DeleteEvent(user_id, uid):
@@ -288,7 +335,7 @@ def _to_utc_ics(value):
     return str(value)
 
 
-def _build_event_ics(uid, title, start, finish, location="", description="", rrule=""):
+def _build_event_ics(uid, title, start, finish, location="", description="", rrule="", reminder_minutes_before=None):
     lines = [
         "BEGIN:VCALENDAR",
         "VERSION:2.0",
@@ -304,11 +351,22 @@ def _build_event_ics(uid, title, start, finish, location="", description="", rru
         lines.append(f"DESCRIPTION:{description}")
     if rrule:
         lines.append(f"RRULE:{rrule}")
+    reminder_minutes = _normalize_reminder_minutes(reminder_minutes_before)
+    if reminder_minutes is not None:
+        lines.extend(
+            [
+                "BEGIN:VALARM",
+                f"TRIGGER:-PT{reminder_minutes}M",
+                "ACTION:DISPLAY",
+                "DESCRIPTION:Reminder",
+                "END:VALARM",
+            ]
+        )
     lines.extend(["END:VEVENT", "END:VCALENDAR"])
     return "\n".join(lines)
 
 
-def EditEvent(user_id, uid, title=None, start=None, finish=None, location=None, description=None, rrule=None):
+def EditEvent(user_id, uid, title=None, start=None, finish=None, location=None, description=None, rrule=None, reminder_minutes_before=None):
     if start is not None:
         start, _ = offset_to_z(start)
     if finish is not None:
@@ -331,6 +389,7 @@ def EditEvent(user_id, uid, title=None, start=None, finish=None, location=None, 
             current_location = str(vevent.location.value) if hasattr(vevent, "location") else ""
             current_description = str(vevent.description.value) if hasattr(vevent, "description") else ""
             current_rrule = str(vevent.rrule.value) if hasattr(vevent, "rrule") else ""
+            current_reminder_minutes = _extract_reminder_minutes(vevent)
 
             new_title = title if title is not None else current_title
             new_start = start if start is not None else current_start
@@ -338,6 +397,7 @@ def EditEvent(user_id, uid, title=None, start=None, finish=None, location=None, 
             new_location = location if location is not None else current_location
             new_description = description if description is not None else current_description
             new_rrule = rrule if rrule is not None else current_rrule
+            new_reminder_minutes = reminder_minutes_before if reminder_minutes_before is not None else current_reminder_minutes
 
             if new_location is None:
                 new_location = ""
@@ -363,6 +423,7 @@ def EditEvent(user_id, uid, title=None, start=None, finish=None, location=None, 
                 location=str(new_location),
                 description=str(new_description),
                 rrule=str(new_rrule),
+                reminder_minutes_before=new_reminder_minutes,
             )
 
             try:
@@ -388,6 +449,7 @@ def EditEvent(user_id, uid, title=None, start=None, finish=None, location=None, 
                     "location": location is not None,
                     "description": description is not None,
                     "rrule": rrule is not None,
+                    "reminder_minutes_before": reminder_minutes_before is not None,
                 },
             }
 

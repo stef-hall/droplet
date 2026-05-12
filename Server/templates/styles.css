@@ -526,7 +526,7 @@ textarea {
   width: 100%;
   border-collapse: collapse;
   border: 1px solid rgba(0, 0, 0, 0.12);
-  font-size: 0.95em;
+  font-size: 0.95rem;
 }
 
 .bubble.md table * {

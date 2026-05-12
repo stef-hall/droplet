@@ -215,6 +215,7 @@ function decodeHtmlEntitiesDeep(value) {
 
 function renderInlineMarkdown(text) {
   let out = escapeHtml(text);
+  out = out.replace(/&lt;br\s*\/?&gt;/gi, "<br>");
   out = out.replace(/\[\[\s*send\s*:\s*([^\]]+?)\s*\]\]/gi, (_, payloadRaw) => {
     const payload = String(payloadRaw || "").trim();
     if (!payload) return "";
@@ -699,8 +700,15 @@ async function submitPromptText(prompt) {
           }
           if (evt && evt.type === "status") {
             const label = evt.label || "Thinking...";
-            setMetaStatus(label);
             updateThinkingLabel(label);
+            const compact = String(label).trim().toLowerCase().replace(/[.\s]+$/g, "");
+            if (compact.startsWith("waiting")) {
+              setMetaStatus("Waiting...");
+            } else if (compact.startsWith("done")) {
+              setMetaStatus("Done");
+            } else {
+              setMetaStatus("Thinking...");
+            }
           }
           if (evt && evt.type === "final") {
             finalPayload = evt;

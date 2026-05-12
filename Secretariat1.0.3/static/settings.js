@@ -153,7 +153,7 @@ async function loadSettings() {
     caldavUsernameEl.value = settings.caldav_username || "";
     caldavCalendarEl.value = settings.caldav_calendar || "";
     if (assistantModelEl) {
-      assistantModelEl.value = settings.assistant_model || "gpt-5.4-mini";
+      assistantModelEl.value = settings.assistant_model || "gpt-5.4";
     }
     caldavPasswordEl.value = "";
     setSettingsStatus(settings.has_password ? "Saved password is already on file." : "No CalDAV password saved yet.");
@@ -216,7 +216,7 @@ if (caldavSettingsFormEl) {
           caldav_username: caldavUsernameEl.value.trim(),
           caldav_password: caldavPasswordEl.value,
           caldav_calendar: caldavCalendarEl.value.trim(),
-          assistant_model: assistantModelEl ? assistantModelEl.value : "gpt-5.4-mini",
+          assistant_model: assistantModelEl ? assistantModelEl.value : "gpt-5.4",
         }),
       });
       const data = await response.json();

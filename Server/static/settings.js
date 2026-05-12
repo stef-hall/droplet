@@ -8,6 +8,7 @@ const caldavProviderEl = document.getElementById("caldav-provider");
 const caldavUsernameEl = document.getElementById("caldav-username");
 const caldavPasswordEl = document.getElementById("caldav-password");
 const caldavCalendarEl = document.getElementById("caldav-calendar");
+const assistantModelEl = document.getElementById("assistant-model");
 const settingsStatusEl = document.getElementById("settings-status");
 const deleteUserFormEl = document.getElementById("delete-user-form");
 const deleteConfirmationEl = document.getElementById("delete-confirmation");
@@ -151,6 +152,9 @@ async function loadSettings() {
     caldavProviderEl.value = providerFromUrl(settings.caldav_url || "");
     caldavUsernameEl.value = settings.caldav_username || "";
     caldavCalendarEl.value = settings.caldav_calendar || "";
+    if (assistantModelEl) {
+      assistantModelEl.value = settings.assistant_model || "gpt-5.4";
+    }
     caldavPasswordEl.value = "";
     setSettingsStatus(settings.has_password ? "Saved password is already on file." : "No CalDAV password saved yet.");
   } catch (error) {
@@ -212,6 +216,7 @@ if (caldavSettingsFormEl) {
           caldav_username: caldavUsernameEl.value.trim(),
           caldav_password: caldavPasswordEl.value,
           caldav_calendar: caldavCalendarEl.value.trim(),
+          assistant_model: assistantModelEl ? assistantModelEl.value : "gpt-5.4",
         }),
       });
       const data = await response.json();

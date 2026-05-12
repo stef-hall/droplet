@@ -41,7 +41,7 @@ TRUSTED_DEVICE_DAYS = 60
 MAX_PARALLEL_TOOL_CALLS = 10
 LISTS_DIR = Path(__file__).resolve().parent / "lists"
 DB_PATH = Path(__file__).resolve().parent / "secretariat.db"
-DEFAULT_ASSISTANT_MODEL = "gpt-5.4-mini"
+DEFAULT_ASSISTANT_MODEL = "gpt-5.4"
 ALLOWED_ASSISTANT_MODELS = {"gpt-5.4-mini", "gpt-5.4"}
 
 
