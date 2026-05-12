@@ -43,13 +43,6 @@ LISTS_DIR = Path(__file__).resolve().parent / "lists"
 DB_PATH = Path(__file__).resolve().parent / "secretariat.db"
 DEFAULT_ASSISTANT_MODEL = "gpt-5.4-mini"
 ALLOWED_ASSISTANT_MODELS = {"gpt-5.4-mini", "gpt-5.4"}
-CONTEXT_RETENTION_TURNS = {
-    "user_message": 2, #8
-    "assistant_message": 2, #6
-    "tool_output": 3,
-    "image_input": 1,
-}
-MAX_CONTEXT_ITEMS = 80
 
 
 def _log(label, message):
@@ -164,47 +157,6 @@ def _format_action_report(counter: dict[str, int]) -> str:
     if not lines:
         return ""
     return "\n\n```summary\n" + "\n".join(lines) + "\n```"
-
-
-def _new_context_state():
-    return {"turn_index": 0, "history": []}
-
-
-def _append_context_entry(context_state, kind, payload):
-    history = context_state.setdefault("history", [])
-    history.append(
-        {
-            "kind": kind,
-            "turn": int(context_state.get("turn_index", 0)),
-            "payload": payload,
-        }
-    )
-
-
-def _build_context_input_items(context_state, system_prompt_text):
-    turn_index = int(context_state.get("turn_index", 0))
-    history = context_state.get("history", [])
-    selected = []
-    for entry in history:
-        kind = str(entry.get("kind", ""))
-        ttl = int(CONTEXT_RETENTION_TURNS.get(kind, 0))
-        if ttl <= 0:
-            continue
-        entry_turn = int(entry.get("turn", 0))
-        if (turn_index - entry_turn) < ttl:
-            selected.append(entry.get("payload"))
-
-    if len(selected) > MAX_CONTEXT_ITEMS:
-        selected = selected[-MAX_CONTEXT_ITEMS:]
-
-    return [{"role": "system", "content": system_prompt_text}, *selected]
-
-
-def _build_context_input_with_pending_tools(context_state, system_prompt_text, pending_tool_outputs):
-    base_items = _build_context_input_items(context_state, system_prompt_text)
-    if pending_tool_outputs:
-        return [*base_items, *pending_tool_outputs]
-    return base_items
 
 
 def _prune_sessions(now_ts: float):
@@ -1132,27 +1084,7 @@ def _execute_function_calls_parallel(function_calls, user_id=None):
 
 
 
-def _build_user_prompt_text(raw_prompt, user_timezone=None, location_context=None, user_id=None):
-    now_utc = datetime.now(timezone.utc)
-    now_local = datetime.now().astimezone()
-    if user_timezone:
-        try:
-            now_local = now_utc.astimezone(ZoneInfo(user_timezone))
-        except Exception:
-            pass
-
-    available_lists = get_available_lists(user_id=user_id)
-    lists_line = ", ".join(available_lists) if available_lists else "(none)"
-    return (
-        f"Current Local time: {now_local.strftime('%Y-%m-%d, %a %H:%M:%S  %z')}\n"
-        f"{_format_location_for_prompt(location_context)}\n"
-        f"Available lists: {lists_line}\n"
-        f"##############################\n"
-        f"Request: {raw_prompt}"
-    )
-
-
-def ask_gpt54(input_items, user_id=None):
+def ask_gpt54(user_input, system_prompt, results, previous_response_id=None, user_timezone=None, location_context=None, user_id=None):
     # Build a fresh OpenAI client for each request.
     client = OpenAI(api_key=api_key)
     selected_model = DEFAULT_ASSISTANT_MODEL
@@ -1160,48 +1092,100 @@ def ask_gpt54(input_items, user_id=None):
         row = _get_user_settings(int(user_id))
         if row:
             selected_model = _normalize_assistant_model(row["assistant_model"])
-    return client.responses.create(
-        model=selected_model,
-        input=input_items,
-        tools=tools,
-        parallel_tool_calls=True,
+
+    # Generate both UTC and local timestamps so the model can reason about time-sensitive requests.
+    now_utc = datetime.now(timezone.utc)
+    now_local = datetime.now().astimezone()
+    if user_timezone:
+        try:
+            # If a user timezone is provided, prefer that explicit timezone for local time context.
+            now_local = now_utc.astimezone(ZoneInfo(user_timezone))
+        except Exception:
+            # Fall back to system-local timezone if timezone parsing fails.
+            pass
+
+    # Support both plain-text input and dict-based multimodal input (text + optional image).
+    image_data_url = None
+    if isinstance(user_input, dict):
+        image_data_url = user_input.get("image_data_url")
+        raw_prompt = user_input.get("prompt", "")
+    else:
+        raw_prompt = user_input
+
+    available_lists = get_available_lists(user_id=user_id)
+    lists_line = ", ".join(available_lists) if available_lists else "(none)"
+
+    # Prepend time context to every user request before sending it to the model.
+    # Removed:         f"Current UTC time: {now_utc.strftime('%Y-%m-%d, %a %H:%M:%S  %z')}\n"
+    formatted_request = (
+        f"Current Local time: {now_local.strftime('%Y-%m-%d, %a %H:%M:%S  %z')}\n"
+        f"{_format_location_for_prompt(location_context)}\n"
+        f"Available lists: {lists_line}\n"
+        f"##############################\n"
+        f"Request: {raw_prompt}"
     )
+    user_content = [{"type": "input_text", "text": formatted_request}]
+    if image_data_url:
+        # Include an image input block when present.
+        user_content.append({"type": "input_image", "image_url": image_data_url})
+
+    # First turn: include system prompt and user content to initialize the response thread.
+    if previous_response_id is None:
+        input_items = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_content},
+        ]
+        response = client.responses.create(
+            model=selected_model,
+            input=input_items,
+            tools=tools,
+            parallel_tool_calls=True,
+        )
 
 
-def run_secretariat(prompt_text, image_data_url=None, previous_response_id=None, user_timezone=None, location_context=None, max_turns=12, status_callback=None, user_id=None, context_state=None):
-    context_state = context_state or _new_context_state()
+    else:
+        # Follow-up turns: send function outputs when available, otherwise send the new user turn.
+        if results:
+            input_items = results
+
+        else:
+            input_items = [{"role": "user", "content": user_content}]
+
+        # Continue the same model conversation by passing previous_response_id.
+        response = client.responses.create(
+            model=selected_model,
+            input=input_items,
+            tools=tools,
+            previous_response_id=previous_response_id,
+            parallel_tool_calls=True,
+        )
+
+    return response
+
+
+def run_secretariat(prompt_text, image_data_url=None, previous_response_id=None, user_timezone=None, location_context=None, max_turns=12, status_callback=None, user_id=None):
+    results = []
     state = "RUNNING"
     assistant_message = ""
     current_response_id = previous_response_id
     action_counter = {}
-    pending_tool_outputs = []
-    formatted_request = _build_user_prompt_text(
-        raw_prompt=prompt_text,
-        user_timezone=user_timezone,
-        location_context=location_context,
-        user_id=user_id,
-    )
-    _append_context_entry(
-        context_state,
-        "user_message",
-        {"role": "user", "content": [{"type": "input_text", "text": formatted_request}]},
-    )
-    if image_data_url:
-        _append_context_entry(
-            context_state,
-            "image_input",
-            {"role": "user", "content": [{"type": "input_image", "image_url": image_data_url}]},
-        )
-
     for turn_idx in range(max_turns):
         if status_callback:
             status_callback("Thinking...")
         _log("TURN_START", f"{turn_idx + 1}/{max_turns}")
-        input_items = _build_context_input_with_pending_tools(context_state, system_prompt, pending_tool_outputs)
-        pending_tool_outputs = []
-        response = ask_gpt54(input_items, user_id=user_id)
+        user_turn = {"prompt": prompt_text, "image_data_url": image_data_url}
+        response = ask_gpt54(
+            user_turn,
+            system_prompt,
+            results,
+            current_response_id,
+            user_timezone=user_timezone,
+            location_context=location_context,
+            user_id=user_id,
+        )
         current_response_id = response.id
         response_data = response.model_dump()
+        results = []
         saw_function_call = False
         function_calls = []
         _log_json("MODEL_OUTPUT", response_data.get("output", []))
@@ -1231,16 +1215,9 @@ def run_secretariat(prompt_text, image_data_url=None, previous_response_id=None,
                 status_callback(_batch_status_label(function_calls))
             tool_outputs = _execute_function_calls_parallel(function_calls, user_id=user_id)
             _accumulate_action_report(action_counter, tool_outputs)
-            pending_tool_outputs = tool_outputs
-            context_state["turn_index"] = int(context_state.get("turn_index", 0)) + 1
+            results.extend(tool_outputs)
             continue
 
-        _append_context_entry(
-            context_state,
-            "assistant_message",
-            {"role": "assistant", "content": assistant_message or ""},
-        )
-        context_state["turn_index"] = int(context_state.get("turn_index", 0)) + 1
         if state in {"WAITING", "DONE"}:
             _log("TURN_END", f"state={state}")
             assistant_message = (assistant_message or "") + _format_action_report(action_counter)
@@ -1248,14 +1225,12 @@ def run_secretariat(prompt_text, image_data_url=None, previous_response_id=None,
                 "state": state,
                 "message": assistant_message,
                 "previous_response_id": current_response_id,
-                "context_state": context_state,
             }
 
     return {
         "state": state,
         "message": (assistant_message or "Request timed out.") + _format_action_report(action_counter),
         "previous_response_id": current_response_id,
-        "context_state": context_state,
     }
 
 
@@ -1544,8 +1519,7 @@ def api_secretariat():
         session_data = session_store.get(session_id, {})
     if session_data.get("user_id") not in (None, user_id):
         session_data = {}
-    previous_response_id = None
-    context_state = session_data.get("context_state") if isinstance(session_data.get("context_state"), dict) else _new_context_state()
+    previous_response_id = session_data.get("previous_response_id")
     payload_timezone = str(payload.get("timezone", "")).strip()
     payload_location = payload.get("location") if isinstance(payload.get("location"), dict) else {}
     payload_latitude = _coerce_float(payload_location.get("latitude"))
@@ -1572,13 +1546,11 @@ def api_secretariat():
             user_timezone=user_timezone,
             location_context=weather_location,
             user_id=user_id,
-            context_state=context_state,
         )
         with session_store_lock:
             session_store[session_id] = {
                 "user_id": user_id,
                 "previous_response_id": result.get("previous_response_id"),
-                "context_state": result.get("context_state") if isinstance(result.get("context_state"), dict) else _new_context_state(),
                 "timezone": user_timezone,
                 "weather_location": weather_location,
                 "last_seen_ts": now_ts,
@@ -1614,8 +1586,7 @@ def api_secretariat_stream():
         session_data = session_store.get(session_id, {})
     if session_data.get("user_id") not in (None, user_id):
         session_data = {}
-    previous_response_id = None
-    context_state = session_data.get("context_state") if isinstance(session_data.get("context_state"), dict) else _new_context_state()
+    previous_response_id = session_data.get("previous_response_id")
     payload_timezone = str(payload.get("timezone", "")).strip()
     payload_location = payload.get("location") if isinstance(payload.get("location"), dict) else {}
     payload_latitude = _coerce_float(payload_location.get("latitude"))
@@ -1639,39 +1610,30 @@ def api_secretariat_stream():
             def emit(payload_obj):
                 return json.dumps(payload_obj, ensure_ascii=False) + "\n"
 
+            results = []
             state = "RUNNING"
             assistant_message = ""
             current_response_id = previous_response_id
             max_turns = 12
             action_counter = {}
-            pending_tool_outputs = []
-            formatted_request = _build_user_prompt_text(
-                raw_prompt=prompt_text,
-                user_timezone=user_timezone,
-                location_context=weather_location,
-                user_id=user_id,
-            )
-            _append_context_entry(
-                context_state,
-                "user_message",
-                {"role": "user", "content": [{"type": "input_text", "text": formatted_request}]},
-            )
-            if image_data_url:
-                _append_context_entry(
-                    context_state,
-                    "image_input",
-                    {"role": "user", "content": [{"type": "input_image", "image_url": image_data_url}]},
-                )
 
             for turn_idx in range(max_turns):
                 _log("TURN_START", f"{turn_idx + 1}/{max_turns}")
                 yield emit({"type": "status", "label": "Thinking..."})
 
-                input_items = _build_context_input_with_pending_tools(context_state, system_prompt, pending_tool_outputs)
-                pending_tool_outputs = []
-                response = ask_gpt54(input_items, user_id=user_id)
+                user_turn = {"prompt": prompt_text, "image_data_url": image_data_url}
+                response = ask_gpt54(
+                    user_turn,
+                    system_prompt,
+                    results,
+                    current_response_id,
+                    user_timezone=user_timezone,
+                    location_context=weather_location,
+                    user_id=user_id,
+                )
                 current_response_id = response.id
                 response_data = response.model_dump()
+                results = []
                 saw_function_call = False
                 function_calls = []
                 _log_json("MODEL_OUTPUT", response_data.get("output", []))
@@ -1700,16 +1662,9 @@ def api_secretariat_stream():
                     yield emit({"type": "status", "label": _batch_status_label(function_calls)})
                     tool_outputs = _execute_function_calls_parallel(function_calls, user_id=user_id)
                     _accumulate_action_report(action_counter, tool_outputs)
-                    pending_tool_outputs = tool_outputs
-                    context_state["turn_index"] = int(context_state.get("turn_index", 0)) + 1
+                    results.extend(tool_outputs)
                     continue
 
-                _append_context_entry(
-                    context_state,
-                    "assistant_message",
-                    {"role": "assistant", "content": assistant_message or ""},
-                )
-                context_state["turn_index"] = int(context_state.get("turn_index", 0)) + 1
                 if state in {"WAITING", "DONE"}:
                     _log("TURN_END", f"state={state}")
                     break
@@ -1723,7 +1678,6 @@ def api_secretariat_stream():
                 session_store[session_id] = {
                     "user_id": user_id,
                     "previous_response_id": result.get("previous_response_id"),
-                    "context_state": context_state,
                     "timezone": user_timezone,
                     "weather_location": weather_location,
                     "last_seen_ts": now_ts,
@@ -1762,10 +1716,10 @@ def api_session_init():
         _prune_sessions(now_ts)
         session_data = session_store.get(
             session_id,
-            {"user_id": user_id, "previous_response_id": None, "context_state": _new_context_state(), "timezone": None, "weather_location": None, "last_seen_ts": now_ts},
+            {"user_id": user_id, "previous_response_id": None, "timezone": None, "weather_location": None, "last_seen_ts": now_ts},
         )
         if session_data.get("user_id") not in (None, user_id):
-            session_data = {"user_id": user_id, "previous_response_id": None, "context_state": _new_context_state(), "timezone": None, "weather_location": None, "last_seen_ts": now_ts}
+            session_data = {"user_id": user_id, "previous_response_id": None, "timezone": None, "weather_location": None, "last_seen_ts": now_ts}
         if timezone_name:
             session_data["timezone"] = timezone_name
         if latitude is not None and longitude is not None:
