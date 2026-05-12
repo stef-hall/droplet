@@ -424,20 +424,20 @@ if __name__ == "__main__":
 
     configure_tools(_get_user_caldav_calendars, LISTS_DIR)
 
+
+    EditEvent(3,
+        uid="f1c794d5-b32b-40ab-992f-d50568b06337",
+        start="20260512T180000+12:00",
+        finish="20260512T190000+12:00"
+    )
+    print(response)
+    quit()
+    
     response = GetEvents(3,
     start="20260507T000000+12:00",
     end="20260508T000000+12:00"
     )
     print(response)
-
-    response = EditEvent(3,
-    uid="82faec78-49c1-11f1-b1af-14f6d8b3976d",
-    title="Spaghetti dirve | Bruh"
-)
-    print(response)
-    quit()
-    
-
     
    
 
