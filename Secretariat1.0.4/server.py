@@ -836,7 +836,7 @@ def ToolUse(name, args, user_id=None):
             )
             if isinstance(output, list):
                 if output and isinstance(output[0], dict):
-                    columns = ["uid", "start", "end", "summary", "location", "description", "rrule", "reminder_minutes_before", "calendar"]
+                    columns = ["uid", "start", "end", "summary", "location", "description", "rrule", "reminder_minutes_before"]
                     output = [columns] + [[event.get(column) for column in columns] for event in output]
                 elif output and isinstance(output[0], list):
                     pass
@@ -1135,12 +1135,71 @@ def _alias_model_output_ids(output_items, fc_state, call_state):
     return aliased
 
 
+def compact_getevents(output: dict) -> dict:
+    cols_map = {
+        "uid": "id",
+        "start": "s",
+        "end": "e",
+        "summary": "title",
+        "location": "loc",
+        "description": "desc",
+        "rrule": "rrule",
+        "reminder_minutes_before": "rem",
+    }
+
+    raw_cols = output["result"][0]
+    rows = output["result"][1:]
+
+    compact_cols = [cols_map.get(c, c) for c in raw_cols]
+
+    def compact_value(v):
+        return "" if v is None else v
+
+    def compact_time(v):
+        if not v:
+            return ""
+        return datetime.strptime(v[:15], "%Y%m%dT%H%M%S").strftime("%H%M").lstrip("0") or "0"
+
+    events = []
+    for row in rows:
+        event = []
+        for col, value in zip(raw_cols, row):
+            if col in {"start", "end"}:
+                event.append(compact_time(value))
+            else:
+                event.append(compact_value(value))
+        events.append(event)
+
+    return {
+        "range": {
+            "start": output["range"]["start"],
+            "end": output["range"]["end"],
+        },
+        "cols": compact_cols,
+        "events": events,
+    }
+
+
+def compact_deleteevent(output: dict) -> dict:
+    return {
+        "tool": "DeleteEvent",
+        "deleted": output.get("event", {}).get("uid", "")
+    }  
+
 def _compact_value(value, depth=0):
     # Need to add Tool Specific Compression here #snap
-    print(value)
     print("-------")
+    if value['tool'] == 'GetEvents':
+        x = compact_getevents(value)
+        print(x)
+        return x
 
-
+    if value['tool'] == 'DeleteEvent':
+        x = compact_deleteevent(value)
+        print(x)
+        return value
+        
+    print(value)
     return value
 
 

@@ -273,7 +273,7 @@ def GetEvents(user_id, start, end):
     start, offset = offset_to_z(start)
     end, offset = offset_to_z(end)
     calendars = _get_user_caldav_calendars(int(user_id))
-    columns = ["uid", "start", "end", "summary", "location", "description", "rrule", "reminder_minutes_before", "calendar"]
+    columns = ["uid", "start", "end", "summary", "location", "description", "rrule", "reminder_minutes_before"]
     rows = []
     for cal in calendars:
         events = cal.date_search(start=start, end=end)
@@ -295,7 +295,6 @@ def GetEvents(user_id, start, end):
                         str(vevent.description.value) if hasattr(vevent, "description") else None,
                         str(vevent.rrule.value) if hasattr(vevent, "rrule") else None,
                         _extract_reminder_minutes(vevent),
-                        cal.get_display_name(),
                     ]
                 )
             except Exception as e:
