@@ -7,10 +7,44 @@ from pathlib import Path
 from urllib.parse import urlencode
 from urllib.request import urlopen
 import re
+from threading import Lock
 
 
 _get_user_caldav_calendars_fn = None
 _lists_dir = Path(__file__).resolve().parent / "lists"
+_uid_alias_store: dict[int, dict[str, object]] = {}
+_uid_alias_lock = Lock()
+
+
+def _get_uid_alias(user_id: int, uid: str) -> str:
+    uid = str(uid)
+    with _uid_alias_lock:
+        state = _uid_alias_store.setdefault(
+            int(user_id),
+            {"counter": 0, "uid_to_alias": {}, "alias_to_uid": {}},
+        )
+        uid_to_alias = state["uid_to_alias"]
+        alias_to_uid = state["alias_to_uid"]
+        existing = uid_to_alias.get(uid)
+        if existing:
+            return existing
+        state["counter"] = int(state["counter"]) + 1
+        alias = f"e{state['counter']}"
+        uid_to_alias[uid] = alias
+        alias_to_uid[alias] = uid
+        return alias
+
+
+def _resolve_uid_for_user(user_id: int, uid_or_alias: str) -> str:
+    key = str(uid_or_alias or "").strip()
+    if not key:
+        return key
+    with _uid_alias_lock:
+        state = _uid_alias_store.get(int(user_id))
+        if not state:
+            return key
+        alias_to_uid = state.get("alias_to_uid", {})
+        return str(alias_to_uid.get(key, key))
 
 def offset_to_z(s):
     if s is None:
@@ -243,9 +277,10 @@ def GetEvents(user_id, start, end):
                     continue
 
                 vevent = data.vevent
+                real_uid = str(vevent.uid.value)
                 rows.append(
                     [
-                        str(vevent.uid.value),
+                        _get_uid_alias(int(user_id), real_uid),
                         str(z_to_offset(vevent.dtstart.value, offset)),
                         str(z_to_offset(vevent.dtend.value, offset)) if hasattr(vevent, "dtend") else None,
                         str(vevent.summary.value) if hasattr(vevent, "summary") else None,
@@ -275,12 +310,13 @@ def GetCalendarNames(user_id):
 
 
 def DeleteEvent(user_id, uid):
+    resolved_uid = _resolve_uid_for_user(int(user_id), uid)
     calendars = _get_user_caldav_calendars(int(user_id))
     for cal in calendars:
         for event in cal.events():
             data = event.vobject_instance
             if data and hasattr(data, "vevent"):
-                if str(data.vevent.uid.value) == uid:
+                if str(data.vevent.uid.value) == resolved_uid:
                     event.delete()
                     return {"status": "deleted"}
     return {"status": "not_found"}
