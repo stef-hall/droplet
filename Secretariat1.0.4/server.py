@@ -1107,9 +1107,8 @@ def _truncate_text(value, max_len=400):
 
 def _compact_value(value, depth=0):
     # Need to add Tool Specific Compression here
-    print(value)
-    print('----')
-    ##quit()
+
+
 
     return value
 

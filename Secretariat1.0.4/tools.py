@@ -46,6 +46,13 @@ def _resolve_uid_for_user(user_id: int, uid_or_alias: str) -> str:
         alias_to_uid = state.get("alias_to_uid", {})
         return str(alias_to_uid.get(key, key))
 
+
+def NormalizeEventUidAlias(user_id: int, uid_or_alias: str) -> str:
+    resolved_uid = _resolve_uid_for_user(int(user_id), uid_or_alias)
+    if not resolved_uid:
+        return ""
+    return _get_uid_alias(int(user_id), resolved_uid)
+
 def offset_to_z(s):
     if s is None:
         return None, None
@@ -403,6 +410,7 @@ def _build_event_ics(uid, title, start, finish, location="", description="", rru
 
 
 def EditEvent(user_id, uid, title=None, start=None, finish=None, location=None, description=None, rrule=None, reminder_minutes_before=None):
+    resolved_uid = _resolve_uid_for_user(int(user_id), uid)
     if start is not None:
         start, _ = offset_to_z(start)
     if finish is not None:
@@ -416,7 +424,7 @@ def EditEvent(user_id, uid, title=None, start=None, finish=None, location=None, 
                 continue
             vevent = data.vevent
             current_uid = str(vevent.uid.value) if hasattr(vevent, "uid") else ""
-            if current_uid != uid:
+            if current_uid != resolved_uid:
                 continue
 
             current_title = str(vevent.summary.value) if hasattr(vevent, "summary") else ""
@@ -452,7 +460,7 @@ def EditEvent(user_id, uid, title=None, start=None, finish=None, location=None, 
             start_ics = _to_utc_ics(new_start)
             finish_ics = _to_utc_ics(new_finish)
             replacement_ics = _build_event_ics(
-                uid=uid,
+                uid=resolved_uid,
                 title=str(new_title),
                 start=start_ics,
                 finish=finish_ics,
@@ -477,7 +485,7 @@ def EditEvent(user_id, uid, title=None, start=None, finish=None, location=None, 
 
             return {
                 "status": "edited",
-                "uid": uid,
+                "uid": _get_uid_alias(int(user_id), resolved_uid),
                 "updated_fields": {
                     "title": title is not None,
                     "start": start is not None,

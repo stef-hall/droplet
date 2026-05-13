@@ -1,8 +1,0 @@
-| # | Feature Ideas |
-|---|---|
-| 1 | Calculate drive distance |
-| 2 | Check open times |
-| 3 | Shared list idea |
-| 4 | personality.md |
-| 5 | Google query takes you to URL with query |
-| 6 | QR edit icon popout shifts to green to bring to composer |
