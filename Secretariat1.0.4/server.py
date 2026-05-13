@@ -1271,10 +1271,6 @@ def run_secretariat(prompt_text, image_data_url=None, previous_response_id=None,
     }
 
 
-def compress_tool_output(tool_output):
-    print("###",tool_output)
-
-
 @app.get("/")
 def home():
     return render_template("Secretariat.html")
