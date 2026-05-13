@@ -1186,6 +1186,97 @@ def compact_deleteevent(output: dict) -> dict:
         "deleted": output.get("event", {}).get("uid", "")
     }  
 
+
+def compress_getweather(output: dict) -> dict:
+    result = output.get("result", {}) or {}
+    forecast = result.get("forecast", {}) or {}
+
+    times = forecast.get("time", []) or []
+    temps = forecast.get("Tempc", []) or []
+    rain = forecast.get("Precip", []) or []
+    wind = forecast.get("Wind_Speed", []) or []
+    conds = forecast.get("conditions", []) or []
+
+    def hhmm(t):
+        if not t:
+            return ""
+        return t.split("T")[-1].replace(":", "")[:4]
+
+    def compact_dt(t):
+        if not t:
+            return ""
+        date_time, offset = t[:16], t[16:]
+        date_time = date_time.replace("-", "").replace(":", "")
+        offset = offset.replace(":", "")
+        return date_time + offset
+
+    def minmax(values):
+        nums = [v for v in values if isinstance(v, (int, float))]
+        if not nums:
+            return None
+        return {"min": min(nums), "max": max(nums)}
+
+    def all_same_zero(values):
+        nums = [v for v in values if isinstance(v, (int, float))]
+        return bool(nums) and all(v == 0 for v in nums)
+
+    def compress_conditions(times, conditions):
+        if not times or not conditions:
+            return []
+
+        out = []
+        start = hhmm(times[0])
+        prev_time = hhmm(times[0])
+        prev_cond = conditions[0]
+
+        for t, cond in zip(times[1:], conditions[1:]):
+            cur_time = hhmm(t)
+
+            if cond != prev_cond:
+                out.append([start if start == prev_time else f"{start}-{prev_time}", prev_cond])
+                start = cur_time
+                prev_cond = cond
+
+            prev_time = cur_time
+
+        out.append([start if start == prev_time else f"{start}-{prev_time}", prev_cond])
+        return out
+
+    current = result.get("current", {}) or {}
+
+    compressed = {
+        "weather": {
+            "range": [
+                compact_dt(output.get("range", {}).get("start_time", "")),
+                compact_dt(output.get("range", {}).get("end_time", "")),
+            ],
+            "tz": result.get("timezone", ""),
+            "now": [
+                hhmm(current.get("time")),
+                current.get("Tempc", ""),
+                current.get("Precip", ""),
+                current.get("Wind_Speed", ""),
+                current.get("conditions", ""),
+            ],
+            "temp": minmax(temps),
+            "wind": minmax(wind),
+            "conds": compress_conditions(times, conds),
+        }
+    }
+
+    if all_same_zero(rain):
+        compressed["weather"]["rain"] = 0
+    else:
+        compressed["weather"]["rain"] = minmax(rain)
+
+    compressed["weather"] = {
+        k: v for k, v in compressed["weather"].items()
+        if v not in ("", None, [], {})
+    }
+
+    return compressed
+
+
 def _compact_value(value, depth=0):
     # Need to add Tool Specific Compression here #snap
     print("-------")
@@ -1197,8 +1288,13 @@ def _compact_value(value, depth=0):
     if value['tool'] == 'DeleteEvent':
         x = compact_deleteevent(value)
         print(x)
-        return value
-        
+        return x
+
+    if value['tool'] == 'GetWeather':
+        x = compress_getweather(value)
+        print(x)
+        return x
+
     print(value)
     return value
 
