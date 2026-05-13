@@ -1097,6 +1097,61 @@ def _execute_function_calls_parallel(function_calls, user_id=None):
     return ordered_outputs
 
 
+def _truncate_text(value, max_len=400):
+    text = str(value)
+    if len(text) <= max_len:
+        return text
+    return text[:max_len] + f"... [truncated {len(text) - max_len} chars]"
+
+
+def _compact_value(value, depth=0):
+    if depth >= 3:
+        if isinstance(value, (dict, list)):
+            return f"[{type(value).__name__} truncated]"
+        return value
+
+    if isinstance(value, dict):
+        out = {}
+        for key, item in value.items():
+            if key in {"description", "notes", "summary", "message", "error"}:
+                out[key] = _truncate_text(item, 300)
+            elif key in {"html", "raw", "data", "blob", "ics", "content"}:
+                out[key] = "[omitted]"
+            else:
+                out[key] = _compact_value(item, depth + 1)
+        return out
+
+    if isinstance(value, list):
+        limited = value[:8]
+        compacted = [_compact_value(item, depth + 1) for item in limited]
+        if len(value) > 8:
+            compacted.append(f"... [{len(value) - 8} more items]")
+        return compacted
+
+    if isinstance(value, str):
+        return _truncate_text(value, 300)
+
+    return value
+
+
+def compress_tool_output(tool_output):
+    if not isinstance(tool_output, dict):
+        return tool_output
+
+    raw_output = tool_output.get("output")
+    try:
+        parsed_output = json.loads(raw_output) if isinstance(raw_output, str) else raw_output
+    except Exception:
+        parsed_output = {"status": "failed", "error": "Invalid tool output JSON"}
+
+    compacted = _compact_value(parsed_output)
+    return {
+        "type": "function_call_output",
+        "call_id": tool_output.get("call_id"),
+        "output": json.dumps(compacted, ensure_ascii=False),
+    }
+
+
 
 def ask_gpt54(user_input, system_prompt, results, previous_response_id=None, user_timezone=None, location_context=None, user_id=None):
     # Build a fresh OpenAI client for each request.
@@ -1252,7 +1307,7 @@ def run_secretariat(prompt_text, image_data_url=None, previous_response_id=None,
                 status_callback(_batch_status_label(function_calls))
             tool_outputs = _execute_function_calls_parallel(function_calls, user_id=user_id)
             _accumulate_action_report(action_counter, tool_outputs)
-            results.extend(tool_outputs)
+            results.extend(compress_tool_output(output) for output in tool_outputs)
             continue
 
         if state in {"WAITING", "DONE"}:
@@ -1699,7 +1754,7 @@ def api_secretariat_stream():
                     yield emit({"type": "status", "label": _batch_status_label(function_calls)})
                     tool_outputs = _execute_function_calls_parallel(function_calls, user_id=user_id)
                     _accumulate_action_report(action_counter, tool_outputs)
-                    results.extend(tool_outputs)
+                    results.extend(compress_tool_output(output) for output in tool_outputs)
                     continue
 
                 if state in {"WAITING", "DONE"}:
