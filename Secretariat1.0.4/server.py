@@ -1105,6 +1105,36 @@ def _truncate_text(value, max_len=400):
     return text[:max_len] + f"... [truncated {len(text) - max_len} chars]"
 
 
+def _alias_token(value: str, prefix: str, state: dict) -> str:
+    key = str(value or "")
+    if not key:
+        return key
+    existing = state["by_value"].get(key)
+    if existing:
+        return existing
+    state["counter"] += 1
+    alias = f"{prefix}{state['counter']}"
+    state["by_value"][key] = alias
+    return alias
+
+
+def _alias_model_output_ids(output_items, fc_state, call_state):
+    aliased = []
+    for item in output_items or []:
+        if not isinstance(item, dict):
+            aliased.append(item)
+            continue
+        clone = dict(item)
+        raw_id = clone.get("id")
+        if raw_id:
+            clone["id"] = _alias_token(str(raw_id), "fc", fc_state)
+        raw_call_id = clone.get("call_id")
+        if raw_call_id:
+            clone["call_id"] = _alias_token(str(raw_call_id), "c", call_state)
+        aliased.append(clone)
+    return aliased
+
+
 def _compact_value(value, depth=0):
     # Need to add Tool Specific Compression here
 
@@ -1240,6 +1270,8 @@ def run_secretariat(prompt_text, image_data_url=None, previous_response_id=None,
     assistant_message = ""
     current_response_id = previous_response_id
     action_counter = {}
+    function_call_id_alias_state = {"counter": 0, "by_value": {}}
+    call_id_alias_state = {"counter": 0, "by_value": {}}
     for turn_idx in range(max_turns):
         if status_callback:
             status_callback("Thinking...")
@@ -1261,7 +1293,14 @@ def run_secretariat(prompt_text, image_data_url=None, previous_response_id=None,
         results = []
         saw_function_call = False
         function_calls = []
-        _log_json("MODEL_OUTPUT", response_data.get("output", []))
+        _log_json(
+            "MODEL_OUTPUT",
+            _alias_model_output_ids(
+                response_data.get("output", []),
+                function_call_id_alias_state,
+                call_id_alias_state,
+            ),
+        )
         for content in response_data.get("output", []):
             if content.get("type") == "message" and content.get("content"):
                 text_payload = content["content"][0].get("text", "")
@@ -1689,6 +1728,8 @@ def api_secretariat_stream():
             current_response_id = previous_response_id
             max_turns = 12
             action_counter = {}
+            function_call_id_alias_state = {"counter": 0, "by_value": {}}
+            call_id_alias_state = {"counter": 0, "by_value": {}}
 
             for turn_idx in range(max_turns):
                 _log("TURN_START", f"{turn_idx + 1}/{max_turns}")
@@ -1711,7 +1752,14 @@ def api_secretariat_stream():
                 results = []
                 saw_function_call = False
                 function_calls = []
-                _log_json("MODEL_OUTPUT", response_data.get("output", []))
+                _log_json(
+                    "MODEL_OUTPUT",
+                    _alias_model_output_ids(
+                        response_data.get("output", []),
+                        function_call_id_alias_state,
+                        call_id_alias_state,
+                    ),
+                )
 
                 for content in response_data.get("output", []):
                     if content.get("type") == "message" and content.get("content"):
