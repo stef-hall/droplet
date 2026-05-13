@@ -1252,6 +1252,9 @@ def run_secretariat(prompt_text, image_data_url=None, previous_response_id=None,
                 status_callback(_batch_status_label(function_calls))
             tool_outputs = _execute_function_calls_parallel(function_calls, user_id=user_id)
             _accumulate_action_report(action_counter, tool_outputs)
+            summarized_outputs = []
+            for output in tool_outputs:
+                summarized_outputs.append(compress_tool_output(output))
             results.extend(tool_outputs)
             continue
 
@@ -1269,6 +1272,10 @@ def run_secretariat(prompt_text, image_data_url=None, previous_response_id=None,
         "message": (assistant_message or "Request timed out.") + _format_action_report(action_counter),
         "previous_response_id": current_response_id,
     }
+
+
+def compress_tool_output(tool_output):
+    print("###",tool_output)
 
 
 @app.get("/")
