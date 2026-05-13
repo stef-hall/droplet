@@ -1106,31 +1106,9 @@ def _truncate_text(value, max_len=400):
 
 def _compact_value(value, depth=0):
     # Need to add Tool Specific Compression here
-    if depth >= 3:
-        if isinstance(value, (dict, list)):
-            return f"[{type(value).__name__} truncated]"
-        return value
-
-    if isinstance(value, dict):
-        out = {}
-        for key, item in value.items():
-            if key in {"description", "notes", "summary", "message", "error"}:
-                out[key] = _truncate_text(item, 300)
-            elif key in {"html", "raw", "data", "blob", "ics", "content"}:
-                out[key] = "[omitted]"
-            else:
-                out[key] = _compact_value(item, depth + 1)
-        return out
-
-    if isinstance(value, list):
-        limited = value[:8]
-        compacted = [_compact_value(item, depth + 1) for item in limited]
-        if len(value) > 8:
-            compacted.append(f"... [{len(value) - 8} more items]")
-        return compacted
-
-    if isinstance(value, str):
-        return _truncate_text(value, 300)
+    print(value)
+    print('----')
+    ##quit()
 
     return value
 
@@ -1310,7 +1288,7 @@ def run_secretariat(prompt_text, image_data_url=None, previous_response_id=None,
                 status_callback(_batch_status_label(function_calls))
             tool_outputs = _execute_function_calls_parallel(function_calls, user_id=user_id)
             _accumulate_action_report(action_counter, tool_outputs)
-            results.extend(compress_tool_output(output) for output in tool_outputs)
+            results.extend(compress_tool_output(tool_outputs))
             continue
 
         if state in {"WAITING", "DONE"}:
