@@ -700,8 +700,15 @@ async function submitPromptText(prompt) {
           }
           if (evt && evt.type === "status") {
             const label = evt.label || "Thinking...";
-            setMetaStatus(label);
             updateThinkingLabel(label);
+            const compact = String(label).trim().toLowerCase().replace(/[.\s]+$/g, "");
+            if (compact.startsWith("waiting")) {
+              setMetaStatus("Waiting...");
+            } else if (compact.startsWith("done")) {
+              setMetaStatus("Done");
+            } else {
+              setMetaStatus("Thinking...");
+            }
           }
           if (evt && evt.type === "final") {
             finalPayload = evt;

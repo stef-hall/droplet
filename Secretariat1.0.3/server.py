@@ -1154,6 +1154,16 @@ def ask_gpt54(user_input, system_prompt, results, previous_response_id=None, use
             tools=tools,
             parallel_tool_calls=True,
         )
+        usage = response.usage
+
+        input_tokens = usage.input_tokens
+        cached_tokens = usage.input_tokens_details.cached_tokens
+        uncached_tokens = input_tokens - cached_tokens
+
+        print("input_tokens:", input_tokens)
+        print("cached_tokens:", cached_tokens)
+        print("uncached_tokens:", uncached_tokens)
+        print("cache_hit_rate:", cached_tokens / input_tokens if input_tokens else 0)
 
 
     else:
@@ -1172,6 +1182,16 @@ def ask_gpt54(user_input, system_prompt, results, previous_response_id=None, use
             previous_response_id=previous_response_id,
             parallel_tool_calls=True,
         )
+        usage = response.usage
+
+        input_tokens = usage.input_tokens
+        cached_tokens = usage.input_tokens_details.cached_tokens
+        uncached_tokens = input_tokens - cached_tokens
+
+        print("input_tokens:", input_tokens)
+        print("cached_tokens:", cached_tokens)
+        print("uncached_tokens:", uncached_tokens)
+        print("cache_hit_rate:", cached_tokens / input_tokens if input_tokens else 0)
 
     return response
 
