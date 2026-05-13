@@ -1105,6 +1105,7 @@ def _truncate_text(value, max_len=400):
 
 
 def _compact_value(value, depth=0):
+    # Need to add Tool Specific Compression here
     if depth >= 3:
         if isinstance(value, (dict, list)):
             return f"[{type(value).__name__} truncated]"
@@ -1265,7 +1266,9 @@ def run_secretariat(prompt_text, image_data_url=None, previous_response_id=None,
         if status_callback:
             status_callback("Thinking...")
         _log("TURN_START", f"{turn_idx + 1}/{max_turns}")
-        user_turn = {"prompt": prompt_text, "image_data_url": image_data_url}
+        user_turn = {"prompt": prompt_text}
+        if turn_idx == 0 and image_data_url:
+            user_turn["image_data_url"] = image_data_url
         response = ask_gpt54(
             user_turn,
             system_prompt,
@@ -1713,7 +1716,9 @@ def api_secretariat_stream():
                 _log("TURN_START", f"{turn_idx + 1}/{max_turns}")
                 yield emit({"type": "status", "label": "Thinking..."})
 
-                user_turn = {"prompt": prompt_text, "image_data_url": image_data_url}
+                user_turn = {"prompt": prompt_text}
+                if turn_idx == 0 and image_data_url:
+                    user_turn["image_data_url"] = image_data_url
                 response = ask_gpt54(
                     user_turn,
                     system_prompt,
