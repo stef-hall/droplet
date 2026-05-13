@@ -12,7 +12,7 @@ import os
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 from caldav import DAVClient # type: ignore
-from openai import OpenAI # type: ignore
+from openai import OpenAI # type: ignores
 import vobject # type: ignore
 import json
 import warnings
@@ -1136,8 +1136,9 @@ def _alias_model_output_ids(output_items, fc_state, call_state):
 
 
 def _compact_value(value, depth=0):
-    # Need to add Tool Specific Compression here
-
+    # Need to add Tool Specific Compression here #snap
+    print(value)
+    print("-------")
 
 
     return value
