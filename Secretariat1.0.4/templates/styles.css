@@ -735,7 +735,7 @@ textarea {
   text-decoration: underline;
   text-underline-offset: 2px;
   text-decoration-style: solid;
-  text-decoration-color: var(--accent);
+  text-decoration-color: #0080ff;
 }
 
 .quick-reply-inline::after {

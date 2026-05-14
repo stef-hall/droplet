@@ -12,7 +12,7 @@ import os
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 from caldav import DAVClient # type: ignore
-from openai import OpenAI # type: ignores
+from openai import OpenAI # type: ignore
 import vobject # type: ignore
 import json
 import warnings
@@ -25,7 +25,7 @@ import hashlib
 from urllib.parse import urlencode
 from urllib.request import urlopen
 from pathlib import Path
-from werkzeug.security import check_password_hash, generate_password_hash
+from werkzeug.security import check_password_hash, generate_password_hash # type: ignore
 from tools import AddEvent, GetEvents, GetCalendarNames, DeleteEvent, ReadList, EditList, DeleteList, EditEvent, GetWeather, configure_tools
 
 global api_key
