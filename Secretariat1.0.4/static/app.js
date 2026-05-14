@@ -24,6 +24,8 @@ const navDrawerEl = document.getElementById("nav-drawer");
 const navDrawerOverlayEl = document.getElementById("nav-drawer-overlay");
 const darkModeToggleEl = document.getElementById("dark-mode-toggle");
 const themeColorMetaEl = document.getElementById("theme-color-meta");
+const themeToggleIconLeftEl = document.getElementById("theme-toggle-icon-left");
+const themeToggleIconRightEl = document.getElementById("theme-toggle-icon-right");
 const authSubtitleEl = document.getElementById("auth-subtitle");
 const authStatusEl = document.getElementById("auth-status");
 const authTrustDeviceEl = document.getElementById("auth-trust-device");
@@ -132,6 +134,17 @@ const headerLeftTransition = createHeaderLeftTransition();
 function applyTheme(theme) {
   const normalizedTheme = theme === "dark" ? "dark" : "light";
   document.documentElement.setAttribute("data-theme", normalizedTheme);
+  const prefix = normalizedTheme === "dark" ? "dm" : "lm";
+  if (themeToggleIconLeftEl && themeToggleIconRightEl) {
+    themeToggleIconLeftEl.classList.add("is-transitioning");
+    themeToggleIconRightEl.classList.add("is-transitioning");
+    window.setTimeout(() => {
+      themeToggleIconLeftEl.src = `/static/icons/${prefix}_on.png`;
+      themeToggleIconRightEl.src = `/static/icons/${prefix}_moon.png`;
+      themeToggleIconLeftEl.classList.remove("is-transitioning");
+      themeToggleIconRightEl.classList.remove("is-transitioning");
+    }, 90);
+  }
   if (themeColorMetaEl) {
     themeColorMetaEl.setAttribute("content", normalizedTheme === "dark" ? "#171a1d" : "#f4f4f4");
   }
