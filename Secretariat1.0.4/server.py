@@ -1277,22 +1277,35 @@ def compress_getweather(output: dict) -> dict:
     return compressed
 
 
-def _compact_value(value, depth=0):
+def compress_editevent(value):
+    if not isinstance(value, dict):
+        return value
+
+    result = value.get("result", {})
+    updated_fields = result.get("updated_fields", {})
+
+    return {
+        "tool": value.get("tool"),
+        "uid": result.get("uid") or value.get("event", {}).get("uid"),
+        "updated_fields": [k for k, v in updated_fields.items() if v],
+    }
+
+def _compact_value(value):
     # Need to add Tool Specific Compression here #snap
-    print("-------")
     if value['tool'] == 'GetEvents':
         x = compact_getevents(value)
-        print(x)
         return x
 
     if value['tool'] == 'DeleteEvent':
         x = compact_deleteevent(value)
-        print(x)
         return x
 
     if value['tool'] == 'GetWeather':
         x = compress_getweather(value)
-        print(x)
+        return x
+
+    if value['tool'] == 'EditEvent':
+        x = compress_editevent(value)
         return x
 
     print(value)
@@ -1483,7 +1496,9 @@ def run_secretariat(prompt_text, image_data_url=None, previous_response_id=None,
                 status_callback(_batch_status_label(function_calls))
             tool_outputs = _execute_function_calls_parallel(function_calls, user_id=user_id)
             _accumulate_action_report(action_counter, tool_outputs)
-            results.extend(compress_tool_output(tool_outputs))
+            compress_result = compress_tool_output(tool_outputs)
+            print("---------\n", compress_result, "\n---------")
+            results.extend(compress_result)
             continue
 
         if state in {"WAITING", "DONE"}:
