@@ -269,7 +269,11 @@ def AddEvent(user_id, title, start, finish, location, description, rrule, remind
     calendars = _get_user_caldav_calendars(int(user_id))
     calendar = calendars[0]
     calendar.add_event(event)
-    return {"status": "Complete"}
+    uid_alias = _get_uid_alias(int(user_id), uid)
+    return {
+        "status": "Complete",
+        "uid": uid_alias,
+    }
 
 
 def GetEvents(user_id, start, end):
