@@ -1,5 +1,0 @@
-Get Events
-Make Event
-Edit Event
-Remove Event
-Upload Image

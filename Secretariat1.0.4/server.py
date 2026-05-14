@@ -12,7 +12,7 @@ import os
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 from caldav import DAVClient # type: ignore
-from openai import OpenAI # type: ignore
+from openai import OpenAI # type: ignores
 import vobject # type: ignore
 import json
 import warnings
@@ -490,6 +490,7 @@ Rules:
 - CalDAV "reason Forbidden" AuthorizationError's are usually caused by trying to alter the wrong calender. If encountered; Supply the user with GetCalenderNames() and remind them to set the appropriate Calender in settings.
 - If the USER ever requests for you to "Restore", "Undo", "Bring Back", or "Recreate" an event - ESPECIALLY IF YOU'VE RECENTLY DELETED SOME EVENTS - your FIRST STEP is to look back in your context for the requested events information, then Add back an identical copy of that event
 - If a User asks you to Add/Edit/Delete an event in a new chat session, where you haven't got any previous GetEvents data in your context; GetEvents for the given week FIRST before then making your response.
+- Remeber that a human USER has likley been awake for past midnight, when they refer to 'morning', despite actually being in a new morning (past meridian) - they are refering to the day PRIOR's morning.
 - If someone calls you 'bud' you have to call them 'bud' back
 
 - When multiple tool actions are needed, plan them as ordered steps:
@@ -835,7 +836,7 @@ def ToolUse(name, args, user_id=None):
             )
             if isinstance(output, list):
                 if output and isinstance(output[0], dict):
-                    columns = ["uid", "start", "end", "summary", "location", "description", "rrule", "reminder_minutes_before", "calendar"]
+                    columns = ["uid", "start", "end", "summary", "location", "description", "rrule", "reminder_minutes_before"]
                     output = [columns] + [[event.get(column) for column in columns] for event in output]
                 elif output and isinstance(output[0], list):
                     pass
@@ -1104,34 +1105,197 @@ def _truncate_text(value, max_len=400):
     return text[:max_len] + f"... [truncated {len(text) - max_len} chars]"
 
 
-def _compact_value(value, depth=0):
-    # Need to add Tool Specific Compression here
-    if depth >= 3:
-        if isinstance(value, (dict, list)):
-            return f"[{type(value).__name__} truncated]"
-        return value
+def _alias_token(value: str, prefix: str, state: dict) -> str:
+    key = str(value or "")
+    if not key:
+        return key
+    existing = state["by_value"].get(key)
+    if existing:
+        return existing
+    state["counter"] += 1
+    alias = f"{prefix}{state['counter']}"
+    state["by_value"][key] = alias
+    return alias
 
-    if isinstance(value, dict):
-        out = {}
-        for key, item in value.items():
-            if key in {"description", "notes", "summary", "message", "error"}:
-                out[key] = _truncate_text(item, 300)
-            elif key in {"html", "raw", "data", "blob", "ics", "content"}:
-                out[key] = "[omitted]"
+
+def _alias_model_output_ids(output_items, fc_state, call_state):
+    aliased = []
+    for item in output_items or []:
+        if not isinstance(item, dict):
+            aliased.append(item)
+            continue
+        clone = dict(item)
+        raw_id = clone.get("id")
+        if raw_id:
+            clone["id"] = _alias_token(str(raw_id), "fc", fc_state)
+        raw_call_id = clone.get("call_id")
+        if raw_call_id:
+            clone["call_id"] = _alias_token(str(raw_call_id), "c", call_state)
+        aliased.append(clone)
+    return aliased
+
+
+def compact_getevents(output: dict) -> dict:
+    cols_map = {
+        "uid": "id",
+        "start": "s",
+        "end": "e",
+        "summary": "title",
+        "location": "loc",
+        "description": "desc",
+        "rrule": "rrule",
+        "reminder_minutes_before": "rem",
+    }
+
+    raw_cols = output["result"][0]
+    rows = output["result"][1:]
+
+    compact_cols = [cols_map.get(c, c) for c in raw_cols]
+
+    def compact_value(v):
+        return "" if v is None else v
+
+    def compact_time(v):
+        if not v:
+            return ""
+        return datetime.strptime(v[:15], "%Y%m%dT%H%M%S").strftime("%H%M").lstrip("0") or "0"
+
+    events = []
+    for row in rows:
+        event = []
+        for col, value in zip(raw_cols, row):
+            if col in {"start", "end"}:
+                event.append(compact_time(value))
             else:
-                out[key] = _compact_value(item, depth + 1)
+                event.append(compact_value(value))
+        events.append(event)
+
+    return {
+        "range": {
+            "start": output["range"]["start"],
+            "end": output["range"]["end"],
+        },
+        "cols": compact_cols,
+        "events": events,
+    }
+
+
+def compact_deleteevent(output: dict) -> dict:
+    return {
+        "tool": "DeleteEvent",
+        "deleted": output.get("event", {}).get("uid", "")
+    }  
+
+
+def compress_getweather(output: dict) -> dict:
+    result = output.get("result", {}) or {}
+    forecast = result.get("forecast", {}) or {}
+
+    times = forecast.get("time", []) or []
+    temps = forecast.get("Tempc", []) or []
+    rain = forecast.get("Precip", []) or []
+    wind = forecast.get("Wind_Speed", []) or []
+    conds = forecast.get("conditions", []) or []
+
+    def hhmm(t):
+        if not t:
+            return ""
+        return t.split("T")[-1].replace(":", "")[:4]
+
+    def compact_dt(t):
+        if not t:
+            return ""
+        date_time, offset = t[:16], t[16:]
+        date_time = date_time.replace("-", "").replace(":", "")
+        offset = offset.replace(":", "")
+        return date_time + offset
+
+    def minmax(values):
+        nums = [v for v in values if isinstance(v, (int, float))]
+        if not nums:
+            return None
+        return {"min": min(nums), "max": max(nums)}
+
+    def all_same_zero(values):
+        nums = [v for v in values if isinstance(v, (int, float))]
+        return bool(nums) and all(v == 0 for v in nums)
+
+    def compress_conditions(times, conditions):
+        if not times or not conditions:
+            return []
+
+        out = []
+        start = hhmm(times[0])
+        prev_time = hhmm(times[0])
+        prev_cond = conditions[0]
+
+        for t, cond in zip(times[1:], conditions[1:]):
+            cur_time = hhmm(t)
+
+            if cond != prev_cond:
+                out.append([start if start == prev_time else f"{start}-{prev_time}", prev_cond])
+                start = cur_time
+                prev_cond = cond
+
+            prev_time = cur_time
+
+        out.append([start if start == prev_time else f"{start}-{prev_time}", prev_cond])
         return out
 
-    if isinstance(value, list):
-        limited = value[:8]
-        compacted = [_compact_value(item, depth + 1) for item in limited]
-        if len(value) > 8:
-            compacted.append(f"... [{len(value) - 8} more items]")
-        return compacted
+    current = result.get("current", {}) or {}
 
-    if isinstance(value, str):
-        return _truncate_text(value, 300)
+    compressed = {
+        "weather": {
+            "range": [
+                compact_dt(output.get("range", {}).get("start_time", "")),
+                compact_dt(output.get("range", {}).get("end_time", "")),
+            ],
+            "tz": result.get("timezone", ""),
+            "now": [
+                hhmm(current.get("time")),
+                current.get("Tempc", ""),
+                current.get("Precip", ""),
+                current.get("Wind_Speed", ""),
+                current.get("conditions", ""),
+            ],
+            "temp": minmax(temps),
+            "wind": minmax(wind),
+            "conds": compress_conditions(times, conds),
+        }
+    }
 
+    if all_same_zero(rain):
+        compressed["weather"]["rain"] = 0
+    else:
+        compressed["weather"]["rain"] = minmax(rain)
+
+    compressed["weather"] = {
+        k: v for k, v in compressed["weather"].items()
+        if v not in ("", None, [], {})
+    }
+
+    return compressed
+
+
+def _compact_value(value, depth=0):
+    # Need to add Tool Specific Compression here #snap
+    print("-------")
+    if value['tool'] == 'GetEvents':
+        x = compact_getevents(value)
+        print(x)
+        return x
+
+    if value['tool'] == 'DeleteEvent':
+        x = compact_deleteevent(value)
+        print(x)
+        return x
+
+    if value['tool'] == 'GetWeather':
+        x = compress_getweather(value)
+        print(x)
+        return x
+
+    print(value)
     return value
 
 
@@ -1262,6 +1426,8 @@ def run_secretariat(prompt_text, image_data_url=None, previous_response_id=None,
     assistant_message = ""
     current_response_id = previous_response_id
     action_counter = {}
+    function_call_id_alias_state = {"counter": 0, "by_value": {}}
+    call_id_alias_state = {"counter": 0, "by_value": {}}
     for turn_idx in range(max_turns):
         if status_callback:
             status_callback("Thinking...")
@@ -1283,7 +1449,14 @@ def run_secretariat(prompt_text, image_data_url=None, previous_response_id=None,
         results = []
         saw_function_call = False
         function_calls = []
-        _log_json("MODEL_OUTPUT", response_data.get("output", []))
+        _log_json(
+            "MODEL_OUTPUT",
+            _alias_model_output_ids(
+                response_data.get("output", []),
+                function_call_id_alias_state,
+                call_id_alias_state,
+            ),
+        )
         for content in response_data.get("output", []):
             if content.get("type") == "message" and content.get("content"):
                 text_payload = content["content"][0].get("text", "")
@@ -1310,7 +1483,7 @@ def run_secretariat(prompt_text, image_data_url=None, previous_response_id=None,
                 status_callback(_batch_status_label(function_calls))
             tool_outputs = _execute_function_calls_parallel(function_calls, user_id=user_id)
             _accumulate_action_report(action_counter, tool_outputs)
-            results.extend(compress_tool_output(output) for output in tool_outputs)
+            results.extend(compress_tool_output(tool_outputs))
             continue
 
         if state in {"WAITING", "DONE"}:
@@ -1711,6 +1884,8 @@ def api_secretariat_stream():
             current_response_id = previous_response_id
             max_turns = 12
             action_counter = {}
+            function_call_id_alias_state = {"counter": 0, "by_value": {}}
+            call_id_alias_state = {"counter": 0, "by_value": {}}
 
             for turn_idx in range(max_turns):
                 _log("TURN_START", f"{turn_idx + 1}/{max_turns}")
@@ -1733,7 +1908,14 @@ def api_secretariat_stream():
                 results = []
                 saw_function_call = False
                 function_calls = []
-                _log_json("MODEL_OUTPUT", response_data.get("output", []))
+                _log_json(
+                    "MODEL_OUTPUT",
+                    _alias_model_output_ids(
+                        response_data.get("output", []),
+                        function_call_id_alias_state,
+                        call_id_alias_state,
+                    ),
+                )
 
                 for content in response_data.get("output", []):
                     if content.get("type") == "message" and content.get("content"):

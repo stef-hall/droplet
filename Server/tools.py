@@ -7,10 +7,51 @@ from pathlib import Path
 from urllib.parse import urlencode
 from urllib.request import urlopen
 import re
+from threading import Lock
 
 
 _get_user_caldav_calendars_fn = None
 _lists_dir = Path(__file__).resolve().parent / "lists"
+_uid_alias_store: dict[int, dict[str, object]] = {}
+_uid_alias_lock = Lock()
+
+
+def _get_uid_alias(user_id: int, uid: str) -> str:
+    uid = str(uid)
+    with _uid_alias_lock:
+        state = _uid_alias_store.setdefault(
+            int(user_id),
+            {"counter": 0, "uid_to_alias": {}, "alias_to_uid": {}},
+        )
+        uid_to_alias = state["uid_to_alias"]
+        alias_to_uid = state["alias_to_uid"]
+        existing = uid_to_alias.get(uid)
+        if existing:
+            return existing
+        state["counter"] = int(state["counter"]) + 1
+        alias = f"e{state['counter']}"
+        uid_to_alias[uid] = alias
+        alias_to_uid[alias] = uid
+        return alias
+
+
+def _resolve_uid_for_user(user_id: int, uid_or_alias: str) -> str:
+    key = str(uid_or_alias or "").strip()
+    if not key:
+        return key
+    with _uid_alias_lock:
+        state = _uid_alias_store.get(int(user_id))
+        if not state:
+            return key
+        alias_to_uid = state.get("alias_to_uid", {})
+        return str(alias_to_uid.get(key, key))
+
+
+def NormalizeEventUidAlias(user_id: int, uid_or_alias: str) -> str:
+    resolved_uid = _resolve_uid_for_user(int(user_id), uid_or_alias)
+    if not resolved_uid:
+        return ""
+    return _get_uid_alias(int(user_id), resolved_uid)
 
 def offset_to_z(s):
     if s is None:
@@ -232,7 +273,7 @@ def GetEvents(user_id, start, end):
     start, offset = offset_to_z(start)
     end, offset = offset_to_z(end)
     calendars = _get_user_caldav_calendars(int(user_id))
-    columns = ["uid", "start", "end", "summary", "location", "description", "rrule", "reminder_minutes_before", "calendar"]
+    columns = ["uid", "start", "end", "summary", "location", "description", "rrule", "reminder_minutes_before"]
     rows = []
     for cal in calendars:
         events = cal.date_search(start=start, end=end)
@@ -243,9 +284,10 @@ def GetEvents(user_id, start, end):
                     continue
 
                 vevent = data.vevent
+                real_uid = str(vevent.uid.value)
                 rows.append(
                     [
-                        str(vevent.uid.value),
+                        _get_uid_alias(int(user_id), real_uid),
                         str(z_to_offset(vevent.dtstart.value, offset)),
                         str(z_to_offset(vevent.dtend.value, offset)) if hasattr(vevent, "dtend") else None,
                         str(vevent.summary.value) if hasattr(vevent, "summary") else None,
@@ -253,7 +295,6 @@ def GetEvents(user_id, start, end):
                         str(vevent.description.value) if hasattr(vevent, "description") else None,
                         str(vevent.rrule.value) if hasattr(vevent, "rrule") else None,
                         _extract_reminder_minutes(vevent),
-                        cal.get_display_name(),
                     ]
                 )
             except Exception as e:
@@ -275,12 +316,13 @@ def GetCalendarNames(user_id):
 
 
 def DeleteEvent(user_id, uid):
+    resolved_uid = _resolve_uid_for_user(int(user_id), uid)
     calendars = _get_user_caldav_calendars(int(user_id))
     for cal in calendars:
         for event in cal.events():
             data = event.vobject_instance
             if data and hasattr(data, "vevent"):
-                if str(data.vevent.uid.value) == uid:
+                if str(data.vevent.uid.value) == resolved_uid:
                     event.delete()
                     return {"status": "deleted"}
     return {"status": "not_found"}
@@ -367,6 +409,7 @@ def _build_event_ics(uid, title, start, finish, location="", description="", rru
 
 
 def EditEvent(user_id, uid, title=None, start=None, finish=None, location=None, description=None, rrule=None, reminder_minutes_before=None):
+    resolved_uid = _resolve_uid_for_user(int(user_id), uid)
     if start is not None:
         start, _ = offset_to_z(start)
     if finish is not None:
@@ -380,7 +423,7 @@ def EditEvent(user_id, uid, title=None, start=None, finish=None, location=None, 
                 continue
             vevent = data.vevent
             current_uid = str(vevent.uid.value) if hasattr(vevent, "uid") else ""
-            if current_uid != uid:
+            if current_uid != resolved_uid:
                 continue
 
             current_title = str(vevent.summary.value) if hasattr(vevent, "summary") else ""
@@ -416,7 +459,7 @@ def EditEvent(user_id, uid, title=None, start=None, finish=None, location=None, 
             start_ics = _to_utc_ics(new_start)
             finish_ics = _to_utc_ics(new_finish)
             replacement_ics = _build_event_ics(
-                uid=uid,
+                uid=resolved_uid,
                 title=str(new_title),
                 start=start_ics,
                 finish=finish_ics,
@@ -441,7 +484,7 @@ def EditEvent(user_id, uid, title=None, start=None, finish=None, location=None, 
 
             return {
                 "status": "edited",
-                "uid": uid,
+                "uid": _get_uid_alias(int(user_id), resolved_uid),
                 "updated_fields": {
                     "title": title is not None,
                     "start": start is not None,
