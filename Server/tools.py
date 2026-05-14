@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from urllib.parse import urlencode
 from urllib.request import urlopen
+import uuid
 import re
 from threading import Lock
 
@@ -234,11 +235,13 @@ def AddEvent(user_id, title, start, finish, location, description, rrule, remind
     finish, offset = offset_to_z(finish)
     start = start.strftime("%Y%m%dT%H%M%SZ")
     finish = finish.strftime("%Y%m%dT%H%M%SZ")
+    uid = f"{uuid.uuid4()}"
 
     event_lines = [
         "BEGIN:VCALENDAR",
         "VERSION:2.0",
         "BEGIN:VEVENT",
+        f"UID:{uid}",
         f"SUMMARY:{title}",
         f"DTSTART:{start}",
         f"DTEND:{finish}",
@@ -266,7 +269,11 @@ def AddEvent(user_id, title, start, finish, location, description, rrule, remind
     calendars = _get_user_caldav_calendars(int(user_id))
     calendar = calendars[0]
     calendar.add_event(event)
-    return {"status": "Complete"}
+    uid_alias = _get_uid_alias(int(user_id), uid)
+    return {
+        "status": "Complete",
+        "uid": uid_alias,
+    }
 
 
 def GetEvents(user_id, start, end):
