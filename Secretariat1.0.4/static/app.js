@@ -19,6 +19,11 @@ const chatMenuTriggerEl = document.getElementById("chat-menu-trigger");
 const chatMenuEl = document.getElementById("chat-menu");
 const chatSettingsEl = document.getElementById("chat-settings");
 const chatSignoutEl = document.getElementById("chat-signout");
+const navDrawerTriggerEl = document.getElementById("nav-drawer-trigger");
+const navDrawerEl = document.getElementById("nav-drawer");
+const navDrawerOverlayEl = document.getElementById("nav-drawer-overlay");
+const darkModeToggleEl = document.getElementById("dark-mode-toggle");
+const themeColorMetaEl = document.getElementById("theme-color-meta");
 const authSubtitleEl = document.getElementById("auth-subtitle");
 const authStatusEl = document.getElementById("auth-status");
 const authTrustDeviceEl = document.getElementById("auth-trust-device");
@@ -41,6 +46,7 @@ const ALLOWED_DESKTOP_META_STATUSES = new Set([
   "Waiting...",
   "Done"
 ]);
+const THEME_STORAGE_KEY = "secretariat-theme";
 
 (function () {
   const isMobile = window.matchMedia("(max-width: 768px)").matches;
@@ -122,6 +128,34 @@ function createHeaderLeftTransition() {
 }
 
 const headerLeftTransition = createHeaderLeftTransition();
+
+function applyTheme(theme) {
+  const normalizedTheme = theme === "dark" ? "dark" : "light";
+  document.documentElement.setAttribute("data-theme", normalizedTheme);
+  if (themeColorMetaEl) {
+    themeColorMetaEl.setAttribute("content", normalizedTheme === "dark" ? "#171a1d" : "#f4f4f4");
+  }
+  if (darkModeToggleEl) {
+    darkModeToggleEl.checked = normalizedTheme === "dark";
+  }
+}
+
+function initializeTheme() {
+  let storedTheme = "";
+  try {
+    storedTheme = localStorage.getItem(THEME_STORAGE_KEY) || "";
+  } catch (_) {
+    storedTheme = "";
+  }
+  if (storedTheme === "dark" || storedTheme === "light") {
+    applyTheme(storedTheme);
+    return;
+  }
+  const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+  applyTheme(prefersDark ? "dark" : "light");
+}
+
+initializeTheme();
 
 
 
@@ -556,6 +590,42 @@ function setAuthStatus(text) {
   authStatusEl.textContent = text || "";
 }
 
+function closeNavDrawer() {
+  if (!navDrawerEl) return;
+  navDrawerEl.classList.remove("is-open");
+  navDrawerEl.setAttribute("aria-hidden", "true");
+  if (navDrawerOverlayEl) {
+    navDrawerOverlayEl.classList.add("hidden");
+    navDrawerOverlayEl.setAttribute("aria-hidden", "true");
+  }
+  if (navDrawerTriggerEl) {
+    navDrawerTriggerEl.setAttribute("aria-expanded", "false");
+  }
+}
+
+function openNavDrawer() {
+  if (!navDrawerEl) return;
+  navDrawerEl.classList.add("is-open");
+  navDrawerEl.setAttribute("aria-hidden", "false");
+  if (navDrawerOverlayEl) {
+    navDrawerOverlayEl.classList.remove("hidden");
+    navDrawerOverlayEl.setAttribute("aria-hidden", "false");
+  }
+  if (navDrawerTriggerEl) {
+    navDrawerTriggerEl.setAttribute("aria-expanded", "true");
+  }
+}
+
+function toggleNavDrawer() {
+  if (!navDrawerEl) return;
+  const isOpen = navDrawerEl.classList.contains("is-open");
+  if (isOpen) {
+    closeNavDrawer();
+  } else {
+    openNavDrawer();
+  }
+}
+
 function updateAuthUi() {
   if (!authOverlayEl) return;
   authOverlayEl.classList.toggle("hidden", isAuthenticated);
@@ -790,6 +860,7 @@ async function signOut() {
   if (chatMenuTriggerEl) {
     chatMenuTriggerEl.setAttribute("aria-expanded", "false");
   }
+  closeNavDrawer();
   setAuthStatus("Signed out.");
 }
 
@@ -819,6 +890,29 @@ if (chatSettingsEl) {
   });
 }
 
+if (navDrawerTriggerEl) {
+  navDrawerTriggerEl.addEventListener("click", (event) => {
+    event.stopPropagation();
+    toggleNavDrawer();
+  });
+}
+
+if (navDrawerOverlayEl) {
+  navDrawerOverlayEl.addEventListener("click", closeNavDrawer);
+}
+
+if (darkModeToggleEl) {
+  darkModeToggleEl.addEventListener("change", () => {
+    const theme = darkModeToggleEl.checked ? "dark" : "light";
+    applyTheme(theme);
+    try {
+      localStorage.setItem(THEME_STORAGE_KEY, theme);
+    } catch (_) {
+      // Ignore storage failures.
+    }
+  });
+}
+
 if (chatSignoutEl) {
   chatSignoutEl.addEventListener("click", () => {
     if (!isAuthenticated) {
@@ -834,6 +928,12 @@ document.addEventListener("click", (event) => {
   if (chatMenuEl.contains(target) || chatMenuTriggerEl.contains(target)) return;
   chatMenuEl.classList.add("hidden");
   chatMenuTriggerEl.setAttribute("aria-expanded", "false");
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") {
+    closeNavDrawer();
+  }
 });
 
 autoSizePrompt();
