@@ -482,7 +482,7 @@ textarea {
 .msg.assistant .bubble strong {
   text-shadow: none;
   font-weight: 600;
-  color: #000000;
+  color: var(--accent);
 }
 
 .msg.assistant .bubble em {
@@ -493,7 +493,6 @@ textarea {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  background: var(--panel);
   border-radius: 999px;
   padding: 10px 14px;
 }
@@ -527,8 +526,8 @@ textarea {
 }
 
 .msg.assistant .bubble {
-  background: var(--assistant);
   border: 0;
+  color: var(--accent);
   text-shadow: 0 1px 1px rgba(100, 100, 100, 0.1);
 }
 
@@ -694,14 +693,14 @@ textarea {
   margin: 2px;
   border: 0;
   background: transparent;
-  color: #000408;
+  color: var(--accent);
   font: inherit;
   padding: 0;
   cursor: pointer;
   text-decoration: underline;
   text-underline-offset: 2px;
   text-decoration-style: solid;
-  text-decoration-color: #0080ff;
+  text-decoration-color: var(--accent);
 }
 
 .quick-reply-inline::after {
@@ -751,7 +750,7 @@ textarea {
   border: 0;
   box-shadow: none;
   text-shadow: none;
-  color: #171717;
+  color: var(--accent);
   font-size: clamp(1.55rem, 2.2vw, 2rem);
   line-height: 1.2;
   padding: 0;
