@@ -50,6 +50,18 @@ body {
   font-family: "Segoe UI", "Helvetica Neue", Helvetica, Arial, sans-serif;
 }
 
+body,
+.chat-header,
+.nav-drawer,
+.chat-menu,
+.composer,
+.bubble,
+.send-btn,
+.nav-drawer-trigger span,
+.quick-reply-inline {
+  transition: background-color 220ms ease, color 220ms ease, border-color 220ms ease, box-shadow 220ms ease;
+}
+
 input,
 button,
 textarea {
@@ -228,6 +240,7 @@ textarea {
   height: 37px;
   object-fit: contain;
   display: block;
+<<<<<<< Updated upstream
   opacity: 1;
   transform: scale(1);
   transition: opacity 170ms ease, transform 170ms ease;
@@ -236,6 +249,8 @@ textarea {
 .theme-toggle-icon.is-transitioning {
   opacity: 0.2;
   transform: scale(0.92);
+=======
+>>>>>>> Stashed changes
 }
 
 .theme-toggle input {
