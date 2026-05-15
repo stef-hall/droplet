@@ -507,6 +507,30 @@ def EditEvent(user_id, uid, title=None, start=None, finish=None, location=None, 
 
 
 def GetWeather(latitude, longitude, start_time=None, end_time=None, field_names=None):
+    def _parse_weather_dt(value):
+        if value is None:
+            return None
+        if isinstance(value, datetime):
+            if value.tzinfo is None:
+                raise ValueError("Datetime values must include an explicit timezone offset.")
+            return value
+        text = str(value).strip()
+        if not text:
+            return None
+        compact_match = re.fullmatch(r"(\d{8}T\d{6})([+-]\d{2}:\d{2})", text)
+        if compact_match:
+            dt_part, offset_part = compact_match.groups()
+            return datetime.strptime(f"{dt_part}{offset_part}", "%Y%m%dT%H%M%S%z")
+        if text.endswith("Z"):
+            text = text[:-1] + "+00:00"
+        parsed = datetime.fromisoformat(text)
+        if parsed.tzinfo is None:
+            raise ValueError("Datetime values must include an explicit timezone offset.")
+        return parsed
+
+    start_time = _parse_weather_dt(start_time)
+    end_time = _parse_weather_dt(end_time)
+
     field_names = field_names or {
         "temperature": "Tempc",
         "precipitation": "Precip",
