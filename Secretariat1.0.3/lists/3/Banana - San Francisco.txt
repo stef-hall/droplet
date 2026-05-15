@@ -1,6 +1,0 @@
-San Francisco weather
-Time: 2026-05-13 21:45
-Conditions: Clear sky
-Temperature: 13.1°C
-Precipitation: 0.0 mm
-Wind Speed: 10.2 km/h

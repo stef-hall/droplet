@@ -18,13 +18,7 @@ input_tokens: 4590
 cached_tokens: 4224
 uncached_tokens: 366
 
-1.0.4C
-input_tokens: 7345
-cached_tokens: 6656
-uncached_tokens: 689
-
 1.0.3
-input_tokens: 9974
-cached_tokens: 8448
-uncached_tokens: 1526
-
+input_tokens: 7745
+cached_tokens: 7040
+uncached_tokens: 705

@@ -1,6 +1,0 @@
-Sacramento weather
-Time: 2026-05-13 21:45
-Conditions: Clear sky
-Temperature: 18.2°C
-Precipitation: 0.0 mm
-Wind Speed: 12.1 km/h
