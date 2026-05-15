@@ -492,7 +492,6 @@ Rules:
 - The "message" field may contain markdown for formatting (supported: # ## ### headings, **bold**, *italics*, bullet and numbered lists, inline `code`, fenced code blocks ```...```, and pipe tables like | a | b | with a separator row).
 - For one-tap user replies, use this exact markdown line format: [[send: your suggested user message]]
 - Always return a state. RUNNING = Operating Tools/Thinking, WAITING = Waiting for User Input, DONE = ONLY when completley finished your task.
-- Users can be impressed with particularly well visual laid out messages, or where clear thought has gone into it. Users should feel impressed.
 - Consult your context window to check if you already have the relevant data, before running unessacary Get Tools. 
 - Don't use Em Dashes ("—").
 - CalDAV "reason Forbidden" AuthorizationError's are usually caused by trying to alter the wrong calender. If encountered; Supply the user with GetCalenderNames() and remind them to set the appropriate Calender in settings.
@@ -514,6 +513,22 @@ STRICT VALID RESPONSE FORMAT:
 }
 
 """
+
+concise_prompt = """
+You are an assistant calender manager with access to tools.
+
+Rules:
+- never guess tool outputs
+- If no duration is stated; *1 hour* is the default
+- Don't use Em Dashes ("—").
+- You operate ONLY in the local timezone. For interacting, and reasoning with events.
+- Keep responses concise and natural. Prefer short plain phrasing over long explanations.
+- If you ever send a response that contains an exact solution to your question, offer it as a FastReplys. e.g. ... message: "what time or duration should the call with your grandma be? If you want, I can use [[send: 5 PM and make the call 1 hour | Okay, 5 PM and for 1 hour]"
+- Take the initative, but offer FastReplys to cater or undo your actions. 
+- If the USER ever requests for you to "Restore", "Undo", "Bring Back", or "Recreate" an event - ESPECIALLY IF YOU'VE RECENTLY DELETED SOME EVENTS - your FIRST STEP is to look back in your context for the requested events information, then Add back an identical copy of that event
+"""
+
+
 
 tools = [
     {
@@ -737,6 +752,67 @@ tools = [
         }
     }
 ]
+
+TOOL_CATEGORY_MAP = {
+    "events": ["AddEvent", "GetEvents", "EditEvent", "DeleteEvent"],
+    "lists": ["ReadList", "EditList", "DeleteList"],
+    "gets": ["GetWeather", "GetCalendarNames"],
+}
+
+TOOLS_BY_NAME = {tool.get("name"): tool for tool in tools}
+
+deferred_category_tool = [
+    {
+        "type": "function",
+        "name": "DeferToolCategories",
+        "description": (
+            "Request full tool schemas for one or more categories before calling regular tools. "
+            "categories: events=[GetEvents, AddEvent, EditEvent, DeleteEvent], "
+            "lists=[ReadList, EditList, DeleteList], "
+            "gets=[GetWeather, GetCalendarNames]."
+        ),
+        "strict": True,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "categories": {
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "enum": ["events", "lists", "gets"],
+                    },
+                }
+            },
+            "required": ["categories"],
+            "additionalProperties": False,
+        },
+    }
+]
+
+
+def _tools_for_categories(category_names):
+    selected = []
+    seen = set()
+    for category in category_names or []:
+        for tool_name in TOOL_CATEGORY_MAP.get(str(category), []):
+            if tool_name in seen:
+                continue
+            tool_schema = TOOLS_BY_NAME.get(tool_name)
+            if tool_schema:
+                selected.append(tool_schema)
+                seen.add(tool_name)
+    return selected
+
+
+def _extract_deferred_categories(function_calls):
+    categories = []
+    for call in function_calls or []:
+        if call.get("name") != "DeferToolCategories":
+            continue
+        call_categories = call.get("args", {}).get("categories", [])
+        if isinstance(call_categories, list):
+            categories.extend([str(x) for x in call_categories])
+    return list(dict.fromkeys(categories))
 
 
 def load_value_file(path: str) -> dict[str, str]:
@@ -1373,7 +1449,7 @@ def compress_tool_output(tool_output):
 
 
 
-def ask_gpt54(user_input, system_prompt, results, previous_response_id=None, user_timezone=None, location_context=None, user_id=None):
+def ask_gpt54(user_input, system_prompt, results, previous_response_id=None, user_timezone=None, location_context=None, user_id=None, active_tools=None):
     # Build a fresh OpenAI client for each request.
     client = OpenAI(api_key=api_key)
     selected_model = DEFAULT_ASSISTANT_MODEL
@@ -1423,7 +1499,7 @@ def ask_gpt54(user_input, system_prompt, results, previous_response_id=None, use
     # Base request fields shared by first-turn and follow-up model calls.
     request_kwargs = {
         "model": selected_model,
-        "tools": tools,
+        "tools": active_tools if active_tools is not None else tools,
         "parallel_tool_calls": True,
     }
 
@@ -1433,42 +1509,43 @@ def ask_gpt54(user_input, system_prompt, results, previous_response_id=None, use
             {"role": "user", "content": user_content}
         ]
         response = client.responses.create(
-            input=input_items,
             instructions=system_prompt,
+            input=input_items,
             **request_kwargs,
         )
-        usage = response.usage
 
+        usage = response.usage
         input_tokens = usage.input_tokens
         cached_tokens = usage.input_tokens_details.cached_tokens
         uncached_tokens = input_tokens - cached_tokens
-
         print("input_tokens:", input_tokens)
         print("cached_tokens:", cached_tokens)
         print("uncached_tokens:", uncached_tokens)
         print("cache_hit_rate:", cached_tokens / input_tokens if input_tokens else 0)
 
-
     else:
         # Follow-up turns: send function outputs when available, otherwise send the new user turn.
         if results:
             input_items = results
-
+            print("\n--------------\nPassing [CONCISE PROMPT]")
+            instructions = concise_prompt
         else:
             input_items = [{"role": "user", "content": user_content}]
+            print("\n--------------\nPassing [FULL SYS PROMPT]")
+            instructions = system_prompt
 
         # Continue the same model conversation by passing previous_response_id.
         response = client.responses.create(
+            instructions=instructions,
             input=input_items,
             previous_response_id=previous_response_id,
             **request_kwargs,
         )
-        usage = response.usage
 
+        usage = response.usage
         input_tokens = usage.input_tokens
         cached_tokens = usage.input_tokens_details.cached_tokens
         uncached_tokens = input_tokens - cached_tokens
-
         print("input_tokens:", input_tokens)
         print("cached_tokens:", cached_tokens)
         print("uncached_tokens:", uncached_tokens)
@@ -1485,6 +1562,7 @@ def run_secretariat(prompt_text, image_data_url=None, previous_response_id=None,
     action_counter = {}
     function_call_id_alias_state = {"counter": 0, "by_value": {}}
     call_id_alias_state = {"counter": 0, "by_value": {}}
+    active_tools = deferred_category_tool
     for turn_idx in range(max_turns):
         if status_callback:
             status_callback("Thinking...")
@@ -1500,6 +1578,7 @@ def run_secretariat(prompt_text, image_data_url=None, previous_response_id=None,
             user_timezone=user_timezone,
             location_context=location_context,
             user_id=user_id,
+            active_tools=active_tools,
         )
         current_response_id = response.id
         response_data = response.model_dump()
@@ -1539,6 +1618,21 @@ def run_secretariat(prompt_text, image_data_url=None, previous_response_id=None,
                 })
 
         if saw_function_call:
+            deferred_categories = _extract_deferred_categories(function_calls)
+            if deferred_categories:
+                active_tools = _tools_for_categories(deferred_categories)
+                if not active_tools:
+                    active_tools = deferred_category_tool
+                results.extend(
+                    {
+                        "type": "function_call_output",
+                        "call_id": call["call_id"],
+                        "output": json.dumps({"status": "success", "selected_categories": deferred_categories}),
+                    }
+                    for call in function_calls
+                    if call.get("name") == "DeferToolCategories"
+                )
+                continue
             _log("TOOL_BATCH", f"Executing {len(function_calls)} tool call(s)")
             if status_callback:
                 status_callback(_batch_status_label(function_calls))
@@ -1956,6 +2050,7 @@ def api_secretariat_stream():
             action_counter = {}
             function_call_id_alias_state = {"counter": 0, "by_value": {}}
             call_id_alias_state = {"counter": 0, "by_value": {}}
+            active_tools = deferred_category_tool
 
             for turn_idx in range(max_turns):
                 _log("TURN_START", f"{turn_idx + 1}/{max_turns}")
@@ -1972,6 +2067,7 @@ def api_secretariat_stream():
                     user_timezone=user_timezone,
                     location_context=weather_location,
                     user_id=user_id,
+                    active_tools=active_tools,
                 )
                 current_response_id = response.id
                 response_data = response.model_dump()
@@ -2011,6 +2107,21 @@ def api_secretariat_stream():
                         })
 
                 if saw_function_call:
+                    deferred_categories = _extract_deferred_categories(function_calls)
+                    if deferred_categories:
+                        active_tools = _tools_for_categories(deferred_categories)
+                        if not active_tools:
+                            active_tools = deferred_category_tool
+                        results.extend(
+                            {
+                                "type": "function_call_output",
+                                "call_id": call["call_id"],
+                                "output": json.dumps({"status": "success", "selected_categories": deferred_categories}),
+                            }
+                            for call in function_calls
+                            if call.get("name") == "DeferToolCategories"
+                        )
+                        continue
                     _log("TOOL_BATCH", f"Executing {len(function_calls)} tool call(s)")
                     yield emit({"type": "status", "label": _batch_status_label(function_calls)})
                     tool_outputs = _execute_function_calls_parallel(function_calls, user_id=user_id)
@@ -2107,6 +2218,6 @@ if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8000, debug=False)
 
 """
-Crazy Horse
+I Defer my deeper motive
 """
 
