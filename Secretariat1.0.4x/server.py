@@ -1523,6 +1523,7 @@ def ask_gpt54(user_input, system_prompt, results, previous_response_id=None, use
         print("uncached_tokens:", uncached_tokens)
         print("cache_hit_rate:", cached_tokens / input_tokens if input_tokens else 0)
 
+
     else:
         # Follow-up turns: send function outputs when available, otherwise send the new user turn.
         if results:
