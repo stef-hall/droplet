@@ -12,7 +12,7 @@ import os
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 from caldav import DAVClient # type: ignore
-from openai import OpenAI # type: ignores
+from openai import OpenAI # type: ignore
 import vobject # type: ignore
 import json
 import warnings
@@ -25,7 +25,7 @@ import hashlib
 from urllib.parse import urlencode
 from urllib.request import urlopen
 from pathlib import Path
-from werkzeug.security import check_password_hash, generate_password_hash
+from werkzeug.security import check_password_hash, generate_password_hash # type: ignore
 from tools import AddEvent, GetEvents, GetCalendarNames, DeleteEvent, ReadList, EditList, DeleteList, EditEvent, GetWeather, configure_tools
 
 global api_key
@@ -489,9 +489,10 @@ Rules:
 - Don't use Em Dashes ("—").
 - CalDAV "reason Forbidden" AuthorizationError's are usually caused by trying to alter the wrong calender. If encountered; Supply the user with GetCalenderNames() and remind them to set the appropriate Calender in settings.
 - If the USER ever requests for you to "Restore", "Undo", "Bring Back", or "Recreate" an event - ESPECIALLY IF YOU'VE RECENTLY DELETED SOME EVENTS - your FIRST STEP is to look back in your context for the requested events information, then Add back an identical copy of that event
+- If a User asks you to Add/Edit/Delete an event in a new chat session, where you haven't got any previous GetEvents data in your context; GetEvents for the given week FIRST before then making your response.
+- Remeber that a human USER has likley been awake for past midnight, when they refer to 'morning', despite actually being in a new morning (past meridian) - they are refering to the day PRIOR's morning.
+- If given a City to GetWeather for; default to using the Co-Ordinates (Lat/Long) of that City's Center. 
 - If someone calls you 'bud' you have to call them 'bud' back
-- Remeber that a human USER has likley been awake for past midnight, when they refer to 'morning', despite actually being in a new morning past meridian - they are refering to YESTERDAY's morning.
-- Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed non risus vitae lorem facilisis luctus. Integer nec odio, praesent libero, sed cursus ante dapibus diam. Sed nisi, nulla quis sem at nibh elementum imperdiet. Duis sagittis ipsum, praesent mauris, fusce nec tellus sed augue semper porta.
 
 - When multiple tool actions are needed, plan them as ordered steps:
   - Emit all independent actions that can run at the same time in the same assistant turn as multiple tool calls.
@@ -1277,22 +1278,66 @@ def compress_getweather(output: dict) -> dict:
     return compressed
 
 
-def _compact_value(value, depth=0):
+def compress_editevent(value):
+    if not isinstance(value, dict):
+        return value
+
+    result = value.get("result", {})
+    updated_fields = result.get("updated_fields", {})
+
+    return {
+        "tool": value.get("tool"),
+        "uid": result.get("uid") or value.get("event", {}).get("uid"),
+        "updated_fields": [k for k, v in updated_fields.items() if v],
+    }
+
+def compress_editlist(value):
+    if not isinstance(value, dict):
+        return value
+
+    result = value.get("result", {})
+
+    return {
+        "tool": value.get("tool"),
+        "list_name": result.get("list_name") or value.get("list", {}).get("list_name"),
+        "created": result.get("created"),
+    }
+
+def compress_deletelist(value):
+    if not isinstance(value, dict):
+        return value
+
+    result = value.get("result", {})
+
+    return {
+        "tool": value.get("tool"),
+        "list_name": result.get("list_name") or value.get("list", {}).get("list_name"),
+    }
+
+def _compact_value(value):
     # Need to add Tool Specific Compression here #snap
-    print("-------")
     if value['tool'] == 'GetEvents':
         x = compact_getevents(value)
-        print(x)
         return x
 
     if value['tool'] == 'DeleteEvent':
         x = compact_deleteevent(value)
-        print(x)
+        return x
+    
+    if value['tool'] == 'EditEvent':
+        x = compress_editevent(value)
         return x
 
     if value['tool'] == 'GetWeather':
         x = compress_getweather(value)
-        print(x)
+        return x
+    
+    if value['tool'] == 'EditList':
+        x = compress_editlist(value)
+        return x
+    
+    if value['tool'] == 'DeleteList':
+        x = compress_deletelist(value)
         return x
 
     print(value)
@@ -1310,6 +1355,8 @@ def compress_tool_output(tool_output):
         parsed_output = {"status": "failed", "error": "Invalid tool output JSON"}
 
     compacted = _compact_value(parsed_output)
+    print("---------\n", compacted, "\n---------")
+
     return {
         "type": "function_call_output",
         "call_id": tool_output.get("call_id"),
@@ -1352,11 +1399,11 @@ def ask_gpt54(user_input, system_prompt, results, previous_response_id=None, use
     # Prepend time context to every user request before sending it to the model.
     # Removed:         f"Current UTC time: {now_utc.strftime('%Y-%m-%d, %a %H:%M:%S  %z')}\n"
     formatted_request = (
-        f"Current Local time: {now_local.strftime('%Y-%m-%d, %a %H:%M:%S  %z')}\n"
+        f"Request: {raw_prompt}\n"
+        "##############################\n"
+        f"Current Local time: {now_local.strftime('%Y%m%dT%H%M%S%z')}\n"
         f"{_format_location_for_prompt(location_context)}\n"
         f"Available lists: {lists_line}\n"
-        f"##############################\n"
-        f"Request: {raw_prompt}"
     )
     #formatted_request = "Request: test"
 
@@ -2029,6 +2076,6 @@ if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8000, debug=False)
 
 """
-Crazy Horse
+Beasly Boys
 """
 
