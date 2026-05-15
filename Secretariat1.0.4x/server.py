@@ -159,6 +159,14 @@ def _format_action_report(counter: dict[str, int]) -> str:
     return "\n\n```summary\n" + "\n".join(lines) + "\n```"
 
 
+TERMINAL_STATES = {"WAITING", "DONE", "SUCCESS", "COMPLETED", "COMPLETE", "FINISHED"}
+
+
+def _normalize_state(state_value) -> str:
+    state_text = str(state_value or "RUNNING").strip().upper()
+    return state_text or "RUNNING"
+
+
 def _prune_sessions(now_ts: float):
     stale_ids = [
         sid
@@ -1511,8 +1519,12 @@ def run_secretariat(prompt_text, image_data_url=None, previous_response_id=None,
                 text_payload = content["content"][0].get("text", "")
                 try:
                     parsed = json.loads(text_payload)
-                    state = parsed.get("state", "RUNNING")
+                    state = _normalize_state(parsed.get("state", "RUNNING"))
                     assistant_message = parsed.get("message", "")
+                    if not assistant_message:
+                        assistant_message = parsed.get("text", "") or parsed.get("summary", "")
+                    if not assistant_message:
+                        assistant_message = json.dumps(parsed, ensure_ascii=False)
 
                 except Exception:
                     state = "RUNNING"
@@ -1535,9 +1547,18 @@ def run_secretariat(prompt_text, image_data_url=None, previous_response_id=None,
             results.extend(compress_tool_output(tool_outputs))
             continue
 
-        if state in {"WAITING", "DONE"}:
+        if state in TERMINAL_STATES:
             _log("TURN_END", f"state={state}")
             assistant_message = (assistant_message or "") + _format_action_report(action_counter)
+            return {
+                "state": state,
+                "message": assistant_message,
+                "previous_response_id": current_response_id,
+            }
+        if assistant_message and state == "RUNNING":
+            state = "DONE"
+            _log("TURN_END", "state=RUNNING interpreted as DONE (message-only response)")
+            assistant_message = assistant_message + _format_action_report(action_counter)
             return {
                 "state": state,
                 "message": assistant_message,
@@ -1971,8 +1992,12 @@ def api_secretariat_stream():
                         text_payload = content["content"][0].get("text", "")
                         try:
                             parsed = json.loads(text_payload)
-                            state = parsed.get("state", "RUNNING")
+                            state = _normalize_state(parsed.get("state", "RUNNING"))
                             assistant_message = parsed.get("message", "")
+                            if not assistant_message:
+                                assistant_message = parsed.get("text", "") or parsed.get("summary", "")
+                            if not assistant_message:
+                                assistant_message = json.dumps(parsed, ensure_ascii=False)
                         except Exception:
                             state = "RUNNING"
                             assistant_message = text_payload
@@ -1993,8 +2018,12 @@ def api_secretariat_stream():
                     results.extend(compress_tool_output(output) for output in tool_outputs)
                     continue
 
-                if state in {"WAITING", "DONE"}:
+                if state in TERMINAL_STATES:
                     _log("TURN_END", f"state={state}")
+                    break
+                if assistant_message and state == "RUNNING":
+                    state = "DONE"
+                    _log("TURN_END", "state=RUNNING interpreted as DONE (message-only response)")
                     break
 
             result = {
