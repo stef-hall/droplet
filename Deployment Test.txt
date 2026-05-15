@@ -7,9 +7,16 @@ also change the names to different types of fruits.
 
 then per event, mkae a new list called [Fruit name] - [Location], 
 and make the list contents the weather for the  respective location.
-Then Delete all the events you made during this session.
+Then print all the lists youve created content's, before waiting for me to tell you to move on, then:
+
+Delete all the Events, and Lists you made during this session.
 REPORT ANY ERRORS OR ANYTHING OUT OF THE ORDINARY - THIS IS TESTING
 
+
+1.0.4d
+input_tokens: 4590
+cached_tokens: 4224
+uncached_tokens: 366
 
 1.0.4C
 input_tokens: 7345

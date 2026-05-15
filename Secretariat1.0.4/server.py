@@ -491,6 +491,7 @@ Rules:
 - If the USER ever requests for you to "Restore", "Undo", "Bring Back", or "Recreate" an event - ESPECIALLY IF YOU'VE RECENTLY DELETED SOME EVENTS - your FIRST STEP is to look back in your context for the requested events information, then Add back an identical copy of that event
 - If a User asks you to Add/Edit/Delete an event in a new chat session, where you haven't got any previous GetEvents data in your context; GetEvents for the given week FIRST before then making your response.
 - Remeber that a human USER has likley been awake for past midnight, when they refer to 'morning', despite actually being in a new morning (past meridian) - they are refering to the day PRIOR's morning.
+- If given a City to GetWeather for; default to using the Co-Ordinates (Lat/Long) of that City's Center. 
 - If someone calls you 'bud' you have to call them 'bud' back
 
 - When multiple tool actions are needed, plan them as ordered steps:
@@ -1302,6 +1303,17 @@ def compress_editlist(value):
         "created": result.get("created"),
     }
 
+def compress_deletelist(value):
+    if not isinstance(value, dict):
+        return value
+
+    result = value.get("result", {})
+
+    return {
+        "tool": value.get("tool"),
+        "list_name": result.get("list_name") or value.get("list", {}).get("list_name"),
+    }
+
 def _compact_value(value):
     # Need to add Tool Specific Compression here #snap
     if value['tool'] == 'GetEvents':
@@ -1322,6 +1334,10 @@ def _compact_value(value):
     
     if value['tool'] == 'EditList':
         x = compress_editlist(value)
+        return x
+    
+    if value['tool'] == 'DeleteList':
+        x = compress_deletelist(value)
         return x
 
     print(value)
@@ -1383,7 +1399,7 @@ def ask_gpt54(user_input, system_prompt, results, previous_response_id=None, use
     # Prepend time context to every user request before sending it to the model.
     # Removed:         f"Current UTC time: {now_utc.strftime('%Y-%m-%d, %a %H:%M:%S  %z')}\n"
     formatted_request = (
-        f"Request: {raw_prompt}"
+        f"Request: {raw_prompt}\n"
         "##############################\n"
         f"Current Local time: {now_local.strftime('%Y%m%dT%H%M%S%z')}\n"
         f"{_format_location_for_prompt(location_context)}\n"
