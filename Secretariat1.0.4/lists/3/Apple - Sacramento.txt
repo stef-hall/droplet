@@ -1,7 +1,1 @@
-Sacramento weather
-Time: 21:30
-Condition: Clear sky
-Temperature: 18.6°C
-Precipitation: 0.0 mm
-Wind: 11.9 km/h
-Timezone: America/Los_Angeles
+Weather unavailable for Sacramento for the requested time.

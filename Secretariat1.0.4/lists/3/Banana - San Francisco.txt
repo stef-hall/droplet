@@ -1,7 +1,1 @@
-San Francisco weather
-Time: 21:30
-Condition: Clear sky
-Temperature: 13.3°C
-Precipitation: 0.0 mm
-Wind: 10.8 km/h
-Timezone: America/Los_Angeles
+Weather unavailable for San Francisco for the requested time.

@@ -1,7 +1,1 @@
-Los Angeles weather
-Time: 21:30
-Condition: Clear sky
-Temperature: 15.4°C
-Precipitation: 0.0 mm
-Wind: 5.4 km/h
-Timezone: America/Los_Angeles
+Weather unavailable for Los Angeles for the requested time.

@@ -1290,6 +1290,18 @@ def compress_editevent(value):
         "updated_fields": [k for k, v in updated_fields.items() if v],
     }
 
+def compress_editlist(value):
+    if not isinstance(value, dict):
+        return value
+
+    result = value.get("result", {})
+
+    return {
+        "tool": value.get("tool"),
+        "list_name": result.get("list_name") or value.get("list", {}).get("list_name"),
+        "created": result.get("created"),
+    }
+
 def _compact_value(value):
     # Need to add Tool Specific Compression here #snap
     if value['tool'] == 'GetEvents':
@@ -1299,13 +1311,17 @@ def _compact_value(value):
     if value['tool'] == 'DeleteEvent':
         x = compact_deleteevent(value)
         return x
+    
+    if value['tool'] == 'EditEvent':
+        x = compress_editevent(value)
+        return x
 
     if value['tool'] == 'GetWeather':
         x = compress_getweather(value)
         return x
-
-    if value['tool'] == 'EditEvent':
-        x = compress_editevent(value)
+    
+    if value['tool'] == 'EditList':
+        x = compress_editlist(value)
         return x
 
     print(value)
@@ -1323,6 +1339,8 @@ def compress_tool_output(tool_output):
         parsed_output = {"status": "failed", "error": "Invalid tool output JSON"}
 
     compacted = _compact_value(parsed_output)
+    print("---------\n", compacted, "\n---------")
+
     return {
         "type": "function_call_output",
         "call_id": tool_output.get("call_id"),
@@ -1496,9 +1514,7 @@ def run_secretariat(prompt_text, image_data_url=None, previous_response_id=None,
                 status_callback(_batch_status_label(function_calls))
             tool_outputs = _execute_function_calls_parallel(function_calls, user_id=user_id)
             _accumulate_action_report(action_counter, tool_outputs)
-            compress_result = compress_tool_output(tool_outputs)
-            print("---------\n", compress_result, "\n---------")
-            results.extend(compress_result)
+            results.extend(compress_tool_output(tool_outputs))
             continue
 
         if state in {"WAITING", "DONE"}:

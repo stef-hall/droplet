@@ -1,7 +1,1 @@
-San Jose weather
-Time: 21:30
-Condition: Clear sky
-Temperature: 14.1°C
-Precipitation: 0.0 mm
-Wind: 9.6 km/h
-Timezone: America/Los_Angeles
+Weather unavailable for San Jose for the requested time.
