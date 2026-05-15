@@ -1412,17 +1412,22 @@ def ask_gpt54(user_input, system_prompt, results, previous_response_id=None, use
         # Include an image input block when present.
         user_content.append({"type": "input_image", "image_url": image_data_url})
 
+    # Base request fields shared by first-turn and follow-up model calls.
+    request_kwargs = {
+        "model": selected_model,
+        "tools": tools,
+        "parallel_tool_calls": True,
+    }
+
     # First turn: include system prompt and user content to initialize the response thread.
     if previous_response_id is None:
         input_items = [
             {"role": "user", "content": user_content}
         ]
         response = client.responses.create(
-            model=selected_model,
-            instructions=system_prompt,
-            tools=tools,
             input=input_items,
-            parallel_tool_calls=True,
+            instructions=system_prompt,
+            **request_kwargs,
         )
         usage = response.usage
 
@@ -1446,12 +1451,9 @@ def ask_gpt54(user_input, system_prompt, results, previous_response_id=None, use
 
         # Continue the same model conversation by passing previous_response_id.
         response = client.responses.create(
-            model=selected_model,
-            instructions=system_prompt,
-            tools=tools,
             input=input_items,
             previous_response_id=previous_response_id,
-            parallel_tool_calls=True,
+            **request_kwargs,
         )
         usage = response.usage
 

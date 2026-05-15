@@ -36,6 +36,7 @@ api_key = ""
 session_store = {}
 session_store_lock = Lock()
 SESSION_TTL_SECONDS = 6 * 60 * 60
+ROLLING_CONTEXT_MAX_TURNS = 6
 TRUSTED_DEVICE_COOKIE = "secretariat_trusted_device"
 TRUSTED_DEVICE_DAYS = 60
 MAX_PARALLEL_TOOL_CALLS = 10
@@ -167,6 +168,67 @@ def _prune_sessions(now_ts: float):
     ]
     for sid in stale_ids:
         session_store.pop(sid, None)
+
+
+def _trim_turn_history(turn_history: list[dict]) -> list[dict]:
+    if len(turn_history) <= ROLLING_CONTEXT_MAX_TURNS:
+        return turn_history
+    return turn_history[-ROLLING_CONTEXT_MAX_TURNS:]
+
+
+def _build_history_context(turn_history: list[dict]) -> str:
+    if not turn_history:
+        return ""
+    lines = ["Rolling context from previous turns:"]
+    for turn in turn_history:
+        turn_id = str(turn.get("turn_id", ""))
+        user_text = str(turn.get("user_prompt", "")).strip()
+        assistant_text = str(turn.get("assistant_message", "")).strip()
+        tool_calls = turn.get("tool_calls", [])
+        tool_outputs = turn.get("tool_outputs", [])
+        lines.append(f"- {turn_id}")
+        if user_text:
+            lines.append(f"  user: {user_text}")
+        if tool_calls:
+            lines.append(f"  tool_calls: {json.dumps(tool_calls, ensure_ascii=False)}")
+        if tool_outputs:
+            lines.append(f"  tool_outputs: {json.dumps(tool_outputs, ensure_ascii=False)}")
+        if assistant_text:
+            lines.append(f"  assistant: {assistant_text}")
+    return "\n".join(lines)
+
+
+def _history_to_input_items(turn_history: list[dict]) -> list[dict]:
+    items = []
+    for turn in turn_history:
+        user_text = str(turn.get("user_prompt", "")).strip()
+        assistant_text = str(turn.get("assistant_message", "")).strip()
+        tool_calls = turn.get("tool_calls", [])
+        tool_outputs = turn.get("tool_outputs", [])
+
+        if user_text:
+            items.append({"role": "user", "content": [{"type": "input_text", "text": user_text}]})
+
+        if tool_calls or tool_outputs:
+            tool_context = {
+                "tool_calls": tool_calls,
+                "tool_outputs": tool_outputs,
+            }
+            items.append(
+                {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "output_text",
+                            "text": f"[prior_turn_tool_context]\n{json.dumps(tool_context, ensure_ascii=False)}",
+                        }
+                    ],
+                }
+            )
+
+        if assistant_text:
+            items.append({"role": "assistant", "content": [{"type": "output_text", "text": assistant_text}]})
+    return items
 
 
 def _db_conn():
@@ -1365,7 +1427,7 @@ def compress_tool_output(tool_output):
 
 
 
-def ask_gpt54(user_input, system_prompt, results, previous_response_id=None, user_timezone=None, location_context=None, user_id=None):
+def ask_gpt54(user_input, system_prompt, results, previous_response_id=None, user_timezone=None, location_context=None, user_id=None, history_turns=None):
     # Build a fresh OpenAI client for each request.
     client = OpenAI(api_key=api_key)
     selected_model = DEFAULT_ASSISTANT_MODEL
@@ -1414,9 +1476,7 @@ def ask_gpt54(user_input, system_prompt, results, previous_response_id=None, use
 
     # First turn: include system prompt and user content to initialize the response thread.
     if previous_response_id is None:
-        input_items = [
-            {"role": "user", "content": user_content}
-        ]
+        input_items = [*_history_to_input_items(history_turns or []), {"role": "user", "content": user_content}]
         response = client.responses.create(
             model=selected_model,
             instructions=system_prompt,
@@ -1467,11 +1527,14 @@ def ask_gpt54(user_input, system_prompt, results, previous_response_id=None, use
     return response
 
 
-def run_secretariat(prompt_text, image_data_url=None, previous_response_id=None, user_timezone=None, location_context=None, max_turns=12, status_callback=None, user_id=None):
+def run_secretariat(prompt_text, image_data_url=None, previous_response_id=None, user_timezone=None, location_context=None, max_turns=12, status_callback=None, user_id=None, turn_history=None):
     results = []
     state = "RUNNING"
     assistant_message = ""
     current_response_id = previous_response_id
+    turn_id = f"turn_{uuid.uuid4().hex[:12]}"
+    turn_tool_calls = []
+    turn_tool_outputs = []
     action_counter = {}
     function_call_id_alias_state = {"counter": 0, "by_value": {}}
     call_id_alias_state = {"counter": 0, "by_value": {}}
@@ -1490,6 +1553,7 @@ def run_secretariat(prompt_text, image_data_url=None, previous_response_id=None,
             user_timezone=user_timezone,
             location_context=location_context,
             user_id=user_id,
+            history_turns=turn_history or [],
         )
         current_response_id = response.id
         response_data = response.model_dump()
@@ -1523,6 +1587,11 @@ def run_secretariat(prompt_text, image_data_url=None, previous_response_id=None,
                     "args": json.loads(content["arguments"]),
                     "call_id": content["call_id"],
                 })
+                turn_tool_calls.append({
+                    "name": content["name"],
+                    "args": json.loads(content["arguments"]),
+                    "call_id": content["call_id"],
+                })
 
         if saw_function_call:
             _log("TOOL_BATCH", f"Executing {len(function_calls)} tool call(s)")
@@ -1530,7 +1599,13 @@ def run_secretariat(prompt_text, image_data_url=None, previous_response_id=None,
                 status_callback(_batch_status_label(function_calls))
             tool_outputs = _execute_function_calls_parallel(function_calls, user_id=user_id)
             _accumulate_action_report(action_counter, tool_outputs)
-            results.extend(compress_tool_output(tool_outputs))
+            compacted_outputs = [compress_tool_output(output) for output in tool_outputs]
+            for output in compacted_outputs:
+                try:
+                    turn_tool_outputs.append(json.loads(output.get("output", "{}")))
+                except Exception:
+                    turn_tool_outputs.append({"status": "failed", "error": "Invalid compacted output"})
+            results.extend(compacted_outputs)
             continue
 
         if state in {"WAITING", "DONE"}:
@@ -1540,12 +1615,50 @@ def run_secretariat(prompt_text, image_data_url=None, previous_response_id=None,
                 "state": state,
                 "message": assistant_message,
                 "previous_response_id": current_response_id,
+                "turn_record": {
+                    "turn_id": turn_id,
+                    "response_id": current_response_id,
+                    "user_prompt": prompt_text,
+                    "image_data_url": image_data_url if image_data_url else None,
+                    "tool_calls": turn_tool_calls,
+                    "tool_outputs": turn_tool_outputs,
+                    "assistant_message": assistant_message,
+                    "state": state,
+                },
+            }
+        if not saw_function_call and assistant_message:
+            _log("TURN_END", "state=FORCED_DONE_NO_TOOL_CALL")
+            assistant_message = (assistant_message or "") + _format_action_report(action_counter)
+            return {
+                "state": "DONE",
+                "message": assistant_message,
+                "previous_response_id": current_response_id,
+                "turn_record": {
+                    "turn_id": turn_id,
+                    "response_id": current_response_id,
+                    "user_prompt": prompt_text,
+                    "image_data_url": image_data_url if image_data_url else None,
+                    "tool_calls": turn_tool_calls,
+                    "tool_outputs": turn_tool_outputs,
+                    "assistant_message": assistant_message,
+                    "state": "DONE",
+                },
             }
 
     return {
         "state": state,
         "message": (assistant_message or "Request timed out.") + _format_action_report(action_counter),
         "previous_response_id": current_response_id,
+        "turn_record": {
+            "turn_id": turn_id,
+            "response_id": current_response_id,
+            "user_prompt": prompt_text,
+            "image_data_url": image_data_url if image_data_url else None,
+            "tool_calls": turn_tool_calls,
+            "tool_outputs": turn_tool_outputs,
+            "assistant_message": assistant_message,
+            "state": state,
+        },
     }
 
 
@@ -1834,7 +1947,7 @@ def api_secretariat():
         session_data = session_store.get(session_id, {})
     if session_data.get("user_id") not in (None, user_id):
         session_data = {}
-    previous_response_id = session_data.get("previous_response_id")
+    turn_history = session_data.get("turn_history", [])
     payload_timezone = str(payload.get("timezone", "")).strip()
     payload_location = payload.get("location") if isinstance(payload.get("location"), dict) else {}
     payload_latitude = _coerce_float(payload_location.get("latitude"))
@@ -1857,15 +1970,17 @@ def api_secretariat():
         result = run_secretariat(
             prompt_text,
             image_data_url=image_data_url,
-            previous_response_id=previous_response_id,
+            previous_response_id=None,
             user_timezone=user_timezone,
             location_context=weather_location,
             user_id=user_id,
+            turn_history=turn_history,
         )
+        updated_turn_history = _trim_turn_history([*turn_history, result.get("turn_record", {})])
         with session_store_lock:
             session_store[session_id] = {
                 "user_id": user_id,
-                "previous_response_id": result.get("previous_response_id"),
+                "turn_history": updated_turn_history,
                 "timezone": user_timezone,
                 "weather_location": weather_location,
                 "last_seen_ts": now_ts,
@@ -1901,7 +2016,7 @@ def api_secretariat_stream():
         session_data = session_store.get(session_id, {})
     if session_data.get("user_id") not in (None, user_id):
         session_data = {}
-    previous_response_id = session_data.get("previous_response_id")
+    turn_history = session_data.get("turn_history", [])
     payload_timezone = str(payload.get("timezone", "")).strip()
     payload_location = payload.get("location") if isinstance(payload.get("location"), dict) else {}
     payload_latitude = _coerce_float(payload_location.get("latitude"))
@@ -1928,11 +2043,14 @@ def api_secretariat_stream():
             results = []
             state = "RUNNING"
             assistant_message = ""
-            current_response_id = previous_response_id
+            current_response_id = None
             max_turns = 12
             action_counter = {}
             function_call_id_alias_state = {"counter": 0, "by_value": {}}
             call_id_alias_state = {"counter": 0, "by_value": {}}
+            turn_id = f"turn_{uuid.uuid4().hex[:12]}"
+            turn_tool_calls = []
+            turn_tool_outputs = []
 
             for turn_idx in range(max_turns):
                 _log("TURN_START", f"{turn_idx + 1}/{max_turns}")
@@ -1949,6 +2067,7 @@ def api_secretariat_stream():
                     user_timezone=user_timezone,
                     location_context=weather_location,
                     user_id=user_id,
+                    history_turns=turn_history,
                 )
                 current_response_id = response.id
                 response_data = response.model_dump()
@@ -1982,28 +2101,54 @@ def api_secretariat_stream():
                             "args": json.loads(content["arguments"]),
                             "call_id": content["call_id"],
                         })
+                        turn_tool_calls.append({
+                            "name": content["name"],
+                            "args": json.loads(content["arguments"]),
+                            "call_id": content["call_id"],
+                        })
 
                 if saw_function_call:
                     _log("TOOL_BATCH", f"Executing {len(function_calls)} tool call(s)")
                     yield emit({"type": "status", "label": _batch_status_label(function_calls)})
                     tool_outputs = _execute_function_calls_parallel(function_calls, user_id=user_id)
                     _accumulate_action_report(action_counter, tool_outputs)
-                    results.extend(compress_tool_output(output) for output in tool_outputs)
+                    compacted_outputs = [compress_tool_output(output) for output in tool_outputs]
+                    for output in compacted_outputs:
+                        try:
+                            turn_tool_outputs.append(json.loads(output.get("output", "{}")))
+                        except Exception:
+                            turn_tool_outputs.append({"status": "failed", "error": "Invalid compacted output"})
+                    results.extend(compacted_outputs)
                     continue
 
                 if state in {"WAITING", "DONE"}:
                     _log("TURN_END", f"state={state}")
+                    break
+                if not saw_function_call and assistant_message:
+                    _log("TURN_END", "state=FORCED_DONE_NO_TOOL_CALL")
+                    state = "DONE"
                     break
 
             result = {
                 "state": state,
                 "message": (assistant_message or "Request timed out.") + _format_action_report(action_counter),
                 "previous_response_id": current_response_id,
+                "turn_record": {
+                    "turn_id": turn_id,
+                    "response_id": current_response_id,
+                    "user_prompt": prompt_text,
+                    "image_data_url": image_data_url if image_data_url else None,
+                    "tool_calls": turn_tool_calls,
+                    "tool_outputs": turn_tool_outputs,
+                    "assistant_message": assistant_message,
+                    "state": state,
+                },
             }
+            updated_turn_history = _trim_turn_history([*turn_history, result.get("turn_record", {})])
             with session_store_lock:
                 session_store[session_id] = {
                     "user_id": user_id,
-                    "previous_response_id": result.get("previous_response_id"),
+                    "turn_history": updated_turn_history,
                     "timezone": user_timezone,
                     "weather_location": weather_location,
                     "last_seen_ts": now_ts,
@@ -2042,10 +2187,10 @@ def api_session_init():
         _prune_sessions(now_ts)
         session_data = session_store.get(
             session_id,
-            {"user_id": user_id, "previous_response_id": None, "timezone": None, "weather_location": None, "last_seen_ts": now_ts},
+            {"user_id": user_id, "turn_history": [], "timezone": None, "weather_location": None, "last_seen_ts": now_ts},
         )
         if session_data.get("user_id") not in (None, user_id):
-            session_data = {"user_id": user_id, "previous_response_id": None, "timezone": None, "weather_location": None, "last_seen_ts": now_ts}
+            session_data = {"user_id": user_id, "turn_history": [], "timezone": None, "weather_location": None, "last_seen_ts": now_ts}
         if timezone_name:
             session_data["timezone"] = timezone_name
         if latitude is not None and longitude is not None:
@@ -2076,6 +2221,6 @@ if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8000, debug=False)
 
 """
-Crazy Horse
+Beasly Boys
 """
 
