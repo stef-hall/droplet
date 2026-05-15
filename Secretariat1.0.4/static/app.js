@@ -136,6 +136,7 @@ function applyTheme(theme) {
   document.documentElement.setAttribute("data-theme", normalizedTheme);
   const prefix = normalizedTheme === "dark" ? "dm" : "lm";
   if (themeToggleIconLeftEl && themeToggleIconRightEl) {
+<<<<<<< Updated upstream
     themeToggleIconLeftEl.classList.add("is-transitioning");
     themeToggleIconRightEl.classList.add("is-transitioning");
     window.setTimeout(() => {
@@ -144,6 +145,10 @@ function applyTheme(theme) {
       themeToggleIconLeftEl.classList.remove("is-transitioning");
       themeToggleIconRightEl.classList.remove("is-transitioning");
     }, 90);
+=======
+    themeToggleIconLeftEl.src = `/static/icons/${prefix}_on.png`;
+    themeToggleIconRightEl.src = `/static/icons/${prefix}_moon.png`;
+>>>>>>> Stashed changes
   }
   if (themeColorMetaEl) {
     themeColorMetaEl.setAttribute("content", normalizedTheme === "dark" ? "#171a1d" : "#f4f4f4");
