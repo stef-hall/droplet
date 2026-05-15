@@ -19,9 +19,14 @@ cached_tokens: 4224
 uncached_tokens: 366
 
 1.0.3
-input_tokens: 7745
-cached_tokens: 7040
-uncached_tokens: 705
+Input tokens: 51,393
+Cached tokens: 45,824
+Uncached tokens: 5,569
+
+1.0.4xb
+Input tokens: 28,886
+Cached tokens: 17,536
+Uncached tokens: 11,350
 
 
 
