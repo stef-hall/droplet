@@ -488,7 +488,6 @@ Rules:
 - If no duration is stated; *1 hour* is the default
 - After any tool execution, return a user-facing message ONLY IF: the task is complete, or user input is required.
 - The "message" field may contain markdown for formatting (supported: # ## ### headings, **bold**, *italics*, bullet and numbered lists, inline `code`, fenced code blocks ```...```, and pipe tables like | a | b | with a separator row).
-- For one-tap user replies, use this exact markdown line format: [[send: your suggested user message]]
 - Always return a state. RUNNING = Operating Tools/Thinking, WAITING = Waiting for User Input, DONE = ONLY when completley finished your task.
 - Consult your context window to check if you already have the relevant data, before running unessacary Get Tools. 
 - Don't use Em Dashes ("—").
@@ -843,6 +842,16 @@ def _tools_for_names(tool_names):
             selected.append(tool_schema)
             seen.add(name)
     return selected
+
+
+def _with_defer_selector(toolset):
+    existing_names = {tool.get("name") for tool in (toolset or []) if isinstance(tool, dict)}
+    merged = list(toolset or [])
+    for tool in deferred_tool_selector:
+        name = tool.get("name")
+        if name not in existing_names:
+            merged.append(tool)
+    return merged
 
 
 def _extract_deferred_tools(function_calls):
@@ -1674,7 +1683,7 @@ def run_secretariat(prompt_text, image_data_url=None, previous_response_id=None,
         if saw_function_call:
             deferred_tools = _extract_deferred_tools(function_calls)
             if deferred_tools:
-                active_tools = _tools_for_names(deferred_tools)
+                active_tools = _with_defer_selector(_tools_for_names(deferred_tools))
                 if not active_tools:
                     active_tools = deferred_tool_selector
                 results.extend(
@@ -2163,7 +2172,7 @@ def api_secretariat_stream():
                 if saw_function_call:
                     deferred_tools = _extract_deferred_tools(function_calls)
                     if deferred_tools:
-                        active_tools = _tools_for_names(deferred_tools)
+                        active_tools = _with_defer_selector(_tools_for_names(deferred_tools))
                         if not active_tools:
                             active_tools = deferred_tool_selector
                         results.extend(
