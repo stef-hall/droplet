@@ -619,10 +619,10 @@ if __name__ == "__main__":
     configure_tools(_get_user_caldav_calendars, LISTS_DIR)
 
     x = GetWeather(
-        latitude=38.5816,
-        longitude=-121.4944,
-        start_time="20260515T113100+12:00",
-        end_time="20260515T123100+12:00"
+        latitude=37.3382,
+        longitude=-121.8863,
+        start_time="20260516T120623+12:00",
+        end_time="20260516T132123+12:00"
     )
     print(x)
     quit()

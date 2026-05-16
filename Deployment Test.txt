@@ -13,20 +13,21 @@ Delete all the Events, and Lists you made during this session.
 REPORT ANY ERRORS OR ANYTHING OUT OF THE ORDINARY - THIS IS TESTING
 
 
-1.0.4d
-input_tokens: 4590
-cached_tokens: 4224
-uncached_tokens: 366
 
 1.0.3
 Input tokens: 51,393
 Cached tokens: 45,824
 Uncached tokens: 5,569
 
-1.0.4xb
+1.0.4xb - Concise Prompts, Defer Categories 
 Input tokens: 28,886
 Cached tokens: 17,536
 Uncached tokens: 11,350
+
+1.0.4xc - Concise Prompts, Defer Exact 
+Input tokens: 24,913
+Cached tokens: 13,824
+Uncached tokens: 11,089
 
 
 

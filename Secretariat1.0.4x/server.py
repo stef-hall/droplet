@@ -458,6 +458,7 @@ configure_tools(_get_user_caldav_calendars, LISTS_DIR)
 
 
 system_prompt = """
+### This is the full System Prompt ###
 You are an assistant calender manager with access to tools.
 
 Use a tool whenever it is required to complete the user’s request or when the tool provides the most accurate way to perform the task.
@@ -494,6 +495,8 @@ Rules:
 - Always return a state. RUNNING = Operating Tools/Thinking, WAITING = Waiting for User Input, DONE = ONLY when completley finished your task.
 - Consult your context window to check if you already have the relevant data, before running unessacary Get Tools. 
 - Don't use Em Dashes ("—").
+- "rn" = "Right Now"
+- "tn" = "Tonight"
 - CalDAV "reason Forbidden" AuthorizationError's are usually caused by trying to alter the wrong calender. If encountered; Supply the user with GetCalenderNames() and remind them to set the appropriate Calender in settings.
 - If the USER ever requests for you to "Restore", "Undo", "Bring Back", or "Recreate" an event - ESPECIALLY IF YOU'VE RECENTLY DELETED SOME EVENTS - your FIRST STEP is to look back in your context for the requested events information, then Add back an identical copy of that event
 - If a User asks you to Add/Edit/Delete an event in a new chat session, where you haven't got any previous GetEvents data in your context; GetEvents for the given week FIRST before then making your response.
@@ -515,17 +518,18 @@ STRICT VALID RESPONSE FORMAT:
 """
 
 concise_prompt = """
+### This is a section from the full System Prompt ###
 You are an assistant calender manager with access to tools.
 
 Rules:
 - never guess tool outputs
-- If no duration is stated; *1 hour* is the default
 - Don't use Em Dashes ("—").
 - You operate ONLY in the local timezone. For interacting, and reasoning with events.
 - Keep responses concise and natural. Prefer short plain phrasing over long explanations.
 - If you ever send a response that contains an exact solution to your question, offer it as a FastReplys. e.g. ... message: "what time or duration should the call with your grandma be? If you want, I can use [[send: 5 PM and make the call 1 hour | Okay, 5 PM and for 1 hour]"
 - Take the initative, but offer FastReplys to cater or undo your actions. 
 - If the USER ever requests for you to "Restore", "Undo", "Bring Back", or "Recreate" an event - ESPECIALLY IF YOU'VE RECENTLY DELETED SOME EVENTS - your FIRST STEP is to look back in your context for the requested events information, then Add back an identical copy of that event
+- The "message" field may contain markdown for formatting (supported: # ## ### headings, **bold**, *italics*, bullet and numbered lists, inline `code`, fenced code blocks ```...```, and pipe tables like | a | b | with a separator row).
 """
 
 
@@ -565,7 +569,7 @@ tools = [
                 },
                 "reminder_minutes_before": {
                     "type": "integer",
-                    "description": "Optional reminder/alert lead time in minutes before event start (e.g. 10, 30, 60)."
+                    "description": "Optional reminder/alert lead time in minutes before event start (e.g. 10, 30, 60). 0 = Remind at Time of Event"
                 }
             },
             "required": ["title", "start", "finish", "location", "description", "rrule", "reminder_minutes_before"],
@@ -703,7 +707,7 @@ tools = [
                 },
                 "reminder_minutes_before": {
                     "type": "integer",
-                    "description": "Updated reminder/alert lead time in minutes before event start. Optional."
+                    "description": "Updated reminder/alert lead time in minutes before event start. Optional. 0=Remind at Time of Event, None=Remove Reminder"
                 }
             },
             "required": ["uid"],
@@ -753,66 +757,64 @@ tools = [
     }
 ]
 
-TOOL_CATEGORY_MAP = {
-    "events": ["AddEvent", "GetEvents", "EditEvent", "DeleteEvent"],
-    "lists": ["ReadList", "EditList", "DeleteList"],
-    "gets": ["GetWeather", "GetCalendarNames"],
-}
-
 TOOLS_BY_NAME = {tool.get("name"): tool for tool in tools}
+ALL_TOOL_NAMES = [name for name in TOOLS_BY_NAME.keys() if isinstance(name, str)]
+_TOOL_SUMMARY_TEXT = " | ".join(
+    f"{tool.get('name')}: {tool.get('description', '')}"
+    for tool in tools
+    if tool.get("name")
+)
 
-deferred_category_tool = [
+deferred_tool_selector = [
     {
         "type": "function",
-        "name": "DeferToolCategories",
+        "name": "DeferTools",
         "description": (
-            "Request full tool schemas for one or more categories before calling regular tools. "
-            "categories: events=[GetEvents, AddEvent, EditEvent, DeleteEvent], "
-            "lists=[ReadList, EditList, DeleteList], "
-            "gets=[GetWeather, GetCalendarNames]."
+            "Request full schemas for one or more specific tools before calling regular tools. "
+            f"Available tools and descriptions: {_TOOL_SUMMARY_TEXT}"
         ),
         "strict": True,
         "parameters": {
             "type": "object",
             "properties": {
-                "categories": {
+                "tools": {
                     "type": "array",
                     "items": {
                         "type": "string",
-                        "enum": ["events", "lists", "gets"],
+                        "enum": ALL_TOOL_NAMES,
                     },
                 }
             },
-            "required": ["categories"],
+            "required": ["tools"],
             "additionalProperties": False,
         },
     }
 ]
 
 
-def _tools_for_categories(category_names):
+def _tools_for_names(tool_names):
     selected = []
     seen = set()
-    for category in category_names or []:
-        for tool_name in TOOL_CATEGORY_MAP.get(str(category), []):
-            if tool_name in seen:
-                continue
-            tool_schema = TOOLS_BY_NAME.get(tool_name)
-            if tool_schema:
-                selected.append(tool_schema)
-                seen.add(tool_name)
+    for tool_name in tool_names or []:
+        name = str(tool_name)
+        if name in seen:
+            continue
+        tool_schema = TOOLS_BY_NAME.get(name)
+        if tool_schema:
+            selected.append(tool_schema)
+            seen.add(name)
     return selected
 
 
-def _extract_deferred_categories(function_calls):
-    categories = []
+def _extract_deferred_tools(function_calls):
+    selected_tools = []
     for call in function_calls or []:
-        if call.get("name") != "DeferToolCategories":
+        if call.get("name") != "DeferTools":
             continue
-        call_categories = call.get("args", {}).get("categories", [])
-        if isinstance(call_categories, list):
-            categories.extend([str(x) for x in call_categories])
-    return list(dict.fromkeys(categories))
+        call_tools = call.get("args", {}).get("tools", [])
+        if isinstance(call_tools, list):
+            selected_tools.extend([str(x) for x in call_tools])
+    return list(dict.fromkeys(selected_tools))
 
 
 def load_value_file(path: str) -> dict[str, str]:
@@ -1439,7 +1441,7 @@ def compress_tool_output(tool_output):
         parsed_output = {"status": "failed", "error": "Invalid tool output JSON"}
 
     compacted = _compact_value(parsed_output)
-    print("---------\n", compacted, "\n---------")
+    #print("---------\n", compacted, "\n---------")
 
     return {
         "type": "function_call_output",
@@ -1563,7 +1565,7 @@ def run_secretariat(prompt_text, image_data_url=None, previous_response_id=None,
     action_counter = {}
     function_call_id_alias_state = {"counter": 0, "by_value": {}}
     call_id_alias_state = {"counter": 0, "by_value": {}}
-    active_tools = deferred_category_tool
+    active_tools = deferred_tool_selector
     for turn_idx in range(max_turns):
         if status_callback:
             status_callback("Thinking...")
@@ -1619,19 +1621,19 @@ def run_secretariat(prompt_text, image_data_url=None, previous_response_id=None,
                 })
 
         if saw_function_call:
-            deferred_categories = _extract_deferred_categories(function_calls)
-            if deferred_categories:
-                active_tools = _tools_for_categories(deferred_categories)
+            deferred_tools = _extract_deferred_tools(function_calls)
+            if deferred_tools:
+                active_tools = _tools_for_names(deferred_tools)
                 if not active_tools:
-                    active_tools = deferred_category_tool
+                    active_tools = deferred_tool_selector
                 results.extend(
                     {
                         "type": "function_call_output",
                         "call_id": call["call_id"],
-                        "output": json.dumps({"status": "success", "selected_categories": deferred_categories}),
+                        "output": json.dumps({"status": "success", "selected_tools": deferred_tools}),
                     }
                     for call in function_calls
-                    if call.get("name") == "DeferToolCategories"
+                    if call.get("name") == "DeferTools"
                 )
                 continue
             _log("TOOL_BATCH", f"Executing {len(function_calls)} tool call(s)")
@@ -2051,7 +2053,7 @@ def api_secretariat_stream():
             action_counter = {}
             function_call_id_alias_state = {"counter": 0, "by_value": {}}
             call_id_alias_state = {"counter": 0, "by_value": {}}
-            active_tools = deferred_category_tool
+            active_tools = deferred_tool_selector
 
             for turn_idx in range(max_turns):
                 _log("TURN_START", f"{turn_idx + 1}/{max_turns}")
@@ -2108,19 +2110,19 @@ def api_secretariat_stream():
                         })
 
                 if saw_function_call:
-                    deferred_categories = _extract_deferred_categories(function_calls)
-                    if deferred_categories:
-                        active_tools = _tools_for_categories(deferred_categories)
+                    deferred_tools = _extract_deferred_tools(function_calls)
+                    if deferred_tools:
+                        active_tools = _tools_for_names(deferred_tools)
                         if not active_tools:
-                            active_tools = deferred_category_tool
+                            active_tools = deferred_tool_selector
                         results.extend(
                             {
                                 "type": "function_call_output",
                                 "call_id": call["call_id"],
-                                "output": json.dumps({"status": "success", "selected_categories": deferred_categories}),
+                                "output": json.dumps({"status": "success", "selected_tools": deferred_tools}),
                             }
                             for call in function_calls
-                            if call.get("name") == "DeferToolCategories"
+                            if call.get("name") == "DeferTools"
                         )
                         continue
                     _log("TOOL_BATCH", f"Executing {len(function_calls)} tool call(s)")
