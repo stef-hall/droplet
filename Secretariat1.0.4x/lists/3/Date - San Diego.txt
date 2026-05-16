@@ -1,6 +1,0 @@
-Weather for San Diego
-Local time: 1945
-Conditions: Overcast
-Temperature: 17.6°C
-Precipitation: 0.0 mm
-Wind: 5.2 km/h

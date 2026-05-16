@@ -1,6 +1,0 @@
-Weather for Los Angeles
-Local time: 1945
-Conditions: Clear sky
-Temperature: 17.1°C
-Precipitation: 0.0 mm
-Wind: 10.1 km/h

@@ -1,6 +1,0 @@
-Weather for San Francisco
-Local time: 1945
-Conditions: Clear sky
-Temperature: 16.4°C
-Precipitation: 0.0 mm
-Wind: 18.8 km/h

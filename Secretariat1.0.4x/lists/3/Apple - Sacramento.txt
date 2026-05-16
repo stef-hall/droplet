@@ -1,6 +1,0 @@
-Weather for Sacramento
-Local time: 1945
-Conditions: Clear sky
-Temperature: 24.8°C
-Precipitation: 0.0 mm
-Wind: 12.4 km/h

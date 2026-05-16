@@ -1088,7 +1088,7 @@ def ToolUse(name, args, user_id=None):
         location = args.get("location")
         description = args.get("description")
         rrule = args.get("rrule")
-        reminder_minutes_before = args.get("reminder_minutes_before")
+        reminder_minutes_before = args["reminder_minutes_before"] if "reminder_minutes_before" in args else UNSET
         try:
             output = EditEvent(
                 user_id=user_id,
