@@ -1,0 +1,6 @@
+Weather for San Jose
+Local time: 1945
+Conditions: Clear sky
+Temperature: 17.2°C
+Precipitation: 0.0 mm
+Wind: 12.7 km/h
