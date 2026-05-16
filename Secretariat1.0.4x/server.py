@@ -26,7 +26,7 @@ from urllib.parse import urlencode
 from urllib.request import urlopen
 from pathlib import Path
 from werkzeug.security import check_password_hash, generate_password_hash # type: ignore
-from tools import AddEvent, GetEvents, GetCalendarNames, DeleteEvent, ReadList, EditList, DeleteList, EditEvent, GetWeather, configure_tools
+from tools import AddEvent, GetEvents, GetCalendarNames, DeleteEvent, ReadList, EditList, DeleteList, EditEvent, GetWeather, configure_tools, UNSET
 
 global api_key
 warnings.simplefilter("ignore", DeprecationWarning)
@@ -706,8 +706,11 @@ tools = [
                     "description": "Updated recurrence rule (RRULE). Optional."
                 },
                 "reminder_minutes_before": {
-                    "type": "integer",
-                    "description": "Updated reminder/alert lead time in minutes before event start. Optional. 0=Remind at Time of Event, None=Remove Reminder"
+                    "anyOf": [
+                        {"type": "integer"},
+                        {"type": "null"}
+                    ],
+                    "description": "Updated reminder/alert lead time in minutes before event start. Pass 0 to remind at event time. Pass null to remove reminder. Optional."
                 }
             },
             "required": ["uid"],
@@ -888,7 +891,7 @@ def ToolUse(name, args, user_id=None):
         location = args.get("location", "")
         description = args.get("description", "")
         rrule = args.get("rrule", "")
-        reminder_minutes_before = args.get("reminder_minutes_before")
+        reminder_minutes_before = args["reminder_minutes_before"] if "reminder_minutes_before" in args else UNSET
         try:
             output = AddEvent(
                 user_id=user_id,
