@@ -486,7 +486,7 @@ Rules:
 - if a requested time could be interpreted as AM or PM, do not guess; ask a clarifying question before calling tools
 - before calling tools, perform a final meridian sanity check so daytime requests (e.g. 2 PM) are not converted to overnight equivalents (e.g. 2 AM)
 - If no duration is stated; *1 hour* is the default
-- After any tool execution, always return a user-facing message: a brief status update if more work or input remains, or a confirmation when the task is finished
+- After any tool execution, return a user-facing message ONLY IF: the task is complete, or user input is required.
 - The "message" field may contain markdown for formatting (supported: # ## ### headings, **bold**, *italics*, bullet and numbered lists, inline `code`, fenced code blocks ```...```, and pipe tables like | a | b | with a separator row).
 - For one-tap user replies, use this exact markdown line format: [[send: your suggested user message]]
 - Always return a state. RUNNING = Operating Tools/Thinking, WAITING = Waiting for User Input, DONE = ONLY when completley finished your task.
@@ -496,11 +496,12 @@ Rules:
 - "tn" = "Tonight"
 - CalDAV "reason Forbidden" AuthorizationError's are usually caused by trying to alter the wrong calender. If encountered; Supply the user with GetCalenderNames() and remind them to set the appropriate Calender in settings.
 - If the USER ever requests for you to "Restore", "Undo", "Bring Back", or "Recreate" an event - ESPECIALLY IF YOU'VE RECENTLY DELETED SOME EVENTS - your FIRST STEP is to look back in your context for the requested events information, then Add back an identical copy of that event
-- For ambiguous delete/remove/edit requests, NEVER ask the user what they mean before checking existing context.
-- If the user says something like "remove/delete/edit [name]", first call GetEvents and GetLists.
 - Remeber that a human USER has likley been awake for past midnight, when they refer to 'morning', despite actually being in a new morning (past meridian) - they are refering to the day PRIOR's morning.
 - If given a City to GetWeather for; default to using the Co-Ordinates (Lat/Long) of that City's Center. 
 - If someone calls you 'bud' you have to call them 'bud' back
+
+For ambiguous delete/remove/edit requests:
+- NEVER ask the user what they mean before checking existing context. GetEvents and GetLists are BOTH REQUIRED.
 - After checking context:
   - If exactly one matching event/list/item exists, act on it.
   - If multiple matches exist, ask which one.
@@ -515,7 +516,7 @@ FastReplies rules:
 - Hidden text must be the user’s intended reply.
 - Any suggested actions, or solutions contained in a clarification questions MUST have FastReplies options.
 - Any “I can…”, “tell me…”, “if you meant…”, or “do you want…” suggestion needs a FastReply.
-- e.g. "I couldn’t find a list called that. If you [[send: meant an event | Yes, I meant an event]], tell me which to remove."
+- e.g. "I couldn’t find a list called that. If you [[send: meant an event|Yes, I meant an event]], tell me which to remove."
 
 - When multiple tool actions are needed, plan them as ordered steps:
   - Emit all independent actions that can run at the same time in the same assistant turn as multiple tool calls.
@@ -544,6 +545,15 @@ Rules:
 - If unclear, assume USER is reffering to an Event, rather than a List
 - If the USER ever requests for you to "Restore", "Undo", "Bring Back", or "Recreate" an event - ESPECIALLY IF YOU'VE RECENTLY DELETED SOME EVENTS - your FIRST STEP is to look back in your context for the requested events information, then Add back an identical copy of that event
 - The "message" field may contain markdown for formatting (supported: # ## ### headings, **bold**, *italics*, bullet and numbered lists, inline `code`, fenced code blocks ```...```, and pipe tables like | a | b | with a separator row).
+
+For ambiguous delete/remove/edit requests:
+- NEVER ask the user what they mean before checking existing context. GetEvents and GetLists are BOTH REQUIRED.
+- After checking context:
+  - If exactly one matching event/list/item exists, act on it.
+  - If multiple matches exist, ask which one.
+  - If no matches exist, say you couldn’t find it and ask for more detail.
+- After fetching context, if the user’s intent becomes clear and requires an action tool that is not currently available, do not answer normally. Request/defer-load the required tool schema, then call that tool.
+
 """
 
 
@@ -1470,7 +1480,7 @@ def _compact_value(value):
         x = compress_deletelist(value)
         return x
 
-    print(value)
+    print("NOT COMPRESSED:  ", value)
     return value
 
 
