@@ -373,6 +373,14 @@ def DeleteList(user_id, list_name):
     return {"status": "deleted", "list_name": safe_name}
 
 
+def GetLists(user_id):
+    user_dir = _user_lists_dir(user_id)
+    if not user_dir.exists() or not user_dir.is_dir():
+        return {"status": "success", "lists": []}
+    names = sorted(p.stem for p in user_dir.glob("*.txt") if p.is_file())
+    return {"status": "success", "lists": names}
+
+
 def _to_utc_ics(value):
     if value is None:
         return ""

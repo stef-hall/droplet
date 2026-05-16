@@ -26,7 +26,7 @@ from urllib.parse import urlencode
 from urllib.request import urlopen
 from pathlib import Path
 from werkzeug.security import check_password_hash, generate_password_hash # type: ignore
-from tools import AddEvent, GetEvents, GetCalendarNames, DeleteEvent, ReadList, EditList, DeleteList, EditEvent, GetWeather, configure_tools, UNSET
+from tools import AddEvent, GetEvents, GetCalendarNames, DeleteEvent, ReadList, EditList, DeleteList, GetLists, EditEvent, GetWeather, configure_tools, UNSET
 
 global api_key
 warnings.simplefilter("ignore", DeprecationWarning)
@@ -67,6 +67,7 @@ def _tool_name_to_status_label(tool_name: str) -> str:
         "readlist": "Reading List...",
         "editlist": "Updating List...",
         "deletelist": "Deleting List...",
+        "getlists": "Getting Lists...",
         "getweather": "Getting Weather...",
         "getcalendarnames": "Getting Calendar Names...",
     }
@@ -506,15 +507,15 @@ Rules:
   - If no matches exist, say you couldn’t find it and ask for more detail.
 - After fetching context, if the user’s intent becomes clear and requires an action tool that is not currently available, do not answer normally. Request/defer-load the required tool schema, then call that tool.
 
-FastReply rules:
+FastReplies rules:
 - Use FastReplies for obvious next steps, clarifications, undo, confirmations, or suggested actions.
 - Never show suggested replies as plain text options.
-- FastReplies MUST use exactly:
-  [[send: visible assistant text|hidden user message]]
+- FastReplies MUST use exactly: [[send: visible assistant text|hidden user message]]
 - Visible text must fit naturally in the assistant message.
 - Hidden text must be the user’s intended reply.
+- Any suggested actions, or solutions contained in a clarification questions MUST have FastReplies options.
 - Any “I can…”, “tell me…”, “if you meant…”, or “do you want…” suggestion needs a FastReply.
-- Use multiple FastReplies when multiple likely actions exist. 
+- e.g. "I couldn’t find a list called that. If you [[send: meant an event | Yes, I meant an event]], tell me which to remove."
 
 - When multiple tool actions are needed, plan them as ordered steps:
   - Emit all independent actions that can run at the same time in the same assistant turn as multiple tool calls.
@@ -662,6 +663,18 @@ tools = [
                 }
             },
             "required": ["list_name", "content"],
+            "additionalProperties": False
+        }
+    },
+    {
+        "type": "function",
+        "name": "GetLists",
+        "description": "Returns all saved list names for the current user.",
+        "strict": True,
+        "parameters": {
+            "type": "object",
+            "properties": {},
+            "required": [],
             "additionalProperties": False
         }
     },
@@ -1029,6 +1042,21 @@ def ToolUse(name, args, user_id=None):
                 "status": "failed",
                 "tool": "DeleteList",
                 "list": {"list_name": list_name},
+                "error": str(e),
+            }
+
+    if name == "GetLists":
+        try:
+            output = GetLists(user_id=user_id)
+            if isinstance(output, dict):
+                status = output.get("status", "success")
+                if status != "success":
+                    return {"status": "failed", "tool": "GetLists", "error": output.get("error", "GetLists failed"), "result": output}
+            return {"status": "success", "tool": "GetLists", "result": output}
+        except Exception as e:
+            return {
+                "status": "failed",
+                "tool": "GetLists",
                 "error": str(e),
             }
 
@@ -1494,9 +1522,6 @@ def ask_gpt54(user_input, system_prompt, results, previous_response_id=None, use
         raw_prompt = user_input.get("prompt", "")
     else:
         raw_prompt = user_input
-
-    available_lists = get_available_lists(user_id=user_id)
-    lists_line = ", ".join(available_lists) if available_lists else "(none)"
 
     # Prepend time context to every user request before sending it to the model.
     # Removed:         f"Current UTC time: {now_utc.strftime('%Y-%m-%d, %a %H:%M:%S  %z')}\n"
