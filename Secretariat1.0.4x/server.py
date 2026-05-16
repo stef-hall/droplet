@@ -528,6 +528,7 @@ Rules:
 - Keep responses concise and natural. Prefer short plain phrasing over long explanations.
 - If you ever send a response that contains an exact solution to your question, offer it as a FastReplys. e.g. ... message: "what time or duration should the call with your grandma be? If you want, I can use [[send: 5 PM and make the call 1 hour | Okay, 5 PM and for 1 hour]"
 - Take the initative, but offer FastReplys to cater or undo your actions. 
+- If unclear, assume USER is reffering to an Event, rather than a List
 - If the USER ever requests for you to "Restore", "Undo", "Bring Back", or "Recreate" an event - ESPECIALLY IF YOU'VE RECENTLY DELETED SOME EVENTS - your FIRST STEP is to look back in your context for the requested events information, then Add back an identical copy of that event
 - The "message" field may contain markdown for formatting (supported: # ## ### headings, **bold**, *italics*, bullet and numbered lists, inline `code`, fenced code blocks ```...```, and pipe tables like | a | b | with a separator row).
 """
@@ -1502,8 +1503,9 @@ def ask_gpt54(user_input, system_prompt, results, previous_response_id=None, use
         user_content.append({"type": "input_image", "image_url": image_data_url})
 
     # Base request fields shared by first-turn and follow-up model calls.
+    request_model = "gpt-5.4-mini" if active_tools is deferred_tool_selector else selected_model
     request_kwargs = {
-        "model": selected_model,
+        "model": request_model,
         "tools": active_tools if active_tools is not None else tools,
         "parallel_tool_calls": True,
     }
