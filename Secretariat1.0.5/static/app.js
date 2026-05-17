@@ -30,6 +30,7 @@ const authSubtitleEl = document.getElementById("auth-subtitle");
 const authStatusEl = document.getElementById("auth-status");
 const authTrustDeviceEl = document.getElementById("auth-trust-device");
 const authTrustWrapEl = document.getElementById("auth-trust-wrap");
+const stickyNoteEffectsLayerEl = document.getElementById("sticky-note-effects-layer");
 const stickyNoteLayerEl = document.getElementById("sticky-note-layer");
 const stickyNoteDockSlotEl = document.getElementById("sticky-note-dock-slot");
 const MAX_PROMPT_HEIGHT = 180;
@@ -278,13 +279,13 @@ function syncStickyNoteLayoutState() {
 }
 
 function setStickyNoteDockHintVisible(visible) {
-  if (!stickyNoteLayerEl) return;
-  stickyNoteLayerEl.classList.toggle("show-dock-hint", visible);
+  if (!stickyNoteEffectsLayerEl) return;
+  stickyNoteEffectsLayerEl.classList.toggle("show-dock-hint", visible);
 }
 
 function setStickyNoteDockSlotVisible(visible) {
-  if (!stickyNoteLayerEl) return;
-  stickyNoteLayerEl.classList.toggle("show-dock-slot", visible);
+  if (!stickyNoteEffectsLayerEl) return;
+  stickyNoteEffectsLayerEl.classList.toggle("show-dock-slot", visible);
 }
 
 function setStickyNoteDragLayerActive(active) {

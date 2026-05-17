@@ -956,11 +956,19 @@ textarea {
   opacity: 0;
 }
 
+.sticky-note-effects-layer,
 .sticky-note-layer {
   position: fixed;
   inset: 0;
-  z-index: 29;
   pointer-events: none;
+}
+
+.sticky-note-effects-layer {
+  z-index: 29;
+}
+
+.sticky-note-layer {
+  z-index: 29;
 }
 
 .sticky-note-layer.is-drag-active {
@@ -984,7 +992,7 @@ textarea {
   transition: opacity 180ms ease, transform 220ms ease;
 }
 
-.sticky-note-layer.show-dock-hint .sticky-note-dock-hint {
+.sticky-note-effects-layer.show-dock-hint .sticky-note-dock-hint {
   opacity: 1;
   transform: translateX(0);
 }
@@ -1003,7 +1011,7 @@ textarea {
   transition: opacity 160ms ease, transform 180ms ease, top 180ms ease;
 }
 
-.sticky-note-layer.show-dock-slot .sticky-note-dock-slot {
+.sticky-note-effects-layer.show-dock-slot .sticky-note-dock-slot {
   opacity: 1;
   transform: translateX(0);
 }
