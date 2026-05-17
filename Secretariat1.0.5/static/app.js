@@ -30,6 +30,7 @@ const authSubtitleEl = document.getElementById("auth-subtitle");
 const authStatusEl = document.getElementById("auth-status");
 const authTrustDeviceEl = document.getElementById("auth-trust-device");
 const authTrustWrapEl = document.getElementById("auth-trust-wrap");
+const demoStickyNoteEl = document.getElementById("demo-sticky-note");
 const MAX_PROMPT_HEIGHT = 180;
 const isTouchDevice = window.matchMedia("(pointer: coarse)").matches;
 let attachedImageDataUrl = null;
@@ -169,6 +170,57 @@ function initializeTheme() {
 }
 
 initializeTheme();
+
+function clamp(value, min, max) {
+  return Math.min(Math.max(value, min), max);
+}
+
+function initializeStickyNoteDemo() {
+  if (!demoStickyNoteEl) return;
+
+  let dragState = null;
+
+  demoStickyNoteEl.addEventListener("pointerdown", (event) => {
+    if (event.button !== undefined && event.button !== 0) return;
+
+    const rect = demoStickyNoteEl.getBoundingClientRect();
+    dragState = {
+      pointerId: event.pointerId,
+      offsetX: event.clientX - rect.left,
+      offsetY: event.clientY - rect.top
+    };
+
+    demoStickyNoteEl.classList.add("is-dragging");
+    demoStickyNoteEl.setPointerCapture(event.pointerId);
+    event.preventDefault();
+  });
+
+  demoStickyNoteEl.addEventListener("pointermove", (event) => {
+    if (!dragState || event.pointerId !== dragState.pointerId) return;
+
+    const maxLeft = Math.max(0, window.innerWidth - demoStickyNoteEl.offsetWidth);
+    const maxTop = Math.max(0, window.innerHeight - demoStickyNoteEl.offsetHeight);
+    const nextLeft = clamp(event.clientX - dragState.offsetX, 0, maxLeft);
+    const nextTop = clamp(event.clientY - dragState.offsetY, 0, maxTop);
+
+    demoStickyNoteEl.style.left = `${Math.round(nextLeft)}px`;
+    demoStickyNoteEl.style.top = `${Math.round(nextTop)}px`;
+  });
+
+  function releaseStickyNote(event) {
+    if (!dragState || event.pointerId !== dragState.pointerId) return;
+    demoStickyNoteEl.classList.remove("is-dragging");
+    if (demoStickyNoteEl.hasPointerCapture(event.pointerId)) {
+      demoStickyNoteEl.releasePointerCapture(event.pointerId);
+    }
+    dragState = null;
+  }
+
+  demoStickyNoteEl.addEventListener("pointerup", releaseStickyNote);
+  demoStickyNoteEl.addEventListener("pointercancel", releaseStickyNote);
+}
+
+initializeStickyNoteDemo();
 
 
 
