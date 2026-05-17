@@ -233,7 +233,10 @@ def _extract_reminder_minutes(vevent):
     return None
 
 
-def AddEvent(user_id, title, start, finish, location, description, rrule, reminder_minutes_before=None):
+def AddEvent(user_id, title, times, location, description, rrule, reminder_minutes_before=None):
+    if not isinstance(times, (list, tuple)) or len(times) != 2:
+        raise ValueError("times must contain exactly two datetime strings: [start, finish].")
+    start, finish = times
     start, offset = offset_to_z(start)
     finish, offset = offset_to_z(finish)
     start = start.strftime("%Y%m%dT%H%M%SZ")
@@ -279,7 +282,10 @@ def AddEvent(user_id, title, start, finish, location, description, rrule, remind
     }
 
 
-def GetEvents(user_id, start, end):
+def GetEvents(user_id, times):
+    if not isinstance(times, (list, tuple)) or len(times) != 2:
+        raise ValueError("times must contain exactly two datetime strings: [start, end].")
+    start, end = times
     start, offset = offset_to_z(start)
     end, offset = offset_to_z(end)
     calendars = _get_user_caldav_calendars(int(user_id))
@@ -418,8 +424,13 @@ def _build_event_ics(uid, title, start, finish, location="", description="", rru
     return "\n".join(lines)
 
 
-def EditEvent(user_id, uid, title=None, start=None, finish=None, location=None, description=None, rrule=None, reminder_minutes_before=_REMINDER_UNCHANGED):
+def EditEvent(user_id, uid, title=None, times=None, location=None, description=None, rrule=None, reminder_minutes_before=_REMINDER_UNCHANGED):
     resolved_uid = _resolve_uid_for_user(int(user_id), uid)
+    start = finish = None
+    if times is not None:
+        if not isinstance(times, (list, tuple)) or len(times) != 2:
+            raise ValueError("times must contain exactly two datetime strings: [start, finish].")
+        start, finish = times
     if start is not None:
         start, _ = offset_to_z(start)
     if finish is not None:
@@ -497,8 +508,7 @@ def EditEvent(user_id, uid, title=None, start=None, finish=None, location=None, 
                 "uid": _get_uid_alias(int(user_id), resolved_uid),
                 "updated_fields": {
                     "title": title is not None,
-                    "start": start is not None,
-                    "finish": finish is not None,
+                    "times": times is not None,
                     "location": location is not None,
                     "description": description is not None,
                     "rrule": rrule is not None,
@@ -509,7 +519,7 @@ def EditEvent(user_id, uid, title=None, start=None, finish=None, location=None, 
     return {"status": "not_found"}
 
 
-def GetWeather(latitude, longitude, start_time=None, end_time=None, field_names=None):
+def GetWeather(latitude, longitude, times=None, field_names=None):
     def _parse_weather_dt(value):
         if value is None:
             return None
@@ -531,8 +541,12 @@ def GetWeather(latitude, longitude, start_time=None, end_time=None, field_names=
             raise ValueError("Datetime values must include an explicit timezone offset.")
         return parsed
 
-    start_time = _parse_weather_dt(start_time)
-    end_time = _parse_weather_dt(end_time)
+    start_time = end_time = None
+    if times is not None:
+        if not isinstance(times, (list, tuple)) or len(times) != 2:
+            raise ValueError("times must contain exactly two datetime strings: [start, end].")
+        start_time = _parse_weather_dt(times[0])
+        end_time = _parse_weather_dt(times[1])
 
     field_names = field_names or {
         "temperature": "Tempc",
@@ -624,24 +638,21 @@ if __name__ == "__main__":
     x = GetWeather(
         latitude=38.5816,
         longitude=-121.4944,
-        start_time="20260515T113100+12:00",
-        end_time="20260515T123100+12:00"
+        times=["20260515T113100+12:00", "20260515T123100+12:00"]
     )
     print(x)
     quit()
 
 
     response = GetEvents(3,
-    start="20260507T000000+12:00",
-    end="20260608T000000+12:00"
+    times=["20260507T000000+12:00", "20260608T000000+12:00"]
     )
     #print(response)
 
 
     response = EditEvent(3,
         uid="f1c794d5-b32b-40ab-992f-d50568b06337",
-        start="20260512T180000+12:00",
-        finish="20260512T190000+12:00"
+        times=["20260512T180000+12:00", "20260512T190000+12:00"]
     )
     print(response)
     quit()
@@ -649,8 +660,7 @@ if __name__ == "__main__":
    
     response = AddEvent(3,
     title="Working AddEvent",
-    start="20260507T142556+12:00",
-    finish="20260507T143056+12:00",
+    times=["20260507T142556+12:00", "20260507T143056+12:00"],
     location="",
     description="",
     rrule=""

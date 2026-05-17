@@ -30,9 +30,9 @@ Uncached tokens: 11,089
 
 1.0.4da - Compressed Sys Prompt
 Model calls: 7
-Total input tokens: 25907
-Cached tokens: 25907
-Uncached tokens: 4147
+Total input tokens: 25728
+Cached tokens: 25728
+Uncached tokens: 4096
 Cache hit rate: 100.00%
 
 

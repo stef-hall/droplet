@@ -463,9 +463,8 @@ Rules:
 - After any tool execution, return a user-facing message ONLY IF: the task is complete, or user input is required
 - Consult your context first before calling GetEvents/Get...
 - If the USER tells you to Restore/Undo/Bring Back/Recreate an event your FIRST STEP is to look back in your context for the requested events, then recreate the event
-- apply extra reasoning scrutiny around meridians (AM/PM), especially 12:00 times
-- if a requested time could be interpreted as AM or PM, do not guess; ask a clarifying question before calling tools
-- Always return a state
+- If a requested time could be interpreted as AM or PM, do not guess; ask a clarifying question before calling tools
+- Always return a state:
   - RUNNING = Operating Tools/Thinking
   - WAITING = Waiting for User Input
   - DONE = When totally finished your task
@@ -475,15 +474,20 @@ Rules:
   - bullet lists
   - inline `code`, fenced ```code``` 
   - pipe tables | a | b |)
+- Display multipile events in a markdown time table 
 - Use FastReplies for obvious next steps, clarifications, undo, confirmations, or suggested actions.
-- If no duration is stated, assume default 1 hour
+- 
 - If someone calls you 'bud' you have to call them 'bud' back
 
 Reminders:
 - If multiple details are missing, ask for them all in one message.
+- If a duration cannot be reasonably defered, default to *1 hour*
+- When a tool creates resources and returns IDs/UIDs, assume those returned IDs will be visible in conversation context after the batched tool results complete. Therefore, batch independent create calls together. Only serialize calls when the next call requires a value produced by a previous call.
+- If given a City to GetWeather for; default to using the Co-Ordinates (Lat/Long) of that City's Center. 
+- apply extra reasoning scrutiny around meridians (AM/PM), especially 12:00 times
 - "rn" = "Right Now"
 - "tn" = "Tonight"
-- If given a City to GetWeather for; default to using the Co-Ordinates (Lat/Long) of that City's Center. 
+
 
 Tone:
 - Keep responses concise. Prefer plain phrasing over long explanations
@@ -531,13 +535,12 @@ tools = [
                     "type": "string",
                     "description": "Event title"
                 },
-                "start": {
-                    "type": "string",
-                    "description": "Event start time in LOCAL TIMEZONE using format YYYYMMDDTHHMMSS+XX:XX (e.g. 20260501T000000+12:00)"
-                },
-                "finish": {
-                    "type": "string",
-                    "description": "Event end time in LOCAL TIMEZONE using format YYYYMMDDTHHMMSS+XX:XX (e.g. 20260501T000000+12:00)"
+                "times": {
+                    "type": "array",
+                    "description": "Start date/time, then finish date/time. in LOCAL TIMEZONE using format YYYYMMDDTHHMMSS+XX:XX (e.g. 20260501T000000+12:00)",
+                    "items": {"type": "string"},
+                    "minItems": 2,
+                    "maxItems": 2
                 },
                 "location": {
                     "type": "string",
@@ -556,7 +559,7 @@ tools = [
                     "description": "Optional reminder/alert lead time in minutes before event start (e.g. 10, 30, 60). Use null for no reminder."
                 }
             },
-            "required": ["title", "start", "finish", "location", "description", "rrule", "reminder_minutes_before"],
+            "required": ["title", "times", "location", "description", "rrule", "reminder_minutes_before"],
             "additionalProperties": False
         }
     },
@@ -568,16 +571,15 @@ tools = [
         "parameters": {
             "type": "object",
             "properties": {
-                "start": {
-                    "type": "string",
-                    "description": "Start of the time range in LOCAL TIMEZONE using format YYYYMMDDTHHMMSS+XX:XX (e.g. 20260501T000000+12:00)"
-                },
-                "end": {
-                    "type": "string",
-                    "description": "End of the time range in LOCAL TIMEZONE using format YYYYMMDDTHHMMSS+XX:XX (e.g. 20260501T000000+12:00)"
+                "times": {
+                    "type": "array",
+                    "description": "Start date/time, then finish date/time. in LOCAL TIMEZONE using format YYYYMMDDTHHMMSS+XX:XX (e.g. 20260501T000000+12:00)",
+                    "items": {"type": "string"},
+                    "minItems": 2,
+                    "maxItems": 2
                 }
             },
-            "required": ["start", "end"],
+            "required": ["times"],
             "additionalProperties": False
         }
     },
@@ -669,13 +671,12 @@ tools = [
                     "type": "string",
                     "description": "Updated event title. Optional."
                 },
-                "start": {
-                    "type": "string",
-                    "description": "Updated event start time in LOCAL TIMEZONE using format YYYYMMDDTHHMMSS+XX:XX (e.g. 20260501T000000+12:00). Optional."
-                },
-                "finish": {
-                    "type": "string",
-                    "description": "Updated event end time in LOCAL TIMEZONE using format YYYYMMDDTHHMMSS+XX:XX (e.g. 20260501T000000+12:00). Optional."
+                "times": {
+                    "type": "array",
+                    "description": "Updated start date/time, then finish date/time. in LOCAL TIMEZONE using format YYYYMMDDTHHMMSS+XX:XX (e.g. 20260501T000000+12:00). Optional.",
+                    "items": {"type": "string"},
+                    "minItems": 2,
+                    "maxItems": 2
                 },
                 "location": {
                     "type": "string",
@@ -714,13 +715,12 @@ tools = [
                     "type": "number",
                     "description": "Longitude in decimal degrees."
                 },
-                "start_time": {
-                    "type": "string",
-                    "description": "Optional start of requested weather window. use requested areas respective TIMEZONE using format YYYYMMDDTHHMMSS+XX:XX (e.g. 20260501T000000+12:00)"
-                },
-                "end_time": {
-                    "type": "string",
-                    "description": "Optional end of requested weather window.  . Must be after start_time."
+                "times": {
+                    "type": "array",
+                    "description": "Optional start date/time, then finish date/time for the requested weather window, using the requested area's LOCAL TIMEZONE with format YYYYMMDDTHHMMSS+XX:XX (e.g. 20260501T000000+12:00).",
+                    "items": {"type": "string"},
+                    "minItems": 2,
+                    "maxItems": 2
                 }
             },
             "required": ["latitude", "longitude"],
@@ -808,43 +808,54 @@ def ToolUse(name, args, user_id=None):
     # Add Calender Event
     if name == 'AddEvent':
         title = args.get("title")
-        start = args.get("start")
-        finish = args.get("finish")
+        times = args.get("times") or []
         location = args.get("location", "")
         description = args.get("description", "")
         rrule = args.get("rrule", "")
         reminder_minutes_before = args.get("reminder_minutes_before")
+        if not isinstance(times, list) or len(times) != 2:
+            return {
+                "status": "failed",
+                "tool": "AddEvent",
+                "event": {"title": title, "times": times},
+                "error": "times must be an array with exactly two datetime strings: [start, finish].",
+            }
         try:
             output = AddEvent(
                 user_id=user_id,
                 title=title,
-                start=start,
-                finish=finish,
+                times=times,
                 location=location,
                 description=description,
                 rrule=rrule,
                 reminder_minutes_before=reminder_minutes_before,
             )
             if isinstance(output, dict):
-                return {"status": "success", "tool": "AddEvent", "event": {"title": title, "start": start, "finish": finish}, "result": output}
-            return {"status": "success", "tool": "AddEvent", "event": {"title": title, "start": start, "finish": finish}, "result": {"raw": str(output)}}
+                return {"status": "success", "tool": "AddEvent", "event": {"title": title, "times": times}, "result": output}
+            return {"status": "success", "tool": "AddEvent", "event": {"title": title, "times": times}, "result": {"raw": str(output)}}
         except Exception as e:
             return {
                 "status": "failed",
                 "tool": "AddEvent",
-                "event": {"title": title, "start": start, "finish": finish},
+                "event": {"title": title, "times": times},
                 "error": str(e),
             }
 
     # Returns List of Events in Timeframe
     if name == 'GetEvents':
-        start = args.get("start")
-        end = args.get("end")
+        times = args.get("times") or []
+        if not isinstance(times, list) or len(times) != 2:
+            return {
+                "status": "failed",
+                "tool": "GetEvents",
+                "times": times,
+                "error": "times must be an array with exactly two datetime strings: [start, end].",
+            }
+        start, end = times
         try:
             output = GetEvents(
                 user_id=user_id,
-                start=start,
-                end=end,
+                times=[start, end],
             )
             if isinstance(output, list):
                 if output and isinstance(output[0], dict):
@@ -854,12 +865,12 @@ def ToolUse(name, args, user_id=None):
                     pass
                 else:
                     output = [[], *output]
-            return {"status": "success", "tool": "GetEvents", "range": {"start": start, "end": end}, "result": output}
+            return {"status": "success", "tool": "GetEvents", "times": [start, end], "result": output}
         except Exception as e:
             return {
                 "status": "failed",
                 "tool": "GetEvents",
-                "range": {"start": start, "end": end},
+                "times": [start, end],
                 "error": str(e),
             }
 
@@ -945,19 +956,24 @@ def ToolUse(name, args, user_id=None):
     if name == 'EditEvent':
         uid = args.get("uid")
         title = args.get("title")
-        start = args.get("start")
-        finish = args.get("finish")
+        times = args.get("times")
         location = args.get("location")
         description = args.get("description")
         rrule = args.get("rrule")
         reminder_minutes_before = args["reminder_minutes_before"] if "reminder_minutes_before" in args else _REMINDER_UNCHANGED
+        if times is not None and (not isinstance(times, list) or len(times) != 2):
+            return {
+                "status": "failed",
+                "tool": "EditEvent",
+                "event": {"uid": uid, "times": times},
+                "error": "times must be an array with exactly two datetime strings: [start, finish].",
+            }
         try:
             output = EditEvent(
                 user_id=user_id,
                 uid=uid,
                 title=title,
-                start=start,
-                finish=finish,
+                times=times,
                 location=location,
                 description=description,
                 rrule=rrule,
@@ -988,46 +1004,46 @@ def ToolUse(name, args, user_id=None):
                 "location": {"latitude": args.get("latitude"), "longitude": args.get("longitude")},
                 "error": "Latitude and longitude must be numeric values.",
             }
-        start_time_raw = args.get("start_time")
-        end_time_raw = args.get("end_time")
-        start_time = _parse_iso_datetime(start_time_raw)
-        end_time = _parse_iso_datetime(end_time_raw)
-        if (start_time_raw is None) != (end_time_raw is None):
+        times_raw = args.get("times")
+        if times_raw is not None and (not isinstance(times_raw, list) or len(times_raw) != 2):
             return {
                 "status": "failed",
                 "tool": "GetWeather",
                 "location": {"latitude": latitude, "longitude": longitude},
-                "error": "start_time and end_time must be provided together.",
+                "error": "times must be an array with exactly two datetime strings: [start, end].",
             }
+        start_time_raw = times_raw[0] if times_raw else None
+        end_time_raw = times_raw[1] if times_raw else None
+        start_time = _parse_iso_datetime(start_time_raw)
+        end_time = _parse_iso_datetime(end_time_raw)
         if (start_time_raw is not None and start_time is None) or (end_time_raw is not None and end_time is None):
             return {
                 "status": "failed",
                 "tool": "GetWeather",
                 "location": {"latitude": latitude, "longitude": longitude},
-                "error": "start_time and end_time must be valid ISO-8601 datetime values with explicit timezone offsets.",
+                "error": "times values must be valid ISO-8601 datetime values with explicit timezone offsets.",
             }
         if start_time and end_time and end_time <= start_time:
             return {
                 "status": "failed",
                 "tool": "GetWeather",
                 "location": {"latitude": latitude, "longitude": longitude},
-                "error": "end_time must be after start_time.",
+                "error": "times[1] must be after times[0].",
             }
         try:
             output = GetWeather(
                 latitude=latitude,
                 longitude=longitude,
-                start_time=start_time,
-                end_time=end_time,
+                times=[start_time, end_time] if start_time and end_time else None,
             )
             return {
                 "status": "success",
                 "tool": "GetWeather",
                 "location": {"latitude": latitude, "longitude": longitude},
-                "range": {
-                    "start_time": start_time.isoformat() if start_time else None,
-                    "end_time": end_time.isoformat() if end_time else None,
-                },
+                "times": [
+                    start_time.isoformat() if start_time else None,
+                    end_time.isoformat() if end_time else None,
+                ],
                 "result": output,
             }
         except Exception as e:
@@ -1035,10 +1051,10 @@ def ToolUse(name, args, user_id=None):
                 "status": "failed",
                 "tool": "GetWeather",
                 "location": {"latitude": latitude, "longitude": longitude},
-                "range": {
-                    "start_time": start_time.isoformat() if start_time else None,
-                    "end_time": end_time.isoformat() if end_time else None,
-                },
+                "times": [
+                    start_time.isoformat() if start_time else None,
+                    end_time.isoformat() if end_time else None,
+                ],
                 "error": str(e),
             }
 
@@ -1183,10 +1199,7 @@ def compact_getevents(output: dict) -> dict:
         events.append(event)
 
     return {
-        "range": {
-            "start": output["range"]["start"],
-            "end": output["range"]["end"],
-        },
+        "times": output.get("times", ["", ""]),
         "cols": compact_cols,
         "events": events,
     }
@@ -1258,9 +1271,9 @@ def compress_getweather(output: dict) -> dict:
 
     compressed = {
         "weather": {
-            "range": [
-                compact_dt(output.get("range", {}).get("start_time", "")),
-                compact_dt(output.get("range", {}).get("end_time", "")),
+            "times": [
+                compact_dt((output.get("times") or ["", ""])[0]),
+                compact_dt((output.get("times") or ["", ""])[1]),
             ],
             "tz": result.get("timezone", ""),
             "now": [

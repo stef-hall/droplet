@@ -26,7 +26,7 @@ from urllib.parse import urlencode
 from urllib.request import urlopen
 from pathlib import Path
 from werkzeug.security import check_password_hash, generate_password_hash # type: ignore
-from tools import AddEvent, GetEvents, GetCalendarNames, DeleteEvent, ReadList, EditList, DeleteList, EditEvent, GetWeather, configure_tools
+from tools import AddEvent, GetEvents, GetCalendarNames, DeleteEvent, ReadList, EditList, DeleteList, EditEvent, GetWeather, _REMINDER_UNCHANGED, configure_tools
 
 global api_key
 warnings.simplefilter("ignore", DeprecationWarning)
@@ -454,47 +454,62 @@ You are an assistant calender manager with access to tools.
 
 Use a tool whenever it is required to complete the user’s request or when the tool provides the most accurate way to perform the task.
 
-Before calling a tool:
-- ensure all required parameters are present
-- if any required information is missing, ask the user for it
-
 Rules:
-- never guess tool outputs
-- only use tools that are provided
-- follow tool schemas exactly (no extra fields)
-- Keep responses concise and natural. Prefer short plain phrasing over long explanations.
-- For clarifying questions, ask only what is necessary in one short sentence whenever possible.
-- Avoid filler phrases. When mentioning defaults, do it briefly (example: "What time do you want? I'll default to 1 hour long.")
-- When asking for follow up details, be direct with the user. Don't ask "I can help with that I just need the detail duration..." Instead ask "How Long?". Also if multiple details are missing ask for all of them at once.
+- NEVER guess tool outputs
+- ONLY use provided tools with EXACT schema
+- You operate ONLY in the local timezone. For interacting, and reasoning with events
 - prefer tools over free-text when an action/data retrieval is needed
-- Use User clickable 'FastReplys' inline with text in the format: [[send: visible assistant text|hidden user message]], as convenient next steps to obvious follow up's. 
-- For the FastReplys, the text before "|" is what the assistant shows inline, and the text after "|" is the exact user message sends when clicked. Use the hidden user message and visibile assitant text to make sentence to read naturally from the assistant's perspective.
-- If you ever send a response that contains an exact solution to your question, offer it as a FastReplys. e.g. ... message: "what time or duration should the call with your grandma be? If you want, I can use [[send: 5 PM and make the call 1 hour | Okay, 5 PM and for 1 hour]" 
-- If a suggested action for the User to take is contained in your message, ALWAYS offer it as a FastReply, e.g. ... message: "The song descriptions are currently removed. If you want, [[send: I can add them back now. | Yes, add the song descriptions back.]]"
-- Take the initative, but offer FastReplys to cater or undo your actions. 
-- weather context can be requested via GetWeather(); use it to improve scheduling suggestions (especially for outdoor activities)
-- You operate ONLY in the local timezone. For interacting, and reasoning with events.
-- apply extra reasoning scrutiny around meridians (AM/PM), especially 12:00 times
-- treat "noon" as exactly 12:00 PM (12:00 local)
-- treat "midnight" as exactly 12:00 AM (00:00 local) and resolve whether it means start-of-day vs next-day from context
-- if a requested time could be interpreted as AM or PM, do not guess; ask a clarifying question before calling tools
-- before calling tools, perform a final meridian sanity check so daytime requests (e.g. 2 PM) are not converted to overnight equivalents (e.g. 2 AM)
-- If no duration is stated; *1 hour* is the default
-- After any tool execution, always return a user-facing message: a brief status update if more work or input remains, or a confirmation when the task is finished
-- The "message" field may contain markdown for formatting (supported: # ## ### headings, **bold**, *italics*, bullet and numbered lists, inline `code`, fenced code blocks ```...```, and pipe tables like | a | b | with a separator row).
-- For one-tap user replies, use this exact markdown line format: [[send: your suggested user message]]
-- Always return a state. RUNNING = Operating Tools/Thinking, WAITING = Waiting for User Input, DONE = ONLY when completley finished your task.
-- Users can be impressed with particularly well visual laid out messages, or where clear thought has gone into it. Users should feel impressed.
-- Consult your context window to check if you already have the relevant data, before running unessacary Get Tools. 
-- Don't use Em Dashes ("—").
-- CalDAV "reason Forbidden" AuthorizationError's are usually caused by trying to alter the wrong calender. If encountered; Supply the user with GetCalenderNames() and remind them to set the appropriate Calender in settings.
-- If the USER ever requests for you to "Restore", "Undo", "Bring Back", or "Recreate" an event - ESPECIALLY IF YOU'VE RECENTLY DELETED SOME EVENTS - your FIRST STEP is to look back in your context for the requested events information, then Add back an identical copy of that event
-- If a User asks you to Add/Edit/Delete an event in a new chat session, where you haven't got any previous GetEvents data in your context; GetEvents for the given week FIRST before then making your response.
-- Remeber that a human USER has likley been awake for past midnight, when they refer to 'morning', despite actually being in a new morning (past meridian) - they are refering to the day PRIOR's morning.
-- If given a City to GetWeather for; default to using the Co-Ordinates (Lat/Long) of that City's Center. 
+- Don't use Em Dashes ("—")
+- After any tool execution, return a user-facing message ONLY IF: the task is complete, or user input is required
+- Consult your context first before calling GetEvents/Get...
+- If the USER tells you to Restore/Undo/Bring Back/Recreate an event your FIRST STEP is to look back in your context for the requested events, then recreate the event
+- If a requested time could be interpreted as AM or PM, do not guess; ask a clarifying question before calling tools
+- Always return a state:
+  - RUNNING = Operating Tools/Thinking
+  - WAITING = Waiting for User Input
+  - DONE = When totally finished your task
+- The "message" field may contain markdown for formatting supported: 
+  - headers
+  - **bold**, *italics* 
+  - bullet lists
+  - inline `code`, fenced ```code``` 
+  - pipe tables | a | b |)
+- Display multipile events in a markdown time table 
+- Use FastReplies for obvious next steps, clarifications, undo, confirmations, or suggested actions.
+- 
 - If someone calls you 'bud' you have to call them 'bud' back
 
-- When multiple tool actions are needed, plan them as ordered steps:
+Reminders:
+- If multiple details are missing, ask for them all in one message.
+- If a duration cannot be reasonably defered, default to *1 hour*
+- When a tool creates resources and returns IDs/UIDs, assume those returned IDs will be visible in conversation context after the batched tool results complete. Therefore, batch independent create calls together. Only serialize calls when the next call requires a value produced by a previous call.
+- If given a City to GetWeather for; default to using the Co-Ordinates (Lat/Long) of that City's Center. 
+- apply extra reasoning scrutiny around meridians (AM/PM), especially 12:00 times
+- "rn" = "Right Now"
+- "tn" = "Tonight"
+
+
+Tone:
+- Keep responses concise. Prefer plain phrasing over long explanations
+- Avoid filler phrases
+- When asking for follow up details, be direct with the user. Ask simply for the information required don't explain why you need it.
+
+For ambiguous delete/remove/edit requests:
+- NEVER ask the user a follow up without first checking existing context. GetEvents and GetLists are BOTH REQUIRED.
+- After checking context:
+  - If exactly one matching event/list/item exists, act on it.
+  - If multiple matches exist, ask which one.
+  - If no matches exist, say you couldn’t find it and ask for more detail.
+
+FastReplies rules:
+- FastReplies MUST use exactly: [[send: visible assistant text|hidden user message]]
+- Visible text must fit naturally in the assistant message.
+- Hidden text must be the user’s intended reply.
+- Any suggested actions, or solutions contained in a clarification questions MUST have FastReplies options.
+- Any “I can…”, “tell me…”, “if you meant…”, or “do you want…” suggestion needs a FastReply.
+- e.g. "I couldn’t find a list called that. If you [[send: meant an event|Yes, I meant an event]], tell me which to remove."
+
+-When multiple tool actions are needed, plan them as ordered steps:
   - Emit all independent actions that can run at the same time in the same assistant turn as multiple tool calls.
   - Emit dependent actions in later assistant turns only after prior tool outputs are available.
   - Treat delete-then-add flows as separate sequential turns.
@@ -520,13 +535,12 @@ tools = [
                     "type": "string",
                     "description": "Event title"
                 },
-                "start": {
-                    "type": "string",
-                    "description": "Event start time in LOCAL TIMEZONE using format YYYYMMDDTHHMMSS+XX:XX (e.g. 20260501T000000+12:00)"
-                },
-                "finish": {
-                    "type": "string",
-                    "description": "Event end time in LOCAL TIMEZONE using format YYYYMMDDTHHMMSS+XX:XX (e.g. 20260501T000000+12:00)"
+                "times": {
+                    "type": "array",
+                    "description": "Start date/time, then finish date/time. in LOCAL TIMEZONE using format YYYYMMDDTHHMMSS+XX:XX (e.g. 20260501T000000+12:00)",
+                    "items": {"type": "string"},
+                    "minItems": 2,
+                    "maxItems": 2
                 },
                 "location": {
                     "type": "string",
@@ -541,11 +555,11 @@ tools = [
                     "description": "Optional recurrence rule (RRULE) for repeating events in iCalendar format (e.g. 'FREQ=WEEKLY;INTERVAL=1'). Defines how the event repeats over time (weekly, monthly, etc). If not provided, the event is treated as a single occurrence."
                 },
                 "reminder_minutes_before": {
-                    "type": "integer",
-                    "description": "Optional reminder/alert lead time in minutes before event start (e.g. 10, 30, 60)."
+                    "type": ["integer", "null"],
+                    "description": "Optional reminder/alert lead time in minutes before event start (e.g. 10, 30, 60). Use null for no reminder."
                 }
             },
-            "required": ["title", "start", "finish", "location", "description", "rrule", "reminder_minutes_before"],
+            "required": ["title", "times", "location", "description", "rrule", "reminder_minutes_before"],
             "additionalProperties": False
         }
     },
@@ -557,16 +571,15 @@ tools = [
         "parameters": {
             "type": "object",
             "properties": {
-                "start": {
-                    "type": "string",
-                    "description": "Start of the time range in LOCAL TIMEZONE using format YYYYMMDDTHHMMSS+XX:XX (e.g. 20260501T000000+12:00)"
-                },
-                "end": {
-                    "type": "string",
-                    "description": "End of the time range in LOCAL TIMEZONE using format YYYYMMDDTHHMMSS+XX:XX (e.g. 20260501T000000+12:00)"
+                "times": {
+                    "type": "array",
+                    "description": "Start date/time, then finish date/time. in LOCAL TIMEZONE using format YYYYMMDDTHHMMSS+XX:XX (e.g. 20260501T000000+12:00)",
+                    "items": {"type": "string"},
+                    "minItems": 2,
+                    "maxItems": 2
                 }
             },
-            "required": ["start", "end"],
+            "required": ["times"],
             "additionalProperties": False
         }
     },
@@ -658,13 +671,12 @@ tools = [
                     "type": "string",
                     "description": "Updated event title. Optional."
                 },
-                "start": {
-                    "type": "string",
-                    "description": "Updated event start time in LOCAL TIMEZONE using format YYYYMMDDTHHMMSS+XX:XX (e.g. 20260501T000000+12:00). Optional."
-                },
-                "finish": {
-                    "type": "string",
-                    "description": "Updated event end time in LOCAL TIMEZONE using format YYYYMMDDTHHMMSS+XX:XX (e.g. 20260501T000000+12:00). Optional."
+                "times": {
+                    "type": "array",
+                    "description": "Updated start date/time, then finish date/time. in LOCAL TIMEZONE using format YYYYMMDDTHHMMSS+XX:XX (e.g. 20260501T000000+12:00). Optional.",
+                    "items": {"type": "string"},
+                    "minItems": 2,
+                    "maxItems": 2
                 },
                 "location": {
                     "type": "string",
@@ -679,8 +691,8 @@ tools = [
                     "description": "Updated recurrence rule (RRULE). Optional."
                 },
                 "reminder_minutes_before": {
-                    "type": "integer",
-                    "description": "Updated reminder/alert lead time in minutes before event start. Optional."
+                    "type": ["integer", "null"],
+                    "description": "Updated reminder/alert lead time in minutes before event start. Optional. Use null to remove the reminder."
                 }
             },
             "required": ["uid"],
@@ -703,13 +715,12 @@ tools = [
                     "type": "number",
                     "description": "Longitude in decimal degrees."
                 },
-                "start_time": {
-                    "type": "string",
-                    "description": "Optional start of requested weather window. use requested areas respective TIMEZONE using format YYYYMMDDTHHMMSS+XX:XX (e.g. 20260501T000000+12:00)"
-                },
-                "end_time": {
-                    "type": "string",
-                    "description": "Optional end of requested weather window.  . Must be after start_time."
+                "times": {
+                    "type": "array",
+                    "description": "Optional start date/time, then finish date/time for the requested weather window, using the requested area's LOCAL TIMEZONE with format YYYYMMDDTHHMMSS+XX:XX (e.g. 20260501T000000+12:00).",
+                    "items": {"type": "string"},
+                    "minItems": 2,
+                    "maxItems": 2
                 }
             },
             "required": ["latitude", "longitude"],
@@ -797,43 +808,54 @@ def ToolUse(name, args, user_id=None):
     # Add Calender Event
     if name == 'AddEvent':
         title = args.get("title")
-        start = args.get("start")
-        finish = args.get("finish")
+        times = args.get("times") or []
         location = args.get("location", "")
         description = args.get("description", "")
         rrule = args.get("rrule", "")
         reminder_minutes_before = args.get("reminder_minutes_before")
+        if not isinstance(times, list) or len(times) != 2:
+            return {
+                "status": "failed",
+                "tool": "AddEvent",
+                "event": {"title": title, "times": times},
+                "error": "times must be an array with exactly two datetime strings: [start, finish].",
+            }
         try:
             output = AddEvent(
                 user_id=user_id,
                 title=title,
-                start=start,
-                finish=finish,
+                times=times,
                 location=location,
                 description=description,
                 rrule=rrule,
                 reminder_minutes_before=reminder_minutes_before,
             )
             if isinstance(output, dict):
-                return {"status": "success", "tool": "AddEvent", "event": {"title": title, "start": start, "finish": finish}, "result": output}
-            return {"status": "success", "tool": "AddEvent", "event": {"title": title, "start": start, "finish": finish}, "result": {"raw": str(output)}}
+                return {"status": "success", "tool": "AddEvent", "event": {"title": title, "times": times}, "result": output}
+            return {"status": "success", "tool": "AddEvent", "event": {"title": title, "times": times}, "result": {"raw": str(output)}}
         except Exception as e:
             return {
                 "status": "failed",
                 "tool": "AddEvent",
-                "event": {"title": title, "start": start, "finish": finish},
+                "event": {"title": title, "times": times},
                 "error": str(e),
             }
 
     # Returns List of Events in Timeframe
     if name == 'GetEvents':
-        start = args.get("start")
-        end = args.get("end")
+        times = args.get("times") or []
+        if not isinstance(times, list) or len(times) != 2:
+            return {
+                "status": "failed",
+                "tool": "GetEvents",
+                "times": times,
+                "error": "times must be an array with exactly two datetime strings: [start, end].",
+            }
+        start, end = times
         try:
             output = GetEvents(
                 user_id=user_id,
-                start=start,
-                end=end,
+                times=[start, end],
             )
             if isinstance(output, list):
                 if output and isinstance(output[0], dict):
@@ -843,12 +865,12 @@ def ToolUse(name, args, user_id=None):
                     pass
                 else:
                     output = [[], *output]
-            return {"status": "success", "tool": "GetEvents", "range": {"start": start, "end": end}, "result": output}
+            return {"status": "success", "tool": "GetEvents", "times": [start, end], "result": output}
         except Exception as e:
             return {
                 "status": "failed",
                 "tool": "GetEvents",
-                "range": {"start": start, "end": end},
+                "times": [start, end],
                 "error": str(e),
             }
 
@@ -934,19 +956,24 @@ def ToolUse(name, args, user_id=None):
     if name == 'EditEvent':
         uid = args.get("uid")
         title = args.get("title")
-        start = args.get("start")
-        finish = args.get("finish")
+        times = args.get("times")
         location = args.get("location")
         description = args.get("description")
         rrule = args.get("rrule")
-        reminder_minutes_before = args.get("reminder_minutes_before")
+        reminder_minutes_before = args["reminder_minutes_before"] if "reminder_minutes_before" in args else _REMINDER_UNCHANGED
+        if times is not None and (not isinstance(times, list) or len(times) != 2):
+            return {
+                "status": "failed",
+                "tool": "EditEvent",
+                "event": {"uid": uid, "times": times},
+                "error": "times must be an array with exactly two datetime strings: [start, finish].",
+            }
         try:
             output = EditEvent(
                 user_id=user_id,
                 uid=uid,
                 title=title,
-                start=start,
-                finish=finish,
+                times=times,
                 location=location,
                 description=description,
                 rrule=rrule,
@@ -977,46 +1004,46 @@ def ToolUse(name, args, user_id=None):
                 "location": {"latitude": args.get("latitude"), "longitude": args.get("longitude")},
                 "error": "Latitude and longitude must be numeric values.",
             }
-        start_time_raw = args.get("start_time")
-        end_time_raw = args.get("end_time")
-        start_time = _parse_iso_datetime(start_time_raw)
-        end_time = _parse_iso_datetime(end_time_raw)
-        if (start_time_raw is None) != (end_time_raw is None):
+        times_raw = args.get("times")
+        if times_raw is not None and (not isinstance(times_raw, list) or len(times_raw) != 2):
             return {
                 "status": "failed",
                 "tool": "GetWeather",
                 "location": {"latitude": latitude, "longitude": longitude},
-                "error": "start_time and end_time must be provided together.",
+                "error": "times must be an array with exactly two datetime strings: [start, end].",
             }
+        start_time_raw = times_raw[0] if times_raw else None
+        end_time_raw = times_raw[1] if times_raw else None
+        start_time = _parse_iso_datetime(start_time_raw)
+        end_time = _parse_iso_datetime(end_time_raw)
         if (start_time_raw is not None and start_time is None) or (end_time_raw is not None and end_time is None):
             return {
                 "status": "failed",
                 "tool": "GetWeather",
                 "location": {"latitude": latitude, "longitude": longitude},
-                "error": "start_time and end_time must be valid ISO-8601 datetime values with explicit timezone offsets.",
+                "error": "times values must be valid ISO-8601 datetime values with explicit timezone offsets.",
             }
         if start_time and end_time and end_time <= start_time:
             return {
                 "status": "failed",
                 "tool": "GetWeather",
                 "location": {"latitude": latitude, "longitude": longitude},
-                "error": "end_time must be after start_time.",
+                "error": "times[1] must be after times[0].",
             }
         try:
             output = GetWeather(
                 latitude=latitude,
                 longitude=longitude,
-                start_time=start_time,
-                end_time=end_time,
+                times=[start_time, end_time] if start_time and end_time else None,
             )
             return {
                 "status": "success",
                 "tool": "GetWeather",
                 "location": {"latitude": latitude, "longitude": longitude},
-                "range": {
-                    "start_time": start_time.isoformat() if start_time else None,
-                    "end_time": end_time.isoformat() if end_time else None,
-                },
+                "times": [
+                    start_time.isoformat() if start_time else None,
+                    end_time.isoformat() if end_time else None,
+                ],
                 "result": output,
             }
         except Exception as e:
@@ -1024,10 +1051,10 @@ def ToolUse(name, args, user_id=None):
                 "status": "failed",
                 "tool": "GetWeather",
                 "location": {"latitude": latitude, "longitude": longitude},
-                "range": {
-                    "start_time": start_time.isoformat() if start_time else None,
-                    "end_time": end_time.isoformat() if end_time else None,
-                },
+                "times": [
+                    start_time.isoformat() if start_time else None,
+                    end_time.isoformat() if end_time else None,
+                ],
                 "error": str(e),
             }
 
@@ -1172,10 +1199,7 @@ def compact_getevents(output: dict) -> dict:
         events.append(event)
 
     return {
-        "range": {
-            "start": output["range"]["start"],
-            "end": output["range"]["end"],
-        },
+        "times": output.get("times", ["", ""]),
         "cols": compact_cols,
         "events": events,
     }
@@ -1247,9 +1271,9 @@ def compress_getweather(output: dict) -> dict:
 
     compressed = {
         "weather": {
-            "range": [
-                compact_dt(output.get("range", {}).get("start_time", "")),
-                compact_dt(output.get("range", {}).get("end_time", "")),
+            "times": [
+                compact_dt((output.get("times") or ["", ""])[0]),
+                compact_dt((output.get("times") or ["", ""])[1]),
             ],
             "tz": result.get("timezone", ""),
             "now": [
@@ -1340,7 +1364,7 @@ def _compact_value(value):
         x = compress_deletelist(value)
         return x
 
-    print(value)
+    print("Not Compressed: ", value)
     return value
 
 
@@ -1355,7 +1379,6 @@ def compress_tool_output(tool_output):
         parsed_output = {"status": "failed", "error": "Invalid tool output JSON"}
 
     compacted = _compact_value(parsed_output)
-    print("---------\n", compacted, "\n---------")
 
     return {
         "type": "function_call_output",
