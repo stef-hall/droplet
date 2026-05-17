@@ -963,6 +963,10 @@ textarea {
   pointer-events: none;
 }
 
+.sticky-note-layer.is-drag-active {
+  z-index: 45;
+}
+
 .sticky-note-dock-hint {
   position: absolute;
   top: 84px;

@@ -37,6 +37,7 @@ const STICKY_NOTE_DOCK_THRESHOLD = 110;
 const STICKY_NOTE_STOWED_PEEK_WIDTH = 118;
 const STICKY_NOTE_STACK_TOP_START = 72;
 const STICKY_NOTE_STACK_GAP = 74;
+const STICKY_NOTE_SAFE_TOP = 64;
 const STICKY_NOTE_COLOR_CLASSES = [
   "color-yellow",
   "color-orange",
@@ -286,6 +287,11 @@ function setStickyNoteDockSlotVisible(visible) {
   stickyNoteLayerEl.classList.toggle("show-dock-slot", visible);
 }
 
+function setStickyNoteDragLayerActive(active) {
+  if (!stickyNoteLayerEl) return;
+  stickyNoteLayerEl.classList.toggle("is-drag-active", active);
+}
+
 function getStickyNotes() {
   if (!stickyNoteLayerEl) return [];
   return Array.from(stickyNoteLayerEl.querySelectorAll(".sticky-note"));
@@ -333,7 +339,7 @@ function getStickyNoteDockIndex(pointerY, draggingNoteEl) {
 function positionStickyNoteDockSlot(index) {
   if (!stickyNoteDockSlotEl) return;
   const desiredTop = STICKY_NOTE_STACK_TOP_START + index * STICKY_NOTE_STACK_GAP;
-  const safeTop = clamp(desiredTop, 64, Math.max(64, window.innerHeight - stickyNoteDockSlotEl.offsetHeight));
+  const safeTop = clamp(desiredTop, STICKY_NOTE_SAFE_TOP, Math.max(STICKY_NOTE_SAFE_TOP, window.innerHeight - stickyNoteDockSlotEl.offsetHeight));
   stickyNoteDockSlotEl.style.top = `${Math.round(safeTop)}px`;
 }
 
@@ -343,7 +349,7 @@ function layoutStowedStickyNotes({ draggingNoteEl = null, previewIndex = null } 
     const slotIndex = previewIndex !== null && index >= previewIndex ? index + 1 : index;
     const maxTop = Math.max(0, window.innerHeight - noteEl.offsetHeight);
     const desiredTop = STICKY_NOTE_STACK_TOP_START + slotIndex * STICKY_NOTE_STACK_GAP;
-    const safeTop = clamp(desiredTop, 64, Math.max(64, maxTop));
+    const safeTop = clamp(desiredTop, STICKY_NOTE_SAFE_TOP, Math.max(STICKY_NOTE_SAFE_TOP, maxTop));
     const stowedLeft = Math.max(0, window.innerWidth - STICKY_NOTE_STOWED_PEEK_WIDTH);
     noteEl.classList.toggle("is-stowed-preview", previewIndex !== null);
     noteEl.style.left = `${Math.round(stowedLeft)}px`;
@@ -477,6 +483,7 @@ function createStickyNote(listEntry, colorClassName) {
     };
 
     noteEl.classList.add("is-dragging");
+    setStickyNoteDragLayerActive(true);
     noteEl.setPointerCapture(event.pointerId);
     event.preventDefault();
   });
@@ -487,7 +494,7 @@ function createStickyNote(listEntry, colorClassName) {
     const maxLeft = Math.max(0, window.innerWidth - noteEl.offsetWidth);
     const maxTop = Math.max(0, window.innerHeight - noteEl.offsetHeight);
     const nextLeft = clamp(event.clientX - dragState.offsetX, 0, maxLeft);
-    const nextTop = clamp(event.clientY - dragState.offsetY, 0, maxTop);
+    const nextTop = clamp(event.clientY - dragState.offsetY, -16, maxTop);
     const nearDock = isStickyNoteNearDock(noteEl, nextLeft);
     const previewDockIndex = nearDock ? getStickyNoteDockIndex(event.clientY, noteEl) : null;
 
@@ -521,17 +528,21 @@ function createStickyNote(listEntry, colorClassName) {
     noteEl.classList.remove("is-near-dock");
     setStickyNoteDockHintVisible(false);
     setStickyNoteDockSlotVisible(false);
+    setStickyNoteDragLayerActive(false);
 
     if (shouldStow) {
       noteEl.classList.add("is-stowed");
       commitStickyNoteDockOrder(noteEl, previewDockIndex ?? getStickyNotes().length);
       layoutStowedStickyNotes();
     } else {
+      const currentTop = Number.parseFloat(noteEl.style.top) || 0;
+      const settledTop = clamp(currentTop, STICKY_NOTE_SAFE_TOP, Math.max(STICKY_NOTE_SAFE_TOP, window.innerHeight - noteEl.offsetHeight));
+      noteEl.style.top = `${Math.round(settledTop)}px`;
       layoutStowedStickyNotes();
       saveStickyNoteLayoutEntry(noteEl, {
         isStowed: false,
         left: Math.round(Number.parseFloat(noteEl.style.left) || 0),
-        top: Math.round(Number.parseFloat(noteEl.style.top) || 0)
+        top: Math.round(Number.parseFloat(noteEl.style.top) || STICKY_NOTE_SAFE_TOP)
       });
     }
 
