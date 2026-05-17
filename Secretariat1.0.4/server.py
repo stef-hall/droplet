@@ -26,7 +26,7 @@ from urllib.parse import urlencode
 from urllib.request import urlopen
 from pathlib import Path
 from werkzeug.security import check_password_hash, generate_password_hash # type: ignore
-from tools import AddEvent, GetEvents, GetCalendarNames, DeleteEvent, ReadList, EditList, DeleteList, GetLists, EditEvent, GetWeather, configure_tools, UNSET
+from tools import AddEvent, GetEvents, GetCalendarNames, DeleteEvent, ReadList, EditList, DeleteList, EditEvent, GetWeather, configure_tools
 
 global api_key
 warnings.simplefilter("ignore", DeprecationWarning)
@@ -67,7 +67,6 @@ def _tool_name_to_status_label(tool_name: str) -> str:
         "readlist": "Reading List...",
         "editlist": "Updating List...",
         "deletelist": "Deleting List...",
-        "getlists": "Getting Lists...",
         "getweather": "Getting Weather...",
         "getcalendarnames": "Getting Calendar Names...",
     }
@@ -158,14 +157,6 @@ def _format_action_report(counter: dict[str, int]) -> str:
     if not lines:
         return ""
     return "\n\n```summary\n" + "\n".join(lines) + "\n```"
-
-
-TERMINAL_STATES = {"WAITING", "DONE", "SUCCESS", "COMPLETED", "COMPLETE", "FINISHED"}
-
-
-def _normalize_state(state_value) -> str:
-    state_text = str(state_value or "RUNNING").strip().upper()
-    return state_text or "RUNNING"
 
 
 def _prune_sessions(now_ts: float):
@@ -459,15 +450,13 @@ configure_tools(_get_user_caldav_calendars, LISTS_DIR)
 
 
 system_prompt = """
-### This is the full System Prompt ###
 You are an assistant calender manager with access to tools.
 
 Use a tool whenever it is required to complete the user’s request or when the tool provides the most accurate way to perform the task.
 
-Before calling action tools:
-- ensure all required parameters are present.
-- If required information is missing, first use available context lookup tools.
-- Ask the user only if lookup tools cannot resolve it.
+Before calling a tool:
+- ensure all required parameters are present
+- if any required information is missing, ask the user for it
 
 Rules:
 - never guess tool outputs
@@ -478,6 +467,11 @@ Rules:
 - Avoid filler phrases. When mentioning defaults, do it briefly (example: "What time do you want? I'll default to 1 hour long.")
 - When asking for follow up details, be direct with the user. Don't ask "I can help with that I just need the detail duration..." Instead ask "How Long?". Also if multiple details are missing ask for all of them at once.
 - prefer tools over free-text when an action/data retrieval is needed
+- Use User clickable 'FastReplys' inline with text in the format: [[send: visible assistant text|hidden user message]], as convenient next steps to obvious follow up's. 
+- For the FastReplys, the text before "|" is what the assistant shows inline, and the text after "|" is the exact user message sends when clicked. Use the hidden user message and visibile assitant text to make sentence to read naturally from the assistant's perspective.
+- If you ever send a response that contains an exact solution to your question, offer it as a FastReplys. e.g. ... message: "what time or duration should the call with your grandma be? If you want, I can use [[send: 5 PM and make the call 1 hour | Okay, 5 PM and for 1 hour]" 
+- If a suggested action for the User to take is contained in your message, ALWAYS offer it as a FastReply, e.g. ... message: "The song descriptions are currently removed. If you want, [[send: I can add them back now. | Yes, add the song descriptions back.]]"
+- Take the initative, but offer FastReplys to cater or undo your actions. 
 - weather context can be requested via GetWeather(); use it to improve scheduling suggestions (especially for outdoor activities)
 - You operate ONLY in the local timezone. For interacting, and reasoning with events.
 - apply extra reasoning scrutiny around meridians (AM/PM), especially 12:00 times
@@ -486,36 +480,19 @@ Rules:
 - if a requested time could be interpreted as AM or PM, do not guess; ask a clarifying question before calling tools
 - before calling tools, perform a final meridian sanity check so daytime requests (e.g. 2 PM) are not converted to overnight equivalents (e.g. 2 AM)
 - If no duration is stated; *1 hour* is the default
-- After any tool execution, return a user-facing message ONLY IF: the task is complete, or user input is required.
+- After any tool execution, always return a user-facing message: a brief status update if more work or input remains, or a confirmation when the task is finished
 - The "message" field may contain markdown for formatting (supported: # ## ### headings, **bold**, *italics*, bullet and numbered lists, inline `code`, fenced code blocks ```...```, and pipe tables like | a | b | with a separator row).
+- For one-tap user replies, use this exact markdown line format: [[send: your suggested user message]]
 - Always return a state. RUNNING = Operating Tools/Thinking, WAITING = Waiting for User Input, DONE = ONLY when completley finished your task.
+- Users can be impressed with particularly well visual laid out messages, or where clear thought has gone into it. Users should feel impressed.
 - Consult your context window to check if you already have the relevant data, before running unessacary Get Tools. 
 - Don't use Em Dashes ("—").
-- "rn" = "Right Now"
-- "tn" = "Tonight"
 - CalDAV "reason Forbidden" AuthorizationError's are usually caused by trying to alter the wrong calender. If encountered; Supply the user with GetCalenderNames() and remind them to set the appropriate Calender in settings.
 - If the USER ever requests for you to "Restore", "Undo", "Bring Back", or "Recreate" an event - ESPECIALLY IF YOU'VE RECENTLY DELETED SOME EVENTS - your FIRST STEP is to look back in your context for the requested events information, then Add back an identical copy of that event
+- If a User asks you to Add/Edit/Delete an event in a new chat session, where you haven't got any previous GetEvents data in your context; GetEvents for the given week FIRST before then making your response.
 - Remeber that a human USER has likley been awake for past midnight, when they refer to 'morning', despite actually being in a new morning (past meridian) - they are refering to the day PRIOR's morning.
 - If given a City to GetWeather for; default to using the Co-Ordinates (Lat/Long) of that City's Center. 
 - If someone calls you 'bud' you have to call them 'bud' back
-
-For ambiguous delete/remove/edit requests:
-- NEVER ask the user what they mean before checking existing context. GetEvents and GetLists are BOTH REQUIRED.
-- After checking context:
-  - If exactly one matching event/list/item exists, act on it.
-  - If multiple matches exist, ask which one.
-  - If no matches exist, say you couldn’t find it and ask for more detail.
-- After fetching context, if the user’s intent becomes clear and requires an action tool that is not currently available, do not answer normally. Request/defer-load the required tool schema, then call that tool.
-
-FastReplies rules:
-- Use FastReplies for obvious next steps, clarifications, undo, confirmations, or suggested actions.
-- Never show suggested replies as plain text options.
-- FastReplies MUST use exactly: [[send: visible assistant text|hidden user message]]
-- Visible text must fit naturally in the assistant message.
-- Hidden text must be the user’s intended reply.
-- Any suggested actions, or solutions contained in a clarification questions MUST have FastReplies options.
-- Any “I can…”, “tell me…”, “if you meant…”, or “do you want…” suggestion needs a FastReply.
-- e.g. "I couldn’t find a list called that. If you [[send: meant an event|Yes, I meant an event]], tell me which to remove."
 
 - When multiple tool actions are needed, plan them as ordered steps:
   - Emit all independent actions that can run at the same time in the same assistant turn as multiple tool calls.
@@ -529,33 +506,6 @@ STRICT VALID RESPONSE FORMAT:
 }
 
 """
-
-concise_prompt = """
-### This is a section from the full System Prompt ###
-You are an assistant calender manager with access to tools.
-
-Rules:
-- never guess tool outputs
-- Don't use Em Dashes ("—").
-- You operate ONLY in the local timezone. For interacting, and reasoning with events.
-- Keep responses concise and natural. Prefer short plain phrasing over long explanations.
-- If you ever send a response that contains an exact solution to your question, offer it as a FastReplys. e.g. ... message: "what time or duration should the call with your grandma be? If you want, I can use [[send: 5 PM and make the call 1 hour | Okay, 5 PM and for 1 hour]"
-- Take the initative, but offer FastReplys to cater or undo your actions. 
-- If unclear, assume USER is reffering to an Event, rather than a List
-- If the USER ever requests for you to "Restore", "Undo", "Bring Back", or "Recreate" an event - ESPECIALLY IF YOU'VE RECENTLY DELETED SOME EVENTS - your FIRST STEP is to look back in your context for the requested events information, then Add back an identical copy of that event
-- The "message" field may contain markdown for formatting (supported: # ## ### headings, **bold**, *italics*, bullet and numbered lists, inline `code`, fenced code blocks ```...```, and pipe tables like | a | b | with a separator row).
-
-For ambiguous delete/remove/edit requests:
-- NEVER ask the user what they mean before checking existing context. GetEvents and GetLists are BOTH REQUIRED.
-- After checking context:
-  - If exactly one matching event/list/item exists, act on it.
-  - If multiple matches exist, ask which one.
-  - If no matches exist, say you couldn’t find it and ask for more detail.
-- After fetching context, if the user’s intent becomes clear and requires an action tool that is not currently available, do not answer normally. Request/defer-load the required tool schema, then call that tool.
-
-"""
-
-
 
 tools = [
     {
@@ -592,7 +542,7 @@ tools = [
                 },
                 "reminder_minutes_before": {
                     "type": "integer",
-                    "description": "Optional reminder/alert lead time in minutes before event start (e.g. 10, 30, 60). 0 = Remind at Time of Event"
+                    "description": "Optional reminder/alert lead time in minutes before event start (e.g. 10, 30, 60)."
                 }
             },
             "required": ["title", "start", "finish", "location", "description", "rrule", "reminder_minutes_before"],
@@ -677,18 +627,6 @@ tools = [
     },
     {
         "type": "function",
-        "name": "GetLists",
-        "description": "Returns all saved list names for the current user.",
-        "strict": True,
-        "parameters": {
-            "type": "object",
-            "properties": {},
-            "required": [],
-            "additionalProperties": False
-        }
-    },
-    {
-        "type": "function",
         "name": "DeleteList",
         "description": "Delete a saved list from the local lists folder by list name.",
         "strict": True,
@@ -741,11 +679,8 @@ tools = [
                     "description": "Updated recurrence rule (RRULE). Optional."
                 },
                 "reminder_minutes_before": {
-                    "anyOf": [
-                        {"type": "integer"},
-                        {"type": "null"}
-                    ],
-                    "description": "Updated reminder/alert lead time in minutes before event start. Pass 0 to remind at event time. Pass null to remove reminder. Optional."
+                    "type": "integer",
+                    "description": "Updated reminder/alert lead time in minutes before event start. Optional."
                 }
             },
             "required": ["uid"],
@@ -794,75 +729,6 @@ tools = [
         }
     }
 ]
-
-TOOLS_BY_NAME = {tool.get("name"): tool for tool in tools}
-ALL_TOOL_NAMES = [name for name in TOOLS_BY_NAME.keys() if isinstance(name, str)]
-_TOOL_SUMMARY_TEXT = " | ".join(
-    f"{tool.get('name')}: {tool.get('description', '')}"
-    for tool in tools
-    if tool.get("name")
-)
-
-deferred_tool_selector = [
-    {
-        "type": "function",
-        "name": "DeferTools",
-        "description": (
-            "Request full schemas for one or more specific tools before calling regular tools. "
-            f"Available tools and descriptions: {_TOOL_SUMMARY_TEXT}"
-        ),
-        "strict": True,
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "tools": {
-                    "type": "array",
-                    "items": {
-                        "type": "string",
-                        "enum": ALL_TOOL_NAMES,
-                    },
-                }
-            },
-            "required": ["tools"],
-            "additionalProperties": False,
-        },
-    }
-]
-
-
-def _tools_for_names(tool_names):
-    selected = []
-    seen = set()
-    for tool_name in tool_names or []:
-        name = str(tool_name)
-        if name in seen:
-            continue
-        tool_schema = TOOLS_BY_NAME.get(name)
-        if tool_schema:
-            selected.append(tool_schema)
-            seen.add(name)
-    return selected
-
-
-def _with_defer_selector(toolset):
-    existing_names = {tool.get("name") for tool in (toolset or []) if isinstance(tool, dict)}
-    merged = list(toolset or [])
-    for tool in deferred_tool_selector:
-        name = tool.get("name")
-        if name not in existing_names:
-            merged.append(tool)
-    return merged
-
-
-def _extract_deferred_tools(function_calls):
-    selected_tools = []
-    for call in function_calls or []:
-        if call.get("name") != "DeferTools":
-            continue
-        call_tools = call.get("args", {}).get("tools", [])
-        if isinstance(call_tools, list):
-            selected_tools.extend([str(x) for x in call_tools])
-    return list(dict.fromkeys(selected_tools))
 
 
 def load_value_file(path: str) -> dict[str, str]:
@@ -936,7 +802,7 @@ def ToolUse(name, args, user_id=None):
         location = args.get("location", "")
         description = args.get("description", "")
         rrule = args.get("rrule", "")
-        reminder_minutes_before = args["reminder_minutes_before"] if "reminder_minutes_before" in args else UNSET
+        reminder_minutes_before = args.get("reminder_minutes_before")
         try:
             output = AddEvent(
                 user_id=user_id,
@@ -1064,21 +930,6 @@ def ToolUse(name, args, user_id=None):
                 "error": str(e),
             }
 
-    if name == "GetLists":
-        try:
-            output = GetLists(user_id=user_id)
-            if isinstance(output, dict):
-                status = output.get("status", "success")
-                if status != "success":
-                    return {"status": "failed", "tool": "GetLists", "error": output.get("error", "GetLists failed"), "result": output}
-            return {"status": "success", "tool": "GetLists", "result": output}
-        except Exception as e:
-            return {
-                "status": "failed",
-                "tool": "GetLists",
-                "error": str(e),
-            }
-
     # Edits Event by UID (delete + recreate in one tool call)
     if name == 'EditEvent':
         uid = args.get("uid")
@@ -1088,7 +939,7 @@ def ToolUse(name, args, user_id=None):
         location = args.get("location")
         description = args.get("description")
         rrule = args.get("rrule")
-        reminder_minutes_before = args["reminder_minutes_before"] if "reminder_minutes_before" in args else UNSET
+        reminder_minutes_before = args.get("reminder_minutes_before")
         try:
             output = EditEvent(
                 user_id=user_id,
@@ -1489,7 +1340,7 @@ def _compact_value(value):
         x = compress_deletelist(value)
         return x
 
-    print("NOT COMPRESSED:  ", value)
+    print(value)
     return value
 
 
@@ -1504,7 +1355,7 @@ def compress_tool_output(tool_output):
         parsed_output = {"status": "failed", "error": "Invalid tool output JSON"}
 
     compacted = _compact_value(parsed_output)
-    #print("---------\n", compacted, "\n---------")
+    print("---------\n", compacted, "\n---------")
 
     return {
         "type": "function_call_output",
@@ -1514,7 +1365,7 @@ def compress_tool_output(tool_output):
 
 
 
-def ask_gpt54(user_input, system_prompt, results, previous_response_id=None, user_timezone=None, location_context=None, user_id=None, active_tools=None):
+def ask_gpt54(user_input, system_prompt, results, previous_response_id=None, user_timezone=None, location_context=None, user_id=None):
     # Build a fresh OpenAI client for each request.
     client = OpenAI(api_key=api_key)
     selected_model = DEFAULT_ASSISTANT_MODEL
@@ -1542,6 +1393,9 @@ def ask_gpt54(user_input, system_prompt, results, previous_response_id=None, use
     else:
         raw_prompt = user_input
 
+    available_lists = get_available_lists(user_id=user_id)
+    lists_line = ", ".join(available_lists) if available_lists else "(none)"
+
     # Prepend time context to every user request before sending it to the model.
     # Removed:         f"Current UTC time: {now_utc.strftime('%Y-%m-%d, %a %H:%M:%S  %z')}\n"
     formatted_request = (
@@ -1549,6 +1403,7 @@ def ask_gpt54(user_input, system_prompt, results, previous_response_id=None, use
         "##############################\n"
         f"Current Local time: {now_local.strftime('%Y%m%dT%H%M%S%z')}\n"
         f"{_format_location_for_prompt(location_context)}\n"
+        f"Available lists: {lists_line}\n"
     )
     #formatted_request = "Request: test"
 
@@ -1557,29 +1412,24 @@ def ask_gpt54(user_input, system_prompt, results, previous_response_id=None, use
         # Include an image input block when present.
         user_content.append({"type": "input_image", "image_url": image_data_url})
 
-    # Base request fields shared by first-turn and follow-up model calls.
-    request_model = selected_model
-    request_kwargs = {
-        "model": request_model,
-        "tools": active_tools if active_tools is not None else tools,
-        "parallel_tool_calls": True,
-    }
-
     # First turn: include system prompt and user content to initialize the response thread.
     if previous_response_id is None:
         input_items = [
             {"role": "user", "content": user_content}
         ]
         response = client.responses.create(
+            model=selected_model,
             instructions=system_prompt,
+            tools=tools,
             input=input_items,
-            **request_kwargs,
+            parallel_tool_calls=True,
         )
-
         usage = response.usage
+
         input_tokens = usage.input_tokens
         cached_tokens = usage.input_tokens_details.cached_tokens
         uncached_tokens = input_tokens - cached_tokens
+
         print("input_tokens:", input_tokens)
         print("cached_tokens:", cached_tokens)
         print("uncached_tokens:", uncached_tokens)
@@ -1590,25 +1440,25 @@ def ask_gpt54(user_input, system_prompt, results, previous_response_id=None, use
         # Follow-up turns: send function outputs when available, otherwise send the new user turn.
         if results:
             input_items = results
-            print("\n--------------\nPassing [CONCISE PROMPT]")
-            instructions = concise_prompt
+
         else:
             input_items = [{"role": "user", "content": user_content}]
-            print("\n--------------\nPassing [FULL SYS PROMPT]")
-            instructions = system_prompt
 
         # Continue the same model conversation by passing previous_response_id.
         response = client.responses.create(
-            instructions=instructions,
+            model=selected_model,
+            instructions=system_prompt,
+            tools=tools,
             input=input_items,
             previous_response_id=previous_response_id,
-            **request_kwargs,
+            parallel_tool_calls=True,
         )
-
         usage = response.usage
+
         input_tokens = usage.input_tokens
         cached_tokens = usage.input_tokens_details.cached_tokens
         uncached_tokens = input_tokens - cached_tokens
+
         print("input_tokens:", input_tokens)
         print("cached_tokens:", cached_tokens)
         print("uncached_tokens:", uncached_tokens)
@@ -1625,7 +1475,6 @@ def run_secretariat(prompt_text, image_data_url=None, previous_response_id=None,
     action_counter = {}
     function_call_id_alias_state = {"counter": 0, "by_value": {}}
     call_id_alias_state = {"counter": 0, "by_value": {}}
-    active_tools = tools
     for turn_idx in range(max_turns):
         if status_callback:
             status_callback("Thinking...")
@@ -1641,7 +1490,6 @@ def run_secretariat(prompt_text, image_data_url=None, previous_response_id=None,
             user_timezone=user_timezone,
             location_context=location_context,
             user_id=user_id,
-            active_tools=active_tools,
         )
         current_response_id = response.id
         response_data = response.model_dump()
@@ -1661,12 +1509,8 @@ def run_secretariat(prompt_text, image_data_url=None, previous_response_id=None,
                 text_payload = content["content"][0].get("text", "")
                 try:
                     parsed = json.loads(text_payload)
-                    state = _normalize_state(parsed.get("state", "RUNNING"))
+                    state = parsed.get("state", "RUNNING")
                     assistant_message = parsed.get("message", "")
-                    if not assistant_message:
-                        assistant_message = parsed.get("text", "") or parsed.get("summary", "")
-                    if not assistant_message:
-                        assistant_message = json.dumps(parsed, ensure_ascii=False)
 
                 except Exception:
                     state = "RUNNING"
@@ -1689,18 +1533,9 @@ def run_secretariat(prompt_text, image_data_url=None, previous_response_id=None,
             results.extend(compress_tool_output(tool_outputs))
             continue
 
-        if state in TERMINAL_STATES:
+        if state in {"WAITING", "DONE"}:
             _log("TURN_END", f"state={state}")
             assistant_message = (assistant_message or "") + _format_action_report(action_counter)
-            return {
-                "state": state,
-                "message": assistant_message,
-                "previous_response_id": current_response_id,
-            }
-        if assistant_message and state == "RUNNING":
-            state = "DONE"
-            _log("TURN_END", "state=RUNNING interpreted as DONE (message-only response)")
-            assistant_message = assistant_message + _format_action_report(action_counter)
             return {
                 "state": state,
                 "message": assistant_message,
@@ -2098,7 +1933,6 @@ def api_secretariat_stream():
             action_counter = {}
             function_call_id_alias_state = {"counter": 0, "by_value": {}}
             call_id_alias_state = {"counter": 0, "by_value": {}}
-            active_tools = tools
 
             for turn_idx in range(max_turns):
                 _log("TURN_START", f"{turn_idx + 1}/{max_turns}")
@@ -2115,7 +1949,6 @@ def api_secretariat_stream():
                     user_timezone=user_timezone,
                     location_context=weather_location,
                     user_id=user_id,
-                    active_tools=active_tools,
                 )
                 current_response_id = response.id
                 response_data = response.model_dump()
@@ -2136,12 +1969,8 @@ def api_secretariat_stream():
                         text_payload = content["content"][0].get("text", "")
                         try:
                             parsed = json.loads(text_payload)
-                            state = _normalize_state(parsed.get("state", "RUNNING"))
+                            state = parsed.get("state", "RUNNING")
                             assistant_message = parsed.get("message", "")
-                            if not assistant_message:
-                                assistant_message = parsed.get("text", "") or parsed.get("summary", "")
-                            if not assistant_message:
-                                assistant_message = json.dumps(parsed, ensure_ascii=False)
                         except Exception:
                             state = "RUNNING"
                             assistant_message = text_payload
@@ -2162,12 +1991,8 @@ def api_secretariat_stream():
                     results.extend(compress_tool_output(output) for output in tool_outputs)
                     continue
 
-                if state in TERMINAL_STATES:
+                if state in {"WAITING", "DONE"}:
                     _log("TURN_END", f"state={state}")
-                    break
-                if assistant_message and state == "RUNNING":
-                    state = "DONE"
-                    _log("TURN_END", "state=RUNNING interpreted as DONE (message-only response)")
                     break
 
             result = {
@@ -2251,6 +2076,6 @@ if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8000, debug=False)
 
 """
-I Defer my deeper motive
+Beasly Boys
 """
 
