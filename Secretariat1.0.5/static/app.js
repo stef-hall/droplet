@@ -31,6 +31,7 @@ const authStatusEl = document.getElementById("auth-status");
 const authTrustDeviceEl = document.getElementById("auth-trust-device");
 const authTrustWrapEl = document.getElementById("auth-trust-wrap");
 const stickyNoteLayerEl = document.getElementById("sticky-note-layer");
+const stickyNoteDockSlotEl = document.getElementById("sticky-note-dock-slot");
 const MAX_PROMPT_HEIGHT = 180;
 const STICKY_NOTE_DOCK_THRESHOLD = 110;
 const STICKY_NOTE_STOWED_PEEK_WIDTH = 118;
@@ -185,6 +186,11 @@ function setStickyNoteDockHintVisible(visible) {
   stickyNoteLayerEl.classList.toggle("show-dock-hint", visible);
 }
 
+function setStickyNoteDockSlotVisible(visible) {
+  if (!stickyNoteLayerEl) return;
+  stickyNoteLayerEl.classList.toggle("show-dock-slot", visible);
+}
+
 function getStickyNotes() {
   if (!stickyNoteLayerEl) return [];
   return Array.from(stickyNoteLayerEl.querySelectorAll(".sticky-note"));
@@ -197,6 +203,7 @@ function clearStickyNotes() {
   stickyNoteSaveTimers.clear();
   getStickyNotes().forEach((noteEl) => noteEl.remove());
   setStickyNoteDockHintVisible(false);
+  setStickyNoteDockSlotVisible(false);
 }
 
 function autoSizeStickyNoteInput(inputEl) {
@@ -216,16 +223,56 @@ function updateStickyNoteDockPreview(noteEl, left) {
   return nearDock;
 }
 
-function layoutStowedStickyNotes() {
-  const stowedNotes = getStickyNotes().filter((noteEl) => noteEl.classList.contains("is-stowed"));
+function getStickyNoteDockIndex(pointerY, draggingNoteEl) {
+  const stowedNotes = getStickyNotes().filter((noteEl) => noteEl.classList.contains("is-stowed") && noteEl !== draggingNoteEl);
+  for (let index = 0; index < stowedNotes.length; index += 1) {
+    const rect = stowedNotes[index].getBoundingClientRect();
+    const midpoint = rect.top + rect.height / 2;
+    if (pointerY < midpoint) {
+      return index;
+    }
+  }
+  return stowedNotes.length;
+}
+
+function positionStickyNoteDockSlot(index) {
+  if (!stickyNoteDockSlotEl) return;
+  const desiredTop = STICKY_NOTE_STACK_TOP_START + index * STICKY_NOTE_STACK_GAP;
+  const safeTop = clamp(desiredTop, 64, Math.max(64, window.innerHeight - stickyNoteDockSlotEl.offsetHeight));
+  stickyNoteDockSlotEl.style.top = `${Math.round(safeTop)}px`;
+}
+
+function layoutStowedStickyNotes({ draggingNoteEl = null, previewIndex = null } = {}) {
+  const stowedNotes = getStickyNotes().filter((noteEl) => noteEl.classList.contains("is-stowed") && noteEl !== draggingNoteEl);
   stowedNotes.forEach((noteEl, index) => {
+    const slotIndex = previewIndex !== null && index >= previewIndex ? index + 1 : index;
     const maxTop = Math.max(0, window.innerHeight - noteEl.offsetHeight);
-    const desiredTop = STICKY_NOTE_STACK_TOP_START + index * STICKY_NOTE_STACK_GAP;
+    const desiredTop = STICKY_NOTE_STACK_TOP_START + slotIndex * STICKY_NOTE_STACK_GAP;
     const safeTop = clamp(desiredTop, 64, Math.max(64, maxTop));
     const stowedLeft = Math.max(0, window.innerWidth - STICKY_NOTE_STOWED_PEEK_WIDTH);
+    noteEl.classList.toggle("is-stowed-preview", previewIndex !== null);
     noteEl.style.left = `${Math.round(stowedLeft)}px`;
     noteEl.style.top = `${Math.round(safeTop)}px`;
   });
+  if (previewIndex !== null) {
+    positionStickyNoteDockSlot(previewIndex);
+    setStickyNoteDockSlotVisible(true);
+  } else {
+    setStickyNoteDockSlotVisible(false);
+    stowedNotes.forEach((noteEl) => noteEl.classList.remove("is-stowed-preview"));
+  }
+}
+
+function commitStickyNoteDockOrder(noteEl, insertIndex) {
+  if (!stickyNoteLayerEl) return;
+  const stowedNotes = getStickyNotes().filter((candidate) => candidate.classList.contains("is-stowed") && candidate !== noteEl);
+  const clampedIndex = clamp(insertIndex, 0, stowedNotes.length);
+  const anchorEl = stowedNotes[clampedIndex] || null;
+  if (anchorEl) {
+    stickyNoteLayerEl.insertBefore(noteEl, anchorEl);
+  } else {
+    stickyNoteLayerEl.appendChild(noteEl);
+  }
 }
 
 async function saveStickyNote(noteEl) {
@@ -316,6 +363,7 @@ function createStickyNote(listEntry) {
     dragState = {
       pointerId: event.pointerId,
       wasStowedAtGrab,
+      previewDockIndex: wasStowedAtGrab ? getStickyNoteDockIndex(event.clientY, noteEl) : null,
       offsetX: event.clientX - rect.left,
       offsetY: event.clientY - rect.top
     };
@@ -333,6 +381,7 @@ function createStickyNote(listEntry) {
     const nextLeft = clamp(event.clientX - dragState.offsetX, 0, maxLeft);
     const nextTop = clamp(event.clientY - dragState.offsetY, 0, maxTop);
     const nearDock = isStickyNoteNearDock(noteEl, nextLeft);
+    const previewDockIndex = nearDock ? getStickyNoteDockIndex(event.clientY, noteEl) : null;
 
     if (dragState.wasStowedAtGrab) {
       if (nearDock) {
@@ -341,24 +390,35 @@ function createStickyNote(listEntry) {
         noteEl.classList.remove("is-stowed");
       }
     }
+    dragState.previewDockIndex = previewDockIndex;
 
     noteEl.style.left = `${Math.round(nextLeft)}px`;
     noteEl.style.top = `${Math.round(nextTop)}px`;
     noteEl.classList.toggle("is-near-dock", nearDock);
     setStickyNoteDockHintVisible(nearDock);
+    if (nearDock) {
+      layoutStowedStickyNotes({ draggingNoteEl: noteEl, previewIndex: previewDockIndex });
+    } else {
+      layoutStowedStickyNotes();
+    }
   });
 
   function releaseStickyNote(event) {
     if (!dragState || event.pointerId !== dragState.pointerId) return;
     const currentLeft = Number.parseFloat(noteEl.style.left) || 0;
     const shouldStow = isStickyNoteNearDock(noteEl, currentLeft);
+    const previewDockIndex = dragState.previewDockIndex;
 
     noteEl.classList.remove("is-dragging");
     noteEl.classList.remove("is-near-dock");
     setStickyNoteDockHintVisible(false);
+    setStickyNoteDockSlotVisible(false);
 
     if (shouldStow) {
       noteEl.classList.add("is-stowed");
+      commitStickyNoteDockOrder(noteEl, previewDockIndex ?? getStickyNotes().length);
+      layoutStowedStickyNotes();
+    } else {
       layoutStowedStickyNotes();
     }
 
