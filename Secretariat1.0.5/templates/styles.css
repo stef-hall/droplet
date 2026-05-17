@@ -963,11 +963,42 @@ textarea {
   pointer-events: none;
 }
 
+.sticky-note-dock-hint {
+  position: absolute;
+  top: 84px;
+  right: 0;
+  bottom: 84px;
+  width: 132px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 14px;
+  background: linear-gradient(270deg, rgba(247, 227, 122, 0.28), rgba(247, 227, 122, 0));
+  border-left: 1px solid rgba(110, 88, 13, 0.18);
+  opacity: 0;
+  transform: translateX(22px);
+  transition: opacity 180ms ease, transform 220ms ease;
+}
+
+.sticky-note-layer.show-dock-hint .sticky-note-dock-hint {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+.sticky-note-dock-hint-label {
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  font-size: 0.82rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: rgba(74, 59, 5, 0.76);
+}
+
 .sticky-note {
   position: absolute;
-  width: 168px;
-  min-height: 168px;
-  padding: 34px 16px 16px;
+  width: 182px;
+  min-height: 176px;
+  padding: 30px 16px 16px;
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0) 24%),
     #f7e37a;
@@ -981,6 +1012,12 @@ textarea {
   user-select: none;
   touch-action: none;
   pointer-events: auto;
+  transition:
+    width 180ms ease,
+    min-height 180ms ease,
+    box-shadow 180ms ease,
+    transform 180ms ease,
+    border-radius 180ms ease;
 }
 
 .sticky-note.is-dragging {
@@ -988,6 +1025,13 @@ textarea {
   box-shadow:
     0 20px 32px rgba(46, 36, 5, 0.24),
     0 3px 0 rgba(255, 255, 255, 0.24) inset;
+}
+
+.sticky-note.is-near-dock,
+.sticky-note.is-stowed {
+  min-height: 62px;
+  border-radius: 14px 0 0 14px;
+  transform: rotate(0deg);
 }
 
 .sticky-note-tape {
@@ -1000,6 +1044,36 @@ textarea {
   background: rgba(255, 247, 210, 0.72);
   border: 1px solid rgba(126, 112, 76, 0.16);
   box-shadow: 0 1px 2px rgba(70, 57, 13, 0.08);
+}
+
+.sticky-note.is-near-dock .sticky-note-tape,
+.sticky-note.is-stowed .sticky-note-tape {
+  opacity: 0;
+}
+
+.sticky-note-title {
+  font-size: 0.9rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  margin-bottom: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sticky-note-body {
+  max-height: 120px;
+  opacity: 1;
+  overflow: hidden;
+  transition: max-height 180ms ease, opacity 140ms ease, margin-top 180ms ease;
+}
+
+.sticky-note.is-near-dock .sticky-note-body,
+.sticky-note.is-stowed .sticky-note-body {
+  max-height: 0;
+  opacity: 0;
+  margin-top: -4px;
 }
 
 .sticky-note-text {

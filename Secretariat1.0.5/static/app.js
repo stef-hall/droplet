@@ -30,6 +30,7 @@ const authSubtitleEl = document.getElementById("auth-subtitle");
 const authStatusEl = document.getElementById("auth-status");
 const authTrustDeviceEl = document.getElementById("auth-trust-device");
 const authTrustWrapEl = document.getElementById("auth-trust-wrap");
+const stickyNoteLayerEl = document.getElementById("sticky-note-layer");
 const demoStickyNoteEl = document.getElementById("demo-sticky-note");
 const MAX_PROMPT_HEIGHT = 180;
 const isTouchDevice = window.matchMedia("(pointer: coarse)").matches;
@@ -178,10 +179,46 @@ function clamp(value, min, max) {
 function initializeStickyNoteDemo() {
   if (!demoStickyNoteEl) return;
 
+  const dockThreshold = 110;
+  const stowedPeekWidth = 118;
+  let isStowed = false;
   let dragState = null;
+
+  function setDockHintVisible(visible) {
+    if (!stickyNoteLayerEl) return;
+    stickyNoteLayerEl.classList.toggle("show-dock-hint", visible);
+  }
+
+  function isNearDock(left) {
+    return left + demoStickyNoteEl.offsetWidth >= window.innerWidth - dockThreshold;
+  }
+
+  function updateDockPreview(left) {
+    const nearDock = isNearDock(left);
+    demoStickyNoteEl.classList.toggle("is-near-dock", nearDock);
+    setDockHintVisible(nearDock);
+    return nearDock;
+  }
+
+  function applyStowedPosition(top) {
+    const maxTop = Math.max(0, window.innerHeight - demoStickyNoteEl.offsetHeight);
+    const safeTop = clamp(top, 64, Math.max(64, maxTop));
+    const stowedLeft = Math.max(0, window.innerWidth - stowedPeekWidth);
+    demoStickyNoteEl.style.left = `${Math.round(stowedLeft)}px`;
+    demoStickyNoteEl.style.top = `${Math.round(safeTop)}px`;
+  }
 
   demoStickyNoteEl.addEventListener("pointerdown", (event) => {
     if (event.button !== undefined && event.button !== 0) return;
+
+    if (isStowed) {
+      demoStickyNoteEl.classList.remove("is-stowed");
+      isStowed = false;
+      const currentTop = Number.parseFloat(demoStickyNoteEl.style.top) || 112;
+      const unstowedLeft = Math.max(0, window.innerWidth - demoStickyNoteEl.offsetWidth - 26);
+      demoStickyNoteEl.style.left = `${Math.round(unstowedLeft)}px`;
+      demoStickyNoteEl.style.top = `${Math.round(currentTop)}px`;
+    }
 
     const rect = demoStickyNoteEl.getBoundingClientRect();
     dragState = {
@@ -205,11 +242,28 @@ function initializeStickyNoteDemo() {
 
     demoStickyNoteEl.style.left = `${Math.round(nextLeft)}px`;
     demoStickyNoteEl.style.top = `${Math.round(nextTop)}px`;
+    updateDockPreview(nextLeft);
   });
 
   function releaseStickyNote(event) {
     if (!dragState || event.pointerId !== dragState.pointerId) return;
+    const currentLeft = Number.parseFloat(demoStickyNoteEl.style.left) || 0;
+    const currentTop = Number.parseFloat(demoStickyNoteEl.style.top) || 0;
+    const shouldStow = isNearDock(currentLeft);
+
     demoStickyNoteEl.classList.remove("is-dragging");
+    demoStickyNoteEl.classList.remove("is-near-dock");
+    setDockHintVisible(false);
+
+    if (shouldStow) {
+      demoStickyNoteEl.classList.add("is-stowed");
+      applyStowedPosition(currentTop);
+      isStowed = true;
+    } else {
+      demoStickyNoteEl.classList.remove("is-stowed");
+      isStowed = false;
+    }
+
     if (demoStickyNoteEl.hasPointerCapture(event.pointerId)) {
       demoStickyNoteEl.releasePointerCapture(event.pointerId);
     }
@@ -218,6 +272,12 @@ function initializeStickyNoteDemo() {
 
   demoStickyNoteEl.addEventListener("pointerup", releaseStickyNote);
   demoStickyNoteEl.addEventListener("pointercancel", releaseStickyNote);
+
+  window.addEventListener("resize", () => {
+    if (!isStowed) return;
+    const currentTop = Number.parseFloat(demoStickyNoteEl.style.top) || 64;
+    applyStowedPosition(currentTop);
+  });
 }
 
 initializeStickyNoteDemo();
