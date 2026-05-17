@@ -237,6 +237,10 @@ function saveStickyNoteLayoutEntry(noteEl, partialEntry = {}) {
   saveStickyNoteLayoutState(layoutState);
 }
 
+function normalizeStickyNoteColorClass(value) {
+  return STICKY_NOTE_COLOR_CLASSES.includes(value) ? value : null;
+}
+
 function syncStickyNoteLayoutState() {
   const layoutState = loadStickyNoteLayoutState();
   const liveNames = new Set();
@@ -429,7 +433,9 @@ function createStickyNote(listEntry, colorClassName) {
   const noteEl = document.createElement("article");
   const savedLayoutEntry = loadStickyNoteLayoutState()[String(listEntry.list_name || "")] || null;
   const startsStowed = !savedLayoutEntry || savedLayoutEntry.isStowed !== false;
-  noteEl.className = `sticky-note ${startsStowed ? "is-stowed" : ""} ${colorClassName || STICKY_NOTE_COLOR_CLASSES[0]}`.trim();
+  const persistedColorClass = normalizeStickyNoteColorClass(savedLayoutEntry?.colorClass);
+  const appliedColorClass = persistedColorClass || normalizeStickyNoteColorClass(colorClassName) || STICKY_NOTE_COLOR_CLASSES[0];
+  noteEl.className = `sticky-note ${startsStowed ? "is-stowed" : ""} ${appliedColorClass}`.trim();
   noteEl.setAttribute("aria-label", `Draggable note for ${listEntry.list_name}`);
   noteEl.dataset.listName = String(listEntry.list_name || "");
 
@@ -563,6 +569,7 @@ function renderStickyNotes(listEntries) {
   clearStickyNotes();
   if (!stickyNoteLayerEl || !Array.isArray(listEntries) || listEntries.length === 0) return;
   const layoutState = loadStickyNoteLayoutState();
+  let didMutateLayoutState = false;
   const sortedEntries = [...listEntries].sort((a, b) => {
     const aEntry = layoutState[String(a?.list_name || "")];
     const bEntry = layoutState[String(b?.list_name || "")];
@@ -573,10 +580,23 @@ function renderStickyNotes(listEntries) {
   });
 
   sortedEntries.forEach((listEntry, index) => {
-    const colorClassName = STICKY_NOTE_COLOR_CLASSES[index % STICKY_NOTE_COLOR_CLASSES.length];
+    const listName = String(listEntry?.list_name || "");
+    const existingEntry = layoutState[listName] && typeof layoutState[listName] === "object" ? layoutState[listName] : {};
+    const persistedColorClass = normalizeStickyNoteColorClass(existingEntry.colorClass);
+    const colorClassName = persistedColorClass || STICKY_NOTE_COLOR_CLASSES[index % STICKY_NOTE_COLOR_CLASSES.length];
+    if (!persistedColorClass && listName) {
+      layoutState[listName] = {
+        ...existingEntry,
+        colorClass: colorClassName
+      };
+      didMutateLayoutState = true;
+    }
     const noteEl = createStickyNote(listEntry, colorClassName);
     stickyNoteLayerEl.appendChild(noteEl);
   });
+  if (didMutateLayoutState) {
+    saveStickyNoteLayoutState(layoutState);
+  }
   layoutStowedStickyNotes();
   syncStickyNoteLayoutState();
 }
