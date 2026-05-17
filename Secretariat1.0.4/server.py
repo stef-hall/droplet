@@ -1546,6 +1546,11 @@ def run_secretariat(prompt_text, image_data_url=None, previous_response_id=None,
                     "call_id": content["call_id"],
                 })
 
+        # If the model returned only a user-facing message and no tool calls,
+        # treat that turn as complete instead of spinning another model turn.
+        if not saw_function_call and assistant_message and state == "RUNNING":
+            state = "DONE"
+
         if saw_function_call:
             _log("TOOL_BATCH", f"Executing {len(function_calls)} tool call(s)")
             if status_callback:
@@ -2004,6 +2009,11 @@ def api_secretariat_stream():
                             "args": json.loads(content["arguments"]),
                             "call_id": content["call_id"],
                         })
+
+                # If the model returned only a user-facing message and no tool calls,
+                # treat that turn as complete instead of spinning another model turn.
+                if not saw_function_call and assistant_message and state == "RUNNING":
+                    state = "DONE"
 
                 if saw_function_call:
                     _log("TOOL_BATCH", f"Executing {len(function_calls)} tool call(s)")
