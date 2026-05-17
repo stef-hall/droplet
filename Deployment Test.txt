@@ -2,8 +2,7 @@ okay bud, starting immeidtlay - add 5, 10 minute long events consecutivley named
 Add a unique Elvis Presley songs in each description, and a unique Major Californian city in each location,
 and reminders beforehand corresponding to the name of the event.
 
-Then edit them all to be scheduled backwards 5-1, while extending each event out to 15 minutes,
-also change the names to different types of fruits.
+Then edit them all to be scheduled backwards 5-1, while extending each event out to 15 minutes, also change the names to different types of fruits.
 
 then per event, mkae a new list called [Fruit name] - [Location], 
 and make the list contents the weather for the  respective location.
@@ -28,6 +27,13 @@ Uncached tokens: 11,350
 Input tokens: 24,913
 Cached tokens: 13,824
 Uncached tokens: 11,089
+
+1.0.4da - Compressed Sys Prompt
+Model calls: 7
+Total input tokens: 25907
+Cached tokens: 25907
+Uncached tokens: 4147
+Cache hit rate: 100.00%
 
 
 

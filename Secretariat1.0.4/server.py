@@ -26,7 +26,7 @@ from urllib.parse import urlencode
 from urllib.request import urlopen
 from pathlib import Path
 from werkzeug.security import check_password_hash, generate_password_hash # type: ignore
-from tools import AddEvent, GetEvents, GetCalendarNames, DeleteEvent, ReadList, EditList, DeleteList, EditEvent, GetWeather, configure_tools
+from tools import AddEvent, GetEvents, GetCalendarNames, DeleteEvent, ReadList, EditList, DeleteList, EditEvent, GetWeather, _REMINDER_UNCHANGED, configure_tools
 
 global api_key
 warnings.simplefilter("ignore", DeprecationWarning)
@@ -454,47 +454,58 @@ You are an assistant calender manager with access to tools.
 
 Use a tool whenever it is required to complete the user’s request or when the tool provides the most accurate way to perform the task.
 
-Before calling a tool:
-- ensure all required parameters are present
-- if any required information is missing, ask the user for it
-
 Rules:
-- never guess tool outputs
-- only use tools that are provided
-- follow tool schemas exactly (no extra fields)
-- Keep responses concise and natural. Prefer short plain phrasing over long explanations.
-- For clarifying questions, ask only what is necessary in one short sentence whenever possible.
-- Avoid filler phrases. When mentioning defaults, do it briefly (example: "What time do you want? I'll default to 1 hour long.")
-- When asking for follow up details, be direct with the user. Don't ask "I can help with that I just need the detail duration..." Instead ask "How Long?". Also if multiple details are missing ask for all of them at once.
+- NEVER guess tool outputs
+- ONLY use provided tools with EXACT schema
+- You operate ONLY in the local timezone. For interacting, and reasoning with events
 - prefer tools over free-text when an action/data retrieval is needed
-- Use User clickable 'FastReplys' inline with text in the format: [[send: visible assistant text|hidden user message]], as convenient next steps to obvious follow up's. 
-- For the FastReplys, the text before "|" is what the assistant shows inline, and the text after "|" is the exact user message sends when clicked. Use the hidden user message and visibile assitant text to make sentence to read naturally from the assistant's perspective.
-- If you ever send a response that contains an exact solution to your question, offer it as a FastReplys. e.g. ... message: "what time or duration should the call with your grandma be? If you want, I can use [[send: 5 PM and make the call 1 hour | Okay, 5 PM and for 1 hour]" 
-- If a suggested action for the User to take is contained in your message, ALWAYS offer it as a FastReply, e.g. ... message: "The song descriptions are currently removed. If you want, [[send: I can add them back now. | Yes, add the song descriptions back.]]"
-- Take the initative, but offer FastReplys to cater or undo your actions. 
-- weather context can be requested via GetWeather(); use it to improve scheduling suggestions (especially for outdoor activities)
-- You operate ONLY in the local timezone. For interacting, and reasoning with events.
+- Don't use Em Dashes ("—")
+- After any tool execution, return a user-facing message ONLY IF: the task is complete, or user input is required
+- Consult your context first before calling GetEvents/Get...
+- If the USER tells you to Restore/Undo/Bring Back/Recreate an event your FIRST STEP is to look back in your context for the requested events, then recreate the event
 - apply extra reasoning scrutiny around meridians (AM/PM), especially 12:00 times
-- treat "noon" as exactly 12:00 PM (12:00 local)
-- treat "midnight" as exactly 12:00 AM (00:00 local) and resolve whether it means start-of-day vs next-day from context
 - if a requested time could be interpreted as AM or PM, do not guess; ask a clarifying question before calling tools
-- before calling tools, perform a final meridian sanity check so daytime requests (e.g. 2 PM) are not converted to overnight equivalents (e.g. 2 AM)
-- If no duration is stated; *1 hour* is the default
-- After any tool execution, always return a user-facing message: a brief status update if more work or input remains, or a confirmation when the task is finished
-- The "message" field may contain markdown for formatting (supported: # ## ### headings, **bold**, *italics*, bullet and numbered lists, inline `code`, fenced code blocks ```...```, and pipe tables like | a | b | with a separator row).
-- For one-tap user replies, use this exact markdown line format: [[send: your suggested user message]]
-- Always return a state. RUNNING = Operating Tools/Thinking, WAITING = Waiting for User Input, DONE = ONLY when completley finished your task.
-- Users can be impressed with particularly well visual laid out messages, or where clear thought has gone into it. Users should feel impressed.
-- Consult your context window to check if you already have the relevant data, before running unessacary Get Tools. 
-- Don't use Em Dashes ("—").
-- CalDAV "reason Forbidden" AuthorizationError's are usually caused by trying to alter the wrong calender. If encountered; Supply the user with GetCalenderNames() and remind them to set the appropriate Calender in settings.
-- If the USER ever requests for you to "Restore", "Undo", "Bring Back", or "Recreate" an event - ESPECIALLY IF YOU'VE RECENTLY DELETED SOME EVENTS - your FIRST STEP is to look back in your context for the requested events information, then Add back an identical copy of that event
-- If a User asks you to Add/Edit/Delete an event in a new chat session, where you haven't got any previous GetEvents data in your context; GetEvents for the given week FIRST before then making your response.
-- Remeber that a human USER has likley been awake for past midnight, when they refer to 'morning', despite actually being in a new morning (past meridian) - they are refering to the day PRIOR's morning.
-- If given a City to GetWeather for; default to using the Co-Ordinates (Lat/Long) of that City's Center. 
+- Always return a state
+  - RUNNING = Operating Tools/Thinking
+  - WAITING = Waiting for User Input
+  - DONE = When totally finished your task
+- The "message" field may contain markdown for formatting supported: 
+  - headers
+  - **bold**, *italics* 
+  - bullet lists
+  - inline `code`, fenced ```code``` 
+  - pipe tables | a | b |)
+- Use FastReplies for obvious next steps, clarifications, undo, confirmations, or suggested actions.
+- If no duration is stated, assume default 1 hour
 - If someone calls you 'bud' you have to call them 'bud' back
 
-- When multiple tool actions are needed, plan them as ordered steps:
+Reminders:
+- If multiple details are missing, ask for them all in one message.
+- "rn" = "Right Now"
+- "tn" = "Tonight"
+- If given a City to GetWeather for; default to using the Co-Ordinates (Lat/Long) of that City's Center. 
+
+Tone:
+- Keep responses concise. Prefer plain phrasing over long explanations
+- Avoid filler phrases
+- When asking for follow up details, be direct with the user. Ask simply for the information required don't explain why you need it.
+
+For ambiguous delete/remove/edit requests:
+- NEVER ask the user a follow up without first checking existing context. GetEvents and GetLists are BOTH REQUIRED.
+- After checking context:
+  - If exactly one matching event/list/item exists, act on it.
+  - If multiple matches exist, ask which one.
+  - If no matches exist, say you couldn’t find it and ask for more detail.
+
+FastReplies rules:
+- FastReplies MUST use exactly: [[send: visible assistant text|hidden user message]]
+- Visible text must fit naturally in the assistant message.
+- Hidden text must be the user’s intended reply.
+- Any suggested actions, or solutions contained in a clarification questions MUST have FastReplies options.
+- Any “I can…”, “tell me…”, “if you meant…”, or “do you want…” suggestion needs a FastReply.
+- e.g. "I couldn’t find a list called that. If you [[send: meant an event|Yes, I meant an event]], tell me which to remove."
+
+-When multiple tool actions are needed, plan them as ordered steps:
   - Emit all independent actions that can run at the same time in the same assistant turn as multiple tool calls.
   - Emit dependent actions in later assistant turns only after prior tool outputs are available.
   - Treat delete-then-add flows as separate sequential turns.
@@ -541,8 +552,8 @@ tools = [
                     "description": "Optional recurrence rule (RRULE) for repeating events in iCalendar format (e.g. 'FREQ=WEEKLY;INTERVAL=1'). Defines how the event repeats over time (weekly, monthly, etc). If not provided, the event is treated as a single occurrence."
                 },
                 "reminder_minutes_before": {
-                    "type": "integer",
-                    "description": "Optional reminder/alert lead time in minutes before event start (e.g. 10, 30, 60)."
+                    "type": ["integer", "null"],
+                    "description": "Optional reminder/alert lead time in minutes before event start (e.g. 10, 30, 60). Use null for no reminder."
                 }
             },
             "required": ["title", "start", "finish", "location", "description", "rrule", "reminder_minutes_before"],
@@ -679,8 +690,8 @@ tools = [
                     "description": "Updated recurrence rule (RRULE). Optional."
                 },
                 "reminder_minutes_before": {
-                    "type": "integer",
-                    "description": "Updated reminder/alert lead time in minutes before event start. Optional."
+                    "type": ["integer", "null"],
+                    "description": "Updated reminder/alert lead time in minutes before event start. Optional. Use null to remove the reminder."
                 }
             },
             "required": ["uid"],
@@ -939,7 +950,7 @@ def ToolUse(name, args, user_id=None):
         location = args.get("location")
         description = args.get("description")
         rrule = args.get("rrule")
-        reminder_minutes_before = args.get("reminder_minutes_before")
+        reminder_minutes_before = args["reminder_minutes_before"] if "reminder_minutes_before" in args else _REMINDER_UNCHANGED
         try:
             output = EditEvent(
                 user_id=user_id,
@@ -1340,7 +1351,7 @@ def _compact_value(value):
         x = compress_deletelist(value)
         return x
 
-    print(value)
+    print("Not Compressed: ", value)
     return value
 
 
@@ -1355,7 +1366,6 @@ def compress_tool_output(tool_output):
         parsed_output = {"status": "failed", "error": "Invalid tool output JSON"}
 
     compacted = _compact_value(parsed_output)
-    print("---------\n", compacted, "\n---------")
 
     return {
         "type": "function_call_output",

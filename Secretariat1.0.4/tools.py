@@ -212,6 +212,9 @@ def _normalize_reminder_minutes(value):
     return minutes
 
 
+_REMINDER_UNCHANGED = object()
+
+
 def _extract_reminder_minutes(vevent):
     if not hasattr(vevent, "valarm"):
         return None
@@ -415,7 +418,7 @@ def _build_event_ics(uid, title, start, finish, location="", description="", rru
     return "\n".join(lines)
 
 
-def EditEvent(user_id, uid, title=None, start=None, finish=None, location=None, description=None, rrule=None, reminder_minutes_before=None):
+def EditEvent(user_id, uid, title=None, start=None, finish=None, location=None, description=None, rrule=None, reminder_minutes_before=_REMINDER_UNCHANGED):
     resolved_uid = _resolve_uid_for_user(int(user_id), uid)
     if start is not None:
         start, _ = offset_to_z(start)
@@ -447,7 +450,7 @@ def EditEvent(user_id, uid, title=None, start=None, finish=None, location=None, 
             new_location = location if location is not None else current_location
             new_description = description if description is not None else current_description
             new_rrule = rrule if rrule is not None else current_rrule
-            new_reminder_minutes = reminder_minutes_before if reminder_minutes_before is not None else current_reminder_minutes
+            new_reminder_minutes = current_reminder_minutes if reminder_minutes_before is _REMINDER_UNCHANGED else reminder_minutes_before
 
             if new_location is None:
                 new_location = ""
@@ -499,7 +502,7 @@ def EditEvent(user_id, uid, title=None, start=None, finish=None, location=None, 
                     "location": location is not None,
                     "description": description is not None,
                     "rrule": rrule is not None,
-                    "reminder_minutes_before": reminder_minutes_before is not None,
+                    "reminder_minutes_before": reminder_minutes_before is not _REMINDER_UNCHANGED,
                 },
             }
 
