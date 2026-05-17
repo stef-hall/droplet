@@ -32,6 +32,7 @@ const authTrustDeviceEl = document.getElementById("auth-trust-device");
 const authTrustWrapEl = document.getElementById("auth-trust-wrap");
 const stickyNoteLayerEl = document.getElementById("sticky-note-layer");
 const demoStickyNoteEl = document.getElementById("demo-sticky-note");
+const demoStickyNoteInputEl = document.getElementById("demo-sticky-note-input");
 const MAX_PROMPT_HEIGHT = 180;
 const isTouchDevice = window.matchMedia("(pointer: coarse)").matches;
 let attachedImageDataUrl = null;
@@ -208,8 +209,20 @@ function initializeStickyNoteDemo() {
     demoStickyNoteEl.style.top = `${Math.round(safeTop)}px`;
   }
 
+  function autoSizeStickyNoteInput() {
+    if (!demoStickyNoteInputEl) return;
+    demoStickyNoteInputEl.style.height = "auto";
+    demoStickyNoteInputEl.style.height = `${demoStickyNoteInputEl.scrollHeight}px`;
+  }
+
+  autoSizeStickyNoteInput();
+
+  demoStickyNoteInputEl?.addEventListener("input", autoSizeStickyNoteInput);
+
   demoStickyNoteEl.addEventListener("pointerdown", (event) => {
     if (event.button !== undefined && event.button !== 0) return;
+    const target = event.target;
+    if (target instanceof HTMLElement && target.closest(".sticky-note-input")) return;
 
     if (isStowed) {
       demoStickyNoteEl.classList.remove("is-stowed");
@@ -278,6 +291,8 @@ function initializeStickyNoteDemo() {
     const currentTop = Number.parseFloat(demoStickyNoteEl.style.top) || 64;
     applyStowedPosition(currentTop);
   });
+
+  window.addEventListener("resize", autoSizeStickyNoteInput);
 }
 
 initializeStickyNoteDemo();

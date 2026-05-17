@@ -1076,11 +1076,25 @@ textarea {
   margin-top: -4px;
 }
 
-.sticky-note-text {
+.sticky-note-input {
+  width: 100%;
+  min-height: 92px;
+  border: 0;
+  outline: none;
+  resize: none;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
   font-size: 1.05rem;
   line-height: 1.3;
   letter-spacing: 0.02em;
   text-transform: lowercase;
+  overflow: hidden;
+}
+
+.sticky-note-input::placeholder {
+  color: rgba(74, 59, 5, 0.56);
 }
 
 .hidden {
