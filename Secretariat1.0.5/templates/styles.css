@@ -959,7 +959,7 @@ textarea {
 .sticky-note-layer {
   position: fixed;
   inset: 0;
-  z-index: 35;
+  z-index: 29;
   pointer-events: none;
 }
 
@@ -967,14 +967,14 @@ textarea {
   position: absolute;
   top: 84px;
   right: 0;
-  bottom: 84px;
+  top:0px;
+  bottom: 0px;
   width: 132px;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 24px 14px;
   background: linear-gradient(270deg, rgba(247, 227, 122, 0.28), rgba(247, 227, 122, 0));
-  border-left: 1px solid rgba(110, 88, 13, 0.18);
   opacity: 0;
   transform: translateX(22px);
   transition: opacity 180ms ease, transform 220ms ease;
