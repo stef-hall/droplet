@@ -488,7 +488,6 @@ Reminders:
 - "rn" = "Right Now"
 - "tn" = "Tonight"
 
-
 Tone:
 - Keep responses concise. Prefer plain phrasing over long explanations
 - Avoid filler phrases
