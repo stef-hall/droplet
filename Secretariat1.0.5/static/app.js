@@ -311,18 +311,11 @@ function createStickyNote(listEntry) {
 
     stickyNoteLayerEl?.appendChild(noteEl);
 
-    if (noteEl.classList.contains("is-stowed")) {
-      noteEl.classList.remove("is-stowed");
-      const currentTop = Number.parseFloat(noteEl.style.top) || STICKY_NOTE_STACK_TOP_START;
-      const unstowedLeft = Math.max(0, window.innerWidth - noteEl.offsetWidth - 26);
-      noteEl.style.left = `${Math.round(unstowedLeft)}px`;
-      noteEl.style.top = `${Math.round(currentTop)}px`;
-      layoutStowedStickyNotes();
-    }
-
     const rect = noteEl.getBoundingClientRect();
+    const wasStowedAtGrab = noteEl.classList.contains("is-stowed");
     dragState = {
       pointerId: event.pointerId,
+      wasStowedAtGrab,
       offsetX: event.clientX - rect.left,
       offsetY: event.clientY - rect.top
     };
@@ -339,10 +332,20 @@ function createStickyNote(listEntry) {
     const maxTop = Math.max(0, window.innerHeight - noteEl.offsetHeight);
     const nextLeft = clamp(event.clientX - dragState.offsetX, 0, maxLeft);
     const nextTop = clamp(event.clientY - dragState.offsetY, 0, maxTop);
+    const nearDock = isStickyNoteNearDock(noteEl, nextLeft);
+
+    if (dragState.wasStowedAtGrab) {
+      if (nearDock) {
+        noteEl.classList.add("is-stowed");
+      } else {
+        noteEl.classList.remove("is-stowed");
+      }
+    }
 
     noteEl.style.left = `${Math.round(nextLeft)}px`;
     noteEl.style.top = `${Math.round(nextTop)}px`;
-    updateStickyNoteDockPreview(noteEl, nextLeft);
+    noteEl.classList.toggle("is-near-dock", nearDock);
+    setStickyNoteDockHintVisible(nearDock);
   });
 
   function releaseStickyNote(event) {
