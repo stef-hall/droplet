@@ -52,6 +52,7 @@ let doneFadeTimer = null;
 let detectedTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
 let detectedLocation = null;
 let currentSessionId = "";
+let currentUserId = "";
 let initSessionPromise = null;
 let isSignupMode = false;
 let isAuthenticated = false;
@@ -64,6 +65,7 @@ const ALLOWED_DESKTOP_META_STATUSES = new Set([
   "Done"
 ]);
 const THEME_STORAGE_KEY = "secretariat-theme";
+const STICKY_NOTE_LAYOUT_STORAGE_KEY = "secretariat-sticky-layout";
 
 (function () {
   const isMobile = window.matchMedia("(max-width: 768px)").matches;
@@ -189,6 +191,91 @@ function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
 }
 
+function getStickyNoteLayoutStorageKey() {
+  const scope = String(currentUserId || "guest").trim() || "guest";
+  return `${STICKY_NOTE_LAYOUT_STORAGE_KEY}:${scope}`;
+}
+
+function loadStickyNoteLayoutState() {
+  try {
+    const raw = localStorage.getItem(getStickyNoteLayoutStorageKey());
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch (_) {
+    return {};
+  }
+}
+
+function saveStickyNoteLayoutState(layoutState) {
+  try {
+    localStorage.setItem(getStickyNoteLayoutStorageKey(), JSON.stringify(layoutState || {}));
+  } catch (_) {
+    // Ignore storage failures.
+  }
+}
+
+function getStickyNoteLayoutEntry(noteEl) {
+  const listName = String(noteEl?.dataset?.listName || "").trim();
+  if (!listName) return null;
+  const layoutState = loadStickyNoteLayoutState();
+  const entry = layoutState[listName];
+  return entry && typeof entry === "object" ? entry : null;
+}
+
+function saveStickyNoteLayoutEntry(noteEl, partialEntry = {}) {
+  const listName = String(noteEl?.dataset?.listName || "").trim();
+  if (!listName) return;
+  const layoutState = loadStickyNoteLayoutState();
+  const previous = layoutState[listName];
+  layoutState[listName] = {
+    ...(previous && typeof previous === "object" ? previous : {}),
+    ...partialEntry
+  };
+  saveStickyNoteLayoutState(layoutState);
+}
+
+function syncStickyNoteLayoutState() {
+  const layoutState = loadStickyNoteLayoutState();
+  const liveNames = new Set();
+  const stowedNotes = [];
+
+  getStickyNotes().forEach((noteEl) => {
+    const listName = String(noteEl.dataset.listName || "").trim();
+    if (!listName) return;
+    liveNames.add(listName);
+
+    const left = Number.parseFloat(noteEl.style.left);
+    const top = Number.parseFloat(noteEl.style.top);
+    const entry = {
+      isStowed: noteEl.classList.contains("is-stowed")
+    };
+    if (Number.isFinite(left)) entry.left = Math.round(left);
+    if (Number.isFinite(top)) entry.top = Math.round(top);
+    layoutState[listName] = {
+      ...(layoutState[listName] && typeof layoutState[listName] === "object" ? layoutState[listName] : {}),
+      ...entry
+    };
+    if (entry.isStowed) {
+      stowedNotes.push(noteEl);
+    }
+  });
+
+  stowedNotes.forEach((noteEl, index) => {
+    const listName = String(noteEl.dataset.listName || "").trim();
+    if (!listName || !layoutState[listName]) return;
+    layoutState[listName].order = index;
+  });
+
+  Object.keys(layoutState).forEach((listName) => {
+    if (!liveNames.has(listName)) {
+      delete layoutState[listName];
+    }
+  });
+
+  saveStickyNoteLayoutState(layoutState);
+}
+
 function setStickyNoteDockHintVisible(visible) {
   if (!stickyNoteLayerEl) return;
   stickyNoteLayerEl.classList.toggle("show-dock-hint", visible);
@@ -281,6 +368,7 @@ function commitStickyNoteDockOrder(noteEl, insertIndex) {
   } else {
     stickyNoteLayerEl.appendChild(noteEl);
   }
+  syncStickyNoteLayoutState();
 }
 
 async function saveStickyNote(noteEl) {
@@ -301,6 +389,7 @@ async function saveStickyNote(noteEl) {
     const data = await response.json();
     if (response.status === 401) {
       isAuthenticated = false;
+      currentUserId = "";
       updateAuthUi();
       clearStickyNotes();
       return;
@@ -331,7 +420,9 @@ function queueStickyNoteSave(noteEl) {
 
 function createStickyNote(listEntry, colorClassName) {
   const noteEl = document.createElement("article");
-  noteEl.className = `sticky-note is-stowed ${colorClassName || STICKY_NOTE_COLOR_CLASSES[0]}`;
+  const savedLayoutEntry = loadStickyNoteLayoutState()[String(listEntry.list_name || "")] || null;
+  const startsStowed = !savedLayoutEntry || savedLayoutEntry.isStowed !== false;
+  noteEl.className = `sticky-note ${startsStowed ? "is-stowed" : ""} ${colorClassName || STICKY_NOTE_COLOR_CLASSES[0]}`.trim();
   noteEl.setAttribute("aria-label", `Draggable note for ${listEntry.list_name}`);
   noteEl.dataset.listName = String(listEntry.list_name || "");
 
@@ -355,6 +446,15 @@ function createStickyNote(listEntry, colorClassName) {
       autoSizeStickyNoteInput(inputEl);
       queueStickyNoteSave(noteEl);
     });
+  }
+
+  const savedLeft = Number.parseFloat(savedLayoutEntry?.left);
+  const savedTop = Number.parseFloat(savedLayoutEntry?.top);
+  if (Number.isFinite(savedLeft)) {
+    noteEl.style.left = `${Math.round(savedLeft)}px`;
+  }
+  if (Number.isFinite(savedTop)) {
+    noteEl.style.top = `${Math.round(savedTop)}px`;
   }
 
   let dragState = null;
@@ -428,12 +528,18 @@ function createStickyNote(listEntry, colorClassName) {
       layoutStowedStickyNotes();
     } else {
       layoutStowedStickyNotes();
+      saveStickyNoteLayoutEntry(noteEl, {
+        isStowed: false,
+        left: Math.round(Number.parseFloat(noteEl.style.left) || 0),
+        top: Math.round(Number.parseFloat(noteEl.style.top) || 0)
+      });
     }
 
     if (noteEl.hasPointerCapture(event.pointerId)) {
       noteEl.releasePointerCapture(event.pointerId);
     }
     dragState = null;
+    syncStickyNoteLayoutState();
   }
 
   noteEl.addEventListener("pointerup", releaseStickyNote);
@@ -444,13 +550,23 @@ function createStickyNote(listEntry, colorClassName) {
 function renderStickyNotes(listEntries) {
   clearStickyNotes();
   if (!stickyNoteLayerEl || !Array.isArray(listEntries) || listEntries.length === 0) return;
+  const layoutState = loadStickyNoteLayoutState();
+  const sortedEntries = [...listEntries].sort((a, b) => {
+    const aEntry = layoutState[String(a?.list_name || "")];
+    const bEntry = layoutState[String(b?.list_name || "")];
+    const aOrder = Number.isFinite(Number(aEntry?.order)) ? Number(aEntry.order) : Number.MAX_SAFE_INTEGER;
+    const bOrder = Number.isFinite(Number(bEntry?.order)) ? Number(bEntry.order) : Number.MAX_SAFE_INTEGER;
+    if (aOrder !== bOrder) return aOrder - bOrder;
+    return String(a?.list_name || "").localeCompare(String(b?.list_name || ""));
+  });
 
-  listEntries.forEach((listEntry, index) => {
+  sortedEntries.forEach((listEntry, index) => {
     const colorClassName = STICKY_NOTE_COLOR_CLASSES[index % STICKY_NOTE_COLOR_CLASSES.length];
     const noteEl = createStickyNote(listEntry, colorClassName);
     stickyNoteLayerEl.appendChild(noteEl);
   });
   layoutStowedStickyNotes();
+  syncStickyNoteLayoutState();
 }
 
 async function loadStickyNotes() {
@@ -464,6 +580,7 @@ async function loadStickyNotes() {
     const data = await response.json();
     if (response.status === 401) {
       isAuthenticated = false;
+      currentUserId = "";
       updateAuthUi();
       clearStickyNotes();
       return;
@@ -995,6 +1112,7 @@ async function checkAuth() {
     const response = await fetch("/api/auth/me");
     const data = await response.json();
     isAuthenticated = Boolean(response.ok && data.ok && data.authenticated);
+    currentUserId = isAuthenticated ? String(data?.user?.id || "") : "";
     updateAuthUi();
     if (isAuthenticated) {
       void loadStickyNotes();
@@ -1003,6 +1121,7 @@ async function checkAuth() {
     }
   } catch (_) {
     isAuthenticated = false;
+    currentUserId = "";
     updateAuthUi();
     clearStickyNotes();
   }
@@ -1025,6 +1144,7 @@ async function initSession() {
     const data = await response.json();
     if (response.status === 401) {
       isAuthenticated = false;
+      currentUserId = "";
       updateAuthUi();
       return;
     }
@@ -1076,6 +1196,7 @@ async function submitPromptText(prompt) {
 
     if (response.status === 401) {
       isAuthenticated = false;
+      currentUserId = "";
       updateAuthUi();
       throw new Error("Please sign in.");
     }
@@ -1173,6 +1294,7 @@ authFormEl.addEventListener("submit", async (event) => {
       throw new Error(data.error || "Authentication failed.");
     }
     isAuthenticated = true;
+    currentUserId = String(data?.user?.id || "");
     updateAuthUi();
     setAuthStatus("");
     authPasswordEl.value = "";
@@ -1190,6 +1312,7 @@ async function signOut() {
     // Best-effort.
   }
   isAuthenticated = false;
+  currentUserId = "";
   currentSessionId = "";
   updateAuthUi();
   clearStickyNotes();

@@ -525,6 +525,7 @@ FastReplies rules:
 - Any suggested actions, or solutions contained in a clarification questions MUST have FastReplies options.
 - Any “I can…”, “tell me…”, “if you meant…”, or “do you want…” suggestion needs a FastReply.
 - e.g. "I couldn’t find a list called that. If you [[send: meant an event|Yes, I meant an event]], tell me which to remove."
+- soft max of 3 FastReplies per message
 
 -When multiple tool actions are needed, plan them as ordered steps:
   - Emit all independent actions that can run at the same time in the same assistant turn as multiple tool calls.
