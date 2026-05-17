@@ -37,6 +37,14 @@ const STICKY_NOTE_DOCK_THRESHOLD = 110;
 const STICKY_NOTE_STOWED_PEEK_WIDTH = 118;
 const STICKY_NOTE_STACK_TOP_START = 72;
 const STICKY_NOTE_STACK_GAP = 74;
+const STICKY_NOTE_COLOR_CLASSES = [
+  "color-yellow",
+  "color-orange",
+  "color-red",
+  "color-blue",
+  "color-green",
+  "color-violet"
+];
 const isTouchDevice = window.matchMedia("(pointer: coarse)").matches;
 let attachedImageDataUrl = null;
 let composerDocked = false;
@@ -321,9 +329,9 @@ function queueStickyNoteSave(noteEl) {
   stickyNoteSaveTimers.set(key, timerId);
 }
 
-function createStickyNote(listEntry) {
+function createStickyNote(listEntry, colorClassName) {
   const noteEl = document.createElement("article");
-  noteEl.className = "sticky-note is-stowed";
+  noteEl.className = `sticky-note is-stowed ${colorClassName || STICKY_NOTE_COLOR_CLASSES[0]}`;
   noteEl.setAttribute("aria-label", `Draggable note for ${listEntry.list_name}`);
   noteEl.dataset.listName = String(listEntry.list_name || "");
 
@@ -437,8 +445,9 @@ function renderStickyNotes(listEntries) {
   clearStickyNotes();
   if (!stickyNoteLayerEl || !Array.isArray(listEntries) || listEntries.length === 0) return;
 
-  listEntries.forEach((listEntry) => {
-    const noteEl = createStickyNote(listEntry);
+  listEntries.forEach((listEntry, index) => {
+    const colorClassName = STICKY_NOTE_COLOR_CLASSES[index % STICKY_NOTE_COLOR_CLASSES.length];
+    const noteEl = createStickyNote(listEntry, colorClassName);
     stickyNoteLayerEl.appendChild(noteEl);
   });
   layoutStowedStickyNotes();
