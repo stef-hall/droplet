@@ -998,7 +998,7 @@ textarea {
   position: absolute;
   width: 182px;
   min-height: 176px;
-  padding: 30px 16px 16px;
+  padding: 10px 16px 16px;
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0) 24%),
     #f7e37a;
@@ -1029,7 +1029,7 @@ textarea {
 
 .sticky-note.is-near-dock,
 .sticky-note.is-stowed {
-  min-height: 62px;
+  min-height: 50px;
   border-radius: 14px 0 0 14px;
   transform: rotate(0deg);
 }
@@ -1056,7 +1056,6 @@ textarea {
   font-weight: 700;
   letter-spacing: 0.16em;
   text-transform: uppercase;
-  margin-bottom: 12px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

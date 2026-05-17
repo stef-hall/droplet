@@ -446,6 +446,24 @@ def get_available_lists(user_id: int | None = None):
         if file_path.is_file()
     )
 
+
+def get_available_list_entries(user_id: int):
+    names = get_available_lists(user_id=user_id)
+    entries = []
+    for name in names:
+        result = ReadList(user_id=user_id, list_name=name)
+        if not isinstance(result, dict):
+            continue
+        if str(result.get("status", "")).strip().lower() != "success":
+            continue
+        entries.append(
+            {
+                "list_name": str(result.get("list_name", name)),
+                "content": str(result.get("content", "")),
+            }
+        )
+    return entries
+
 configure_tools(_get_user_caldav_calendars, LISTS_DIR)
 
 
@@ -1688,6 +1706,37 @@ def api_settings_caldav_get():
         "has_password": bool(str(row["caldav_password"] or "")) if row else False,
     }
     return jsonify({"ok": True, "settings": settings_payload})
+
+
+@app.get("/api/lists")
+def api_lists_get():
+    auth_error = _require_auth()
+    if auth_error:
+        return auth_error
+
+    user_id = int(session["user_id"])
+    return jsonify({"ok": True, "lists": get_available_list_entries(user_id)})
+
+
+@app.post("/api/lists/save")
+def api_lists_save():
+    auth_error = _require_auth()
+    if auth_error:
+        return auth_error
+
+    payload = request.get_json(silent=True) or {}
+    list_name = str(payload.get("list_name", "")).strip()
+    content = str(payload.get("content", ""))
+
+    if not list_name:
+        return jsonify({"ok": False, "error": "List name is required."}), 400
+
+    user_id = int(session["user_id"])
+    result = EditList(user_id=user_id, list_name=list_name, content=content)
+    if not isinstance(result, dict) or str(result.get("status", "")).strip().lower() != "success":
+        return jsonify({"ok": False, "error": "Failed to save list."}), 500
+
+    return jsonify({"ok": True, "list": {"list_name": list_name, "content": content}})
 
 
 @app.post("/api/settings/caldav")
