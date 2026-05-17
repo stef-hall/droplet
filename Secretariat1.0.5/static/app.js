@@ -471,6 +471,28 @@ function createStickyNote(listEntry, colorClassName) {
   }
 
   let dragState = null;
+  let swayFrameId = 0;
+
+  function stopSwayAnimation() {
+    if (swayFrameId) {
+      cancelAnimationFrame(swayFrameId);
+      swayFrameId = 0;
+    }
+  }
+
+  function startSwayAnimation() {
+    stopSwayAnimation();
+    const tick = () => {
+      if (!dragState) {
+        swayFrameId = 0;
+        return;
+      }
+      dragState.angle += (dragState.targetAngle - dragState.angle) * 0.28;
+      noteEl.style.transform = `rotate(${dragState.angle.toFixed(2)}deg)`;
+      swayFrameId = requestAnimationFrame(tick);
+    };
+    swayFrameId = requestAnimationFrame(tick);
+  }
 
   noteEl.addEventListener("pointerdown", (event) => {
     if (event.button !== undefined && event.button !== 0) return;
@@ -485,13 +507,18 @@ function createStickyNote(listEntry, colorClassName) {
       pointerId: event.pointerId,
       wasStowedAtGrab,
       previewDockIndex: wasStowedAtGrab ? getStickyNoteDockIndex(event.clientY, noteEl) : null,
+      lastLeft: rect.left,
+      angle: 0,
+      targetAngle: 0,
       offsetX: event.clientX - rect.left,
       offsetY: event.clientY - rect.top
     };
 
+    noteEl.style.transition = "none";
     noteEl.classList.add("is-dragging");
     setStickyNoteDragLayerActive(true);
     noteEl.setPointerCapture(event.pointerId);
+    startSwayAnimation();
     event.preventDefault();
   });
 
@@ -516,6 +543,9 @@ function createStickyNote(listEntry, colorClassName) {
 
     noteEl.style.left = `${Math.round(nextLeft)}px`;
     noteEl.style.top = `${Math.round(nextTop)}px`;
+    const deltaX = nextLeft - dragState.lastLeft;
+    dragState.lastLeft = nextLeft;
+    dragState.targetAngle = clamp(deltaX * 0.9, -12, 12);
     noteEl.classList.toggle("is-near-dock", nearDock);
     setStickyNoteDockHintVisible(nearDock);
     if (nearDock) {
@@ -533,6 +563,9 @@ function createStickyNote(listEntry, colorClassName) {
 
     noteEl.classList.remove("is-dragging");
     noteEl.classList.remove("is-near-dock");
+    stopSwayAnimation();
+    noteEl.style.transition = "transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1)";
+    noteEl.style.transform = "";
     setStickyNoteDockHintVisible(false);
     setStickyNoteDockSlotVisible(false);
     setStickyNoteDragLayerActive(false);

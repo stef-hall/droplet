@@ -1031,6 +1031,7 @@ textarea {
   --sticky-note-shadow: rgba(46, 36, 5, 0.18);
   --sticky-note-tape: rgba(255, 247, 210, 0.72);
   --sticky-note-tape-border: rgba(126, 112, 76, 0.16);
+  border-radius: 3px;
   position: absolute;
   width: 182px;
   min-height: 176px;
@@ -1043,7 +1044,7 @@ textarea {
   box-shadow:
     0 14px 24px var(--sticky-note-shadow),
     0 3px 0 rgba(255, 255, 255, 0.24) inset;
-  transform: rotate(-2deg);
+  transform: rotate(0deg);
   cursor: grab;
   user-select: none;
   touch-action: none;
@@ -1163,6 +1164,7 @@ textarea {
 }
 
 .sticky-note-body {
+  margin-top: 10px;
   max-height: 120px;
   opacity: 1;
   overflow: hidden;
