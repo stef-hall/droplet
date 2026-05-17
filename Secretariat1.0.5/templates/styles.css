@@ -1060,7 +1060,7 @@ textarea {
 .sticky-note.is-dragging {
   cursor: grabbing;
   box-shadow:
-    0 20px 32px color-mix(in srgb, var(--sticky-note-shadow) 125%, black 10%),
+    0 19px 39px 12px rgba(46, 36, 5, 0.1),
     0 3px 0 rgba(255, 255, 255, 0.24) inset;
 }
 

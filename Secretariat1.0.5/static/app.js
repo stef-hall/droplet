@@ -514,7 +514,7 @@ function createStickyNote(listEntry, colorClassName) {
       offsetY: event.clientY - rect.top
     };
 
-    noteEl.style.transition = "none";
+    noteEl.style.transition = "transform 40ms linear, box-shadow 180ms ease";
     noteEl.classList.add("is-dragging");
     setStickyNoteDragLayerActive(true);
     noteEl.setPointerCapture(event.pointerId);
@@ -564,7 +564,7 @@ function createStickyNote(listEntry, colorClassName) {
     noteEl.classList.remove("is-dragging");
     noteEl.classList.remove("is-near-dock");
     stopSwayAnimation();
-    noteEl.style.transition = "transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1)";
+    noteEl.style.transition = "transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 180ms ease";
     noteEl.style.transform = "";
     setStickyNoteDockHintVisible(false);
     setStickyNoteDockSlotVisible(false);
