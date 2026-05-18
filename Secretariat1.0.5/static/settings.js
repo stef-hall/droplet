@@ -17,7 +17,7 @@ const deleteUserStatusEl = document.getElementById("delete-user-status");
 let currentUser = null;
 const CALDAV_PROVIDER_URLS = {
   icloud: "https://caldav.icloud.com",
-  google: "https://apidata.googleusercontent.com/caldav/v2/",
+  google: "https://www.google.com/calendar/dav/",
 };
 
 (function () {
@@ -109,7 +109,7 @@ if (settingsBackLinkEl) {
 
 function providerFromUrl(url) {
   const clean = String(url || "").trim().toLowerCase();
-  if (clean === CALDAV_PROVIDER_URLS.google.toLowerCase()) return "google";
+  if (clean.includes("googleusercontent.com/caldav/v2") || clean.includes("google.com/calendar/dav/")) return "google";
   return "icloud";
 }
 

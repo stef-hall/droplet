@@ -22,7 +22,7 @@ import uuid
 import traceback
 import secrets
 import hashlib
-from urllib.parse import urlencode
+from urllib.parse import urlencode, unquote
 from urllib.request import urlopen
 from pathlib import Path
 from werkzeug.security import check_password_hash, generate_password_hash # type: ignore
@@ -233,6 +233,30 @@ def _valid_email(email: str) -> bool:
     return bool(email)
 
 
+def _normalize_caldav_url(caldav_url: str, caldav_username: str) -> str:
+    raw_url = str(caldav_url or "").strip()
+    if not raw_url:
+        return raw_url
+
+    lowered = raw_url.lower()
+    is_google = (
+        "googleusercontent.com/caldav/v2" in lowered
+        or "google.com/calendar/dav/" in lowered
+    )
+    if not is_google:
+        return raw_url
+
+    username = str(caldav_username or "").strip()
+    if not username:
+        match = re.search(r"/calendar/dav/([^/]+)/events/?", raw_url, flags=re.IGNORECASE)
+        if match:
+            username = unquote(match.group(1)).strip()
+    if not username:
+        return raw_url
+
+    return f"https://www.google.com/calendar/dav/{username}/events/"
+
+
 def _require_auth():
     _restore_auth_from_trusted_device()
     user_id = session.get("user_id")
@@ -258,8 +282,8 @@ def _get_user_caldav_settings(user_id: int) -> dict[str, str]:
     if not row:
         raise ValueError("CalDAV settings are missing. Open Settings and add your CalDAV URL, username, and password.")
 
-    caldav_url = str(row["caldav_url"] or "").strip()
     caldav_username = str(row["caldav_username"] or "").strip()
+    caldav_url = _normalize_caldav_url(str(row["caldav_url"] or "").strip(), caldav_username)
     caldav_password = str(row["caldav_password"] or "")
     caldav_calendar = str(row["caldav_calendar"] or "").strip()
 
@@ -1748,9 +1772,8 @@ def api_settings_caldav_save():
 
     payload = request.get_json(silent=True) or {}
     user_id = int(session["user_id"])
-    caldav_url = str(payload.get("caldav_url", "")).strip()
-    print(caldav_url)
     caldav_username = str(payload.get("caldav_username", "")).strip()
+    caldav_url = _normalize_caldav_url(str(payload.get("caldav_url", "")).strip(), caldav_username)
     caldav_calendar = str(payload.get("caldav_calendar", "")).strip()
     assistant_model = _normalize_assistant_model(payload.get("assistant_model"))
     caldav_password_incoming = payload.get("caldav_password")

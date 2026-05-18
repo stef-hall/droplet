@@ -635,6 +635,12 @@ if __name__ == "__main__":
 
     configure_tools(_get_user_caldav_calendars, LISTS_DIR)
 
+    response = GetEvents(3,
+    times=["20260507T000000+12:00", "20260608T000000+12:00"]
+    )
+    print(response)
+    quit()
+    
     x = GetWeather(
         latitude=38.5816,
         longitude=-121.4944,
@@ -642,12 +648,6 @@ if __name__ == "__main__":
     )
     print(x)
     quit()
-
-
-    response = GetEvents(3,
-    times=["20260507T000000+12:00", "20260608T000000+12:00"]
-    )
-    #print(response)
 
 
     response = EditEvent(3,
