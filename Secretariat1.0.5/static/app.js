@@ -39,7 +39,8 @@ const MAX_PROMPT_HEIGHT = 180;
 const STICKY_NOTE_DOCK_THRESHOLD = 110;
 const STICKY_NOTE_STOWED_PEEK_WIDTH = 118;
 const STICKY_NOTE_STACK_TOP_START = 72;
-const STICKY_NOTE_STACK_GAP = 74;
+const STICKY_NOTE_STACK_MIN_GAP = 46;
+const STICKY_NOTE_STACK_GAP_PADDING = 6;
 const STICKY_NOTE_SAFE_TOP = 64;
 const STICKY_NOTE_COLOR_CLASSES = [
   "color-yellow",
@@ -363,17 +364,25 @@ function getStickyNoteDockIndex(pointerY, draggingNoteEl) {
 
 function positionStickyNoteDockSlot(index) {
   if (!stickyNoteDockSlotEl) return;
-  const desiredTop = STICKY_NOTE_STACK_TOP_START + index * STICKY_NOTE_STACK_GAP;
+  const stackGap = getStickyNoteStackGap();
+  const desiredTop = STICKY_NOTE_STACK_TOP_START + index * stackGap;
   const safeTop = clamp(desiredTop, STICKY_NOTE_SAFE_TOP, Math.max(STICKY_NOTE_SAFE_TOP, window.innerHeight - stickyNoteDockSlotEl.offsetHeight));
   stickyNoteDockSlotEl.style.top = `${Math.round(safeTop)}px`;
 }
 
+function getStickyNoteStackGap(draggingNoteEl = null) {
+  const sampleNoteEl = getStickyNotes().find((noteEl) => noteEl.classList.contains("is-stowed") && noteEl !== draggingNoteEl) || draggingNoteEl;
+  if (!sampleNoteEl) return STICKY_NOTE_STACK_MIN_GAP;
+  return Math.max(STICKY_NOTE_STACK_MIN_GAP, Math.round(sampleNoteEl.offsetHeight + STICKY_NOTE_STACK_GAP_PADDING));
+}
+
 function layoutStowedStickyNotes({ draggingNoteEl = null, previewIndex = null } = {}) {
   const stowedNotes = getStickyNotes().filter((noteEl) => noteEl.classList.contains("is-stowed") && noteEl !== draggingNoteEl);
+  const stackGap = getStickyNoteStackGap(draggingNoteEl);
   stowedNotes.forEach((noteEl, index) => {
     const slotIndex = previewIndex !== null && index >= previewIndex ? index + 1 : index;
     const maxTop = Math.max(0, window.innerHeight - noteEl.offsetHeight);
-    const desiredTop = STICKY_NOTE_STACK_TOP_START + slotIndex * STICKY_NOTE_STACK_GAP;
+    const desiredTop = STICKY_NOTE_STACK_TOP_START + slotIndex * stackGap;
     const safeTop = clamp(desiredTop, STICKY_NOTE_SAFE_TOP, Math.max(STICKY_NOTE_SAFE_TOP, maxTop));
     const stowedLeft = Math.max(0, window.innerWidth - STICKY_NOTE_STOWED_PEEK_WIDTH);
     noteEl.classList.toggle("is-stowed-preview", previewIndex !== null);
