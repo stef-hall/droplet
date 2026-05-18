@@ -1749,6 +1749,7 @@ def api_settings_caldav_save():
     payload = request.get_json(silent=True) or {}
     user_id = int(session["user_id"])
     caldav_url = str(payload.get("caldav_url", "")).strip()
+    print(caldav_url)
     caldav_username = str(payload.get("caldav_username", "")).strip()
     caldav_calendar = str(payload.get("caldav_calendar", "")).strip()
     assistant_model = _normalize_assistant_model(payload.get("assistant_model"))
