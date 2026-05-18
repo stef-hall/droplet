@@ -54,7 +54,10 @@
 
             <label class="settings-field">
               <span>Calendar name</span>
-              <input id="caldav-calendar" name="caldav_calendar" type="text" placeholder="Optional. Uses your first calendar if left blank.">
+              <div id="caldav-calendar-dropdown" class="settings-multi-select">
+                <button id="caldav-calendar-summary" type="button" class="settings-multi-select-trigger">No calendars selected</button>
+                <div id="caldav-calendar-options" class="settings-multi-select-options hidden"></div>
+              </div>
             </label>
 
             <label class="settings-field">
