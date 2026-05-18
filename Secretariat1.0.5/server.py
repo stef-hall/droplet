@@ -851,6 +851,13 @@ def _parse_iso_datetime(value):
     text = str(value).strip()
     if not text:
         return None
+    compact_match = re.fullmatch(r"(\d{8}T\d{6})([+-]\d{2}:\d{2})", text)
+    if compact_match:
+        dt_part, offset_part = compact_match.groups()
+        try:
+            return datetime.strptime(f"{dt_part}{offset_part}", "%Y%m%dT%H%M%S%z")
+        except ValueError:
+            return None
     if text.endswith("Z"):
         text = text[:-1] + "+00:00"
     try:
