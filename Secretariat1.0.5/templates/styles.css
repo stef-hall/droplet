@@ -1048,7 +1048,9 @@ textarea {
   --sticky-note-shadow: rgba(46, 36, 5, 0.18);
   --sticky-note-tape: rgba(255, 247, 210, 0.72);
   --sticky-note-tape-border: rgba(126, 112, 76, 0.16);
-  border-radius: 3px;
+  --sticky-note-radius: var(--composer-radius);
+  --sticky-note-squircle: var(--composer-squircle);
+  border-radius: var(--sticky-note-radius);
   position: absolute;
   display: flex;
   flex-direction: column;
@@ -1074,6 +1076,8 @@ textarea {
     box-shadow 180ms ease,
     transform 180ms ease,
     border-radius 180ms ease;
+  /* Match the composer bar shape in browsers without corner-shape support. */
+  clip-path: superellipse(0.5 / calc(var(--sticky-note-squircle) * 1%));
 }
 
 .sticky-note.is-resizing {
@@ -1091,8 +1095,9 @@ textarea {
 .sticky-note.is-near-dock,
 .sticky-note.is-stowed {
   min-height: 40px;
-  border-radius: 14px 0 0 14px;
+  border-radius: var(--sticky-note-radius) 0 0 var(--sticky-note-radius);
   transform: rotate(0deg);
+  clip-path: inset(0 0 0 0 round var(--sticky-note-radius) 0 0 var(--sticky-note-radius));
 }
 
 .sticky-note-resize-handle {
@@ -1124,6 +1129,18 @@ textarea {
     box-shadow 180ms ease,
     transform 180ms ease,
     border-radius 180ms ease;
+}
+
+@supports (corner-shape: squircle) {
+  .sticky-note {
+    corner-shape: squircle;
+    clip-path: none;
+  }
+
+  .sticky-note.is-near-dock,
+  .sticky-note.is-stowed {
+    clip-path: none;
+  }
 }
 
 .sticky-note-tape {
