@@ -190,12 +190,9 @@ function renderCalendarOptions() {
     });
 
     const textEl = document.createElement("span");
-    textEl.textContent = `Calendar name [${inputEl.checked ? "x" : " "}] ${calendarName}`;
-    inputEl.addEventListener("change", () => {
-      textEl.textContent = `Calendar name [${inputEl.checked ? "x" : " "}] ${calendarName}`;
-    });
-    labelEl.appendChild(inputEl);
+    textEl.textContent = calendarName;
     labelEl.appendChild(textEl);
+    labelEl.appendChild(inputEl);
     caldavCalendarOptionsEl.appendChild(labelEl);
   }
 

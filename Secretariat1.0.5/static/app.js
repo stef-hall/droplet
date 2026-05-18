@@ -40,7 +40,7 @@ const STICKY_NOTE_DOCK_THRESHOLD = 110;
 const STICKY_NOTE_STOWED_PEEK_WIDTH = 118;
 const STICKY_NOTE_STACK_TOP_START = 72;
 const STICKY_NOTE_STACK_MIN_GAP = 46;
-const STICKY_NOTE_STACK_GAP_PADDING = 6;
+const STICKY_NOTE_STACK_GAP_PADDING = 7.2;
 const STICKY_NOTE_SAFE_TOP = 64;
 const STICKY_NOTE_COLOR_CLASSES = [
   "color-yellow",
@@ -362,8 +362,22 @@ function getStickyNoteDockIndex(pointerY, draggingNoteEl) {
   return stowedNotes.length;
 }
 
-function positionStickyNoteDockSlot(index) {
+function getStickyNoteDockSlotSize(draggingNoteEl = null) {
+  const sampleNoteEl = getStickyNotes().find((noteEl) => noteEl.classList.contains("is-stowed") && noteEl !== draggingNoteEl) || draggingNoteEl;
+  if (!sampleNoteEl) {
+    return { width: STICKY_NOTE_STOWED_PEEK_WIDTH, height: STICKY_NOTE_STACK_MIN_GAP };
+  }
+  return {
+    width: Math.max(STICKY_NOTE_STOWED_PEEK_WIDTH, Math.round(sampleNoteEl.offsetWidth)),
+    height: Math.max(STICKY_NOTE_STACK_MIN_GAP, Math.round(sampleNoteEl.offsetHeight))
+  };
+}
+
+function positionStickyNoteDockSlot(index, draggingNoteEl = null) {
   if (!stickyNoteDockSlotEl) return;
+  const slotSize = getStickyNoteDockSlotSize(draggingNoteEl);
+  stickyNoteDockSlotEl.style.width = `${slotSize.width}px`;
+  stickyNoteDockSlotEl.style.height = `${slotSize.height}px`;
   const stackGap = getStickyNoteStackGap();
   const desiredTop = STICKY_NOTE_STACK_TOP_START + index * stackGap;
   const safeTop = clamp(desiredTop, STICKY_NOTE_SAFE_TOP, Math.max(STICKY_NOTE_SAFE_TOP, window.innerHeight - stickyNoteDockSlotEl.offsetHeight));
@@ -390,7 +404,7 @@ function layoutStowedStickyNotes({ draggingNoteEl = null, previewIndex = null } 
     noteEl.style.top = `${Math.round(safeTop)}px`;
   });
   if (previewIndex !== null) {
-    positionStickyNoteDockSlot(previewIndex);
+    positionStickyNoteDockSlot(previewIndex, draggingNoteEl);
     setStickyNoteDockSlotVisible(true);
   } else {
     setStickyNoteDockSlotVisible(false);

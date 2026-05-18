@@ -1448,7 +1448,8 @@ textarea {
 .settings-multi-select-option {
   display: flex;
   align-items: center;
-  gap: 8px;
+  justify-content: space-between;
+  gap: 12px;
   padding: 6px 4px;
   font-size: 0.95rem;
   color: #222;
