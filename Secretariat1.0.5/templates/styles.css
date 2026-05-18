@@ -1050,6 +1050,8 @@ textarea {
   --sticky-note-tape-border: rgba(126, 112, 76, 0.16);
   border-radius: 3px;
   position: absolute;
+  display: flex;
+  flex-direction: column;
   width: 182px;
   min-height: 176px;
   padding: 10px 16px 16px;
@@ -1068,10 +1070,15 @@ textarea {
   pointer-events: auto;
   transition:
     width 180ms ease,
-    min-height 180ms ease,
+    height 180ms ease,
     box-shadow 180ms ease,
     transform 180ms ease,
     border-radius 180ms ease;
+}
+
+.sticky-note.is-resizing {
+  cursor: nwse-resize;
+  transition: box-shadow 120ms ease;
 }
 
 .sticky-note.is-dragging {
@@ -1088,12 +1095,32 @@ textarea {
   transform: rotate(0deg);
 }
 
+.sticky-note-resize-handle {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  width: 16px;
+  height: 16px;
+  cursor: nwse-resize;
+  opacity: 0.75;
+  border-radius: 2px;
+  background:
+    linear-gradient(135deg, transparent 0 50%, rgba(74, 59, 5, 0.5) 50% 56%, transparent 56% 100%),
+    linear-gradient(135deg, transparent 0 64%, rgba(74, 59, 5, 0.5) 64% 70%, transparent 70% 100%);
+}
+
+.sticky-note.is-near-dock .sticky-note-resize-handle,
+.sticky-note.is-stowed .sticky-note-resize-handle {
+  opacity: 0;
+  pointer-events: none;
+}
+
 .sticky-note.is-stowed-preview {
   transition:
     left 180ms ease,
     top 180ms ease,
     width 180ms ease,
-    min-height 180ms ease,
+    height 180ms ease,
     box-shadow 180ms ease,
     transform 180ms ease,
     border-radius 180ms ease;
@@ -1182,7 +1209,9 @@ textarea {
 
 .sticky-note-body {
   margin-top: 10px;
-  max-height: 280px;
+  flex: 1;
+  min-height: 0;
+  max-height: none;
   opacity: 1;
   overflow: hidden;
   transition: max-height 180ms ease, opacity 140ms ease, margin-top 180ms ease;
@@ -1197,8 +1226,9 @@ textarea {
 
 .sticky-note-input {
   width: 100%;
+  height: 100%;
   min-height: 92px;
-  max-height: 220px;
+  max-height: none;
   border: 0;
   outline: none;
   resize: none;

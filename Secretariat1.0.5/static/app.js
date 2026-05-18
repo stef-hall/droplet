@@ -42,6 +42,8 @@ const STICKY_NOTE_STACK_TOP_START = 72;
 const STICKY_NOTE_STACK_MIN_GAP = 46;
 const STICKY_NOTE_STACK_GAP_PADDING = 7.2;
 const STICKY_NOTE_SAFE_TOP = 64;
+const STICKY_NOTE_MIN_WIDTH = 160;
+const STICKY_NOTE_MIN_HEIGHT = 120;
 const MAX_STICKY_NOTE_INPUT_HEIGHT = 220;
 const STICKY_NOTE_COLOR_CLASSES = [
   "color-yellow",
@@ -334,12 +336,17 @@ function clearStickyNotes() {
   setStickyNoteDockSlotVisible(false);
 }
 
-function autoSizeStickyNoteInput(inputEl) {
+function autoSizeStickyNoteInput(inputEl, noteEl = null) {
   if (!(inputEl instanceof HTMLTextAreaElement)) return;
+  const bodyEl = inputEl.closest(".sticky-note-body");
+  const bodyHeight = bodyEl instanceof HTMLElement ? bodyEl.clientHeight : 0;
+  const availableHeight = Math.max(92, bodyHeight || 0);
+  const dynamicMaxHeight = Math.max(availableHeight, MAX_STICKY_NOTE_INPUT_HEIGHT);
+  const maxHeight = Math.max(MAX_STICKY_NOTE_INPUT_HEIGHT, dynamicMaxHeight);
   inputEl.style.height = "auto";
-  const nextHeight = Math.min(inputEl.scrollHeight, MAX_STICKY_NOTE_INPUT_HEIGHT);
+  const nextHeight = Math.max(availableHeight, Math.min(inputEl.scrollHeight, maxHeight));
   inputEl.style.height = `${nextHeight}px`;
-  inputEl.style.overflowY = inputEl.scrollHeight > MAX_STICKY_NOTE_INPUT_HEIGHT ? "auto" : "hidden";
+  inputEl.style.overflowY = inputEl.scrollHeight > maxHeight ? "auto" : "hidden";
 }
 
 function isStickyNoteNearDock(noteEl, left) {
@@ -491,18 +498,20 @@ function createStickyNote(listEntry, colorClassName) {
     <div class="sticky-note-body">
       <textarea class="sticky-note-input" rows="4" spellcheck="false"></textarea>
     </div>
+    <div class="sticky-note-resize-handle" aria-hidden="true"></div>
   `;
 
   const titleEl = noteEl.querySelector(".sticky-note-title");
   const inputEl = noteEl.querySelector(".sticky-note-input");
+  const resizeHandleEl = noteEl.querySelector(".sticky-note-resize-handle");
   if (titleEl) {
     titleEl.textContent = String(listEntry.list_name || "");
   }
   if (inputEl instanceof HTMLTextAreaElement) {
     inputEl.value = String(listEntry.content || "");
-    autoSizeStickyNoteInput(inputEl);
+    autoSizeStickyNoteInput(inputEl, noteEl);
     inputEl.addEventListener("input", () => {
-      autoSizeStickyNoteInput(inputEl);
+      autoSizeStickyNoteInput(inputEl, noteEl);
       queueStickyNoteSave(noteEl);
     });
   }
@@ -517,6 +526,7 @@ function createStickyNote(listEntry, colorClassName) {
   }
 
   let dragState = null;
+  let resizeState = null;
   let swayFrameId = 0;
 
   function stopSwayAnimation() {
@@ -544,6 +554,7 @@ function createStickyNote(listEntry, colorClassName) {
     if (event.button !== undefined && event.button !== 0) return;
     const target = event.target;
     if (target instanceof HTMLElement && target.closest(".sticky-note-input")) return;
+    if (target instanceof HTMLElement && target.closest(".sticky-note-resize-handle")) return;
 
     stickyNoteLayerEl?.appendChild(noteEl);
 
@@ -641,6 +652,58 @@ function createStickyNote(listEntry, colorClassName) {
 
   noteEl.addEventListener("pointerup", releaseStickyNote);
   noteEl.addEventListener("pointercancel", releaseStickyNote);
+
+  if (resizeHandleEl instanceof HTMLElement) {
+    resizeHandleEl.addEventListener("pointerdown", (event) => {
+      if (event.button !== undefined && event.button !== 0) return;
+      if (noteEl.classList.contains("is-stowed")) return;
+      stickyNoteLayerEl?.appendChild(noteEl);
+      const rect = noteEl.getBoundingClientRect();
+      resizeState = {
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        startWidth: rect.width,
+        startHeight: rect.height,
+        startLeft: rect.left,
+        startTop: rect.top
+      };
+      noteEl.classList.add("is-resizing");
+      setStickyNoteDragLayerActive(true);
+      resizeHandleEl.setPointerCapture(event.pointerId);
+      event.preventDefault();
+      event.stopPropagation();
+    });
+
+    resizeHandleEl.addEventListener("pointermove", (event) => {
+      if (!resizeState || event.pointerId !== resizeState.pointerId) return;
+      const deltaX = event.clientX - resizeState.startX;
+      const deltaY = event.clientY - resizeState.startY;
+      const maxWidth = Math.max(STICKY_NOTE_MIN_WIDTH, window.innerWidth - resizeState.startLeft);
+      const maxHeight = Math.max(STICKY_NOTE_MIN_HEIGHT, window.innerHeight - resizeState.startTop);
+      const nextWidth = clamp(resizeState.startWidth + deltaX, STICKY_NOTE_MIN_WIDTH, maxWidth);
+      const nextHeight = clamp(resizeState.startHeight + deltaY, STICKY_NOTE_MIN_HEIGHT, maxHeight);
+      noteEl.style.width = `${Math.round(nextWidth)}px`;
+      noteEl.style.height = `${Math.round(nextHeight)}px`;
+      if (inputEl instanceof HTMLTextAreaElement) {
+        autoSizeStickyNoteInput(inputEl, noteEl);
+      }
+    });
+
+    const releaseResize = (event) => {
+      if (!resizeState || event.pointerId !== resizeState.pointerId) return;
+      if (resizeHandleEl.hasPointerCapture(event.pointerId)) {
+        resizeHandleEl.releasePointerCapture(event.pointerId);
+      }
+      noteEl.classList.remove("is-resizing");
+      setStickyNoteDragLayerActive(false);
+      resizeState = null;
+      syncStickyNoteLayoutState();
+    };
+
+    resizeHandleEl.addEventListener("pointerup", releaseResize);
+    resizeHandleEl.addEventListener("pointercancel", releaseResize);
+  }
   return noteEl;
 }
 
@@ -709,7 +772,7 @@ window.addEventListener("resize", () => {
   getStickyNotes().forEach((noteEl) => {
     const inputEl = noteEl.querySelector(".sticky-note-input");
     if (inputEl instanceof HTMLTextAreaElement) {
-      autoSizeStickyNoteInput(inputEl);
+      autoSizeStickyNoteInput(inputEl, noteEl);
     }
   });
   layoutStowedStickyNotes();
