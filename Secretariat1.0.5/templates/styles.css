@@ -1078,7 +1078,7 @@ textarea {
 
 .sticky-note.is-resizing {
   cursor: nwse-resize;
-  transition: box-shadow 120ms ease;
+  transition: none !important;
 }
 
 .sticky-note.is-dragging {
