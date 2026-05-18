@@ -1384,9 +1384,15 @@ textarea {
 }
 
 .settings-field span {
+  width: 95%;
   font-size: 0.92rem;
   font-weight: 600;
   color: #222;
+}
+
+.settings-multi-select-option input {
+  width: 5% !important; 
+  height: 18px;
 }
 
 .settings-field input,

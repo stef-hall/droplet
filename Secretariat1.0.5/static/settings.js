@@ -216,7 +216,10 @@ async function fetchCalendarNames() {
     }
     availableCalendars = normalizeCalendarNames(data.calendars || []);
     const selectedFromServer = normalizeCalendarNames(data.selected || []);
-    selectedCalendars = normalizeCalendarNames(selectedCalendars.length ? selectedCalendars : selectedFromServer);
+    const availableSet = new Set(availableCalendars.map((name) => name.toLowerCase()));
+    const localSelected = normalizeCalendarNames(selectedCalendars).filter((name) => availableSet.has(name.toLowerCase()));
+    const serverSelected = selectedFromServer.filter((name) => availableSet.has(name.toLowerCase()));
+    selectedCalendars = normalizeCalendarNames([...serverSelected, ...localSelected]);
     renderCalendarOptions();
   } catch (error) {
     availableCalendars = [];
