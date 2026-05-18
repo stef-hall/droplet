@@ -72,7 +72,6 @@ textarea {
 
 .chat-header {
     height:4.2%;
-    border-radius:4px;
     width: 100%;
     justify-self: center;
     min-height: 30px;
@@ -241,7 +240,7 @@ textarea {
 .theme-toggle input {
   appearance: none;
   -webkit-appearance: none;
-  width: 46px;
+  width: 65px;
   height: 26px;
   border-radius: 999px;
   border: 1px solid var(--line);
@@ -270,12 +269,29 @@ textarea {
 }
 
 .theme-toggle input:checked::after {
-  transform: translateX(20px);
+  transform: translateX(39px);
 }
 
 .theme-toggle input:focus-visible {
   outline: none;
   box-shadow: 0 0 0 3px rgba(78, 140, 255, 0.3);
+}
+
+.sticky-notes-toggle {
+  justify-content: space-between;
+}
+
+.sticky-notes-toggle-icon {
+  width: 57px;
+  height: 57px;
+  object-fit: contain;
+  transform: scale(1.3);
+  transform-origin: left center;
+  transition: filter 180ms ease;
+}
+
+.sticky-notes-toggle-icon.is-disabled {
+  filter: grayscale(1);
 }
 
 
@@ -954,6 +970,250 @@ textarea {
 
 .meta.meta-fading {
   opacity: 0;
+}
+
+.sticky-note-effects-layer,
+.sticky-note-layer {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+}
+
+.sticky-note-effects-layer {
+  z-index: 29;
+}
+
+.sticky-note-layer {
+  z-index: 29;
+}
+
+.sticky-note-layer.is-drag-active {
+  z-index: 45;
+}
+
+.sticky-note-dock-hint {
+  position: absolute;
+  top: 84px;
+  right: 0;
+  top:0px;
+  bottom: 0px;
+  width: 132px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 14px;
+  background: linear-gradient(270deg, rgba(247, 227, 122, 0.28), rgba(247, 227, 122, 0));
+  opacity: 0;
+  transform: translateX(22px);
+  transition: opacity 180ms ease, transform 220ms ease;
+}
+
+.sticky-note-effects-layer.show-dock-hint .sticky-note-dock-hint {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+.sticky-note-dock-slot {
+  position: absolute;
+  right: 0;
+  width: 132px;
+  height: 50px;
+  border: 1px dashed rgba(74, 59, 5, 0.38);
+  border-right: 0;
+  border-radius: 14px 0 0 14px;
+  background: rgba(247, 227, 122, 0.16);
+  opacity: 0;
+  transform: translateX(12px);
+  transition: opacity 160ms ease, transform 180ms ease, top 180ms ease;
+}
+
+.sticky-note-effects-layer.show-dock-slot .sticky-note-dock-slot {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+.sticky-note-dock-hint-label {
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  font-size: 0.82rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: rgba(74, 59, 5, 0.76);
+}
+
+.sticky-note {
+  --sticky-note-bg: #f7e37a;
+  --sticky-note-text: #4a3b05;
+  --sticky-note-border: rgba(110, 88, 13, 0.16);
+  --sticky-note-shadow: rgba(46, 36, 5, 0.18);
+  --sticky-note-tape: rgba(255, 247, 210, 0.72);
+  --sticky-note-tape-border: rgba(126, 112, 76, 0.16);
+  border-radius: 3px;
+  position: absolute;
+  width: 182px;
+  min-height: 176px;
+  padding: 10px 16px 16px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0) 24%),
+    var(--sticky-note-bg);
+  color: var(--sticky-note-text);
+  border: 1px solid var(--sticky-note-border);
+  box-shadow:
+    0 14px 24px var(--sticky-note-shadow),
+    0 3px 0 rgba(255, 255, 255, 0.24) inset;
+  transform: rotate(0deg);
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+  pointer-events: auto;
+  transition:
+    width 180ms ease,
+    min-height 180ms ease,
+    box-shadow 180ms ease,
+    transform 180ms ease,
+    border-radius 180ms ease;
+}
+
+.sticky-note.is-dragging {
+  cursor: grabbing;
+  box-shadow:
+    0 19px 39px 12px rgba(46, 36, 5, 0.1),
+    0 3px 0 rgba(255, 255, 255, 0.24) inset;
+}
+
+.sticky-note.is-near-dock,
+.sticky-note.is-stowed {
+  min-height: 50px;
+  border-radius: 14px 0 0 14px;
+  transform: rotate(0deg);
+}
+
+.sticky-note.is-stowed-preview {
+  transition:
+    left 180ms ease,
+    top 180ms ease,
+    width 180ms ease,
+    min-height 180ms ease,
+    box-shadow 180ms ease,
+    transform 180ms ease,
+    border-radius 180ms ease;
+}
+
+.sticky-note-tape {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  width: 62px;
+  height: 20px;
+  transform: translateX(-50%) rotate(3deg);
+  background: var(--sticky-note-tape);
+  border: 1px solid var(--sticky-note-tape-border);
+  box-shadow: 0 1px 2px rgba(70, 57, 13, 0.08);
+}
+
+.sticky-note.color-yellow {
+  --sticky-note-bg: #f7e37a;
+  --sticky-note-text: #4a3b05;
+  --sticky-note-border: rgba(110, 88, 13, 0.16);
+  --sticky-note-shadow: rgba(46, 36, 5, 0.18);
+  --sticky-note-tape: rgba(255, 247, 210, 0.72);
+  --sticky-note-tape-border: rgba(126, 112, 76, 0.16);
+}
+
+.sticky-note.color-orange {
+  --sticky-note-bg: #f5b35c;
+  --sticky-note-text: #5a2d00;
+  --sticky-note-border: rgba(145, 73, 7, 0.18);
+  --sticky-note-shadow: rgba(99, 49, 7, 0.2);
+  --sticky-note-tape: rgba(255, 232, 201, 0.74);
+  --sticky-note-tape-border: rgba(161, 107, 51, 0.16);
+}
+
+.sticky-note.color-red {
+  --sticky-note-bg: #ef7b73;
+  --sticky-note-text: #5a1714;
+  --sticky-note-border: rgba(145, 32, 24, 0.18);
+  --sticky-note-shadow: rgba(104, 18, 12, 0.2);
+  --sticky-note-tape: rgba(255, 224, 220, 0.72);
+  --sticky-note-tape-border: rgba(144, 69, 62, 0.16);
+}
+
+.sticky-note.color-blue {
+  --sticky-note-bg: #7eb8f5;
+  --sticky-note-text: #12385f;
+  --sticky-note-border: rgba(24, 83, 145, 0.18);
+  --sticky-note-shadow: rgba(13, 58, 103, 0.2);
+  --sticky-note-tape: rgba(227, 240, 255, 0.72);
+  --sticky-note-tape-border: rgba(73, 111, 155, 0.16);
+}
+
+.sticky-note.color-green {
+  --sticky-note-bg: #8cd68f;
+  --sticky-note-text: #17451d;
+  --sticky-note-border: rgba(28, 109, 38, 0.18);
+  --sticky-note-shadow: rgba(18, 74, 25, 0.18);
+  --sticky-note-tape: rgba(229, 249, 229, 0.72);
+  --sticky-note-tape-border: rgba(75, 133, 84, 0.16);
+}
+
+.sticky-note.color-violet {
+  --sticky-note-bg: #b89cf1;
+  --sticky-note-text: #36205d;
+  --sticky-note-border: rgba(77, 47, 131, 0.18);
+  --sticky-note-shadow: rgba(52, 30, 91, 0.2);
+  --sticky-note-tape: rgba(238, 231, 255, 0.72);
+  --sticky-note-tape-border: rgba(110, 92, 154, 0.16);
+}
+
+.sticky-note.is-near-dock .sticky-note-tape,
+.sticky-note.is-stowed .sticky-note-tape {
+  opacity: 0;
+}
+
+.sticky-note-title {
+  font-size: 0.9rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sticky-note-body {
+  margin-top: 10px;
+  max-height: 120px;
+  opacity: 1;
+  overflow: hidden;
+  transition: max-height 180ms ease, opacity 140ms ease, margin-top 180ms ease;
+}
+
+.sticky-note.is-near-dock .sticky-note-body,
+.sticky-note.is-stowed .sticky-note-body {
+  max-height: 0;
+  opacity: 0;
+  margin-top: -4px;
+}
+
+.sticky-note-input {
+  width: 100%;
+  min-height: 92px;
+  border: 0;
+  outline: none;
+  resize: none;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 1.05rem;
+  line-height: 1.3;
+  letter-spacing: 0.02em;
+  text-transform: lowercase;
+  overflow: hidden;
+}
+
+.sticky-note-input::placeholder {
+  color: rgba(74, 59, 5, 0.56);
 }
 
 .hidden {

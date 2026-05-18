@@ -446,10 +446,27 @@ def get_available_lists(user_id: int | None = None):
         if file_path.is_file()
     )
 
+
+def get_available_list_entries(user_id: int):
+    names = get_available_lists(user_id=user_id)
+    entries = []
+    for name in names:
+        result = ReadList(user_id=user_id, list_name=name)
+        if not isinstance(result, dict):
+            continue
+        if str(result.get("status", "")).strip().lower() != "success":
+            continue
+        entries.append(
+            {
+                "list_name": str(result.get("list_name", name)),
+                "content": str(result.get("content", "")),
+            }
+        )
+    return entries
+
 configure_tools(_get_user_caldav_calendars, LISTS_DIR)
 
-
-system_prompt = """
+concise_prompt = """
 You are an assistant calender manager with access to tools.
 
 Use a tool whenever it is required to complete the user’s request or when the tool provides the most accurate way to perform the task.
@@ -464,6 +481,8 @@ Rules:
 - Consult your context first before calling GetEvents/Get...
 - If the USER tells you to Restore/Undo/Bring Back/Recreate an event your FIRST STEP is to look back in your context for the requested events, then recreate the event
 - If a requested time could be interpreted as AM or PM, do not guess; ask a clarifying question before calling tools
+- Display multipile events in a markdown time table 
+- If someone calls you 'bud' you have to call them 'bud' back
 - Always return a state:
   - RUNNING = Operating Tools/Thinking
   - WAITING = Waiting for User Input
@@ -474,20 +493,17 @@ Rules:
   - bullet lists
   - inline `code`, fenced ```code``` 
   - pipe tables | a | b |)
-- Display multipile events in a markdown time table 
-- Use FastReplies for obvious next steps, clarifications, undo, confirmations, or suggested actions.
-- 
-- If someone calls you 'bud' you have to call them 'bud' back
-
+"""
+system_prompt = concise_prompt + """
 Reminders:
 - If multiple details are missing, ask for them all in one message.
+- Use FastReplies for obvious next steps, clarifications, undo, confirmations, or suggested actions.
 - If a duration cannot be reasonably defered, default to *1 hour*
 - When a tool creates resources and returns IDs/UIDs, assume those returned IDs will be visible in conversation context after the batched tool results complete. Therefore, batch independent create calls together. Only serialize calls when the next call requires a value produced by a previous call.
 - If given a City to GetWeather for; default to using the Co-Ordinates (Lat/Long) of that City's Center. 
 - apply extra reasoning scrutiny around meridians (AM/PM), especially 12:00 times
 - "rn" = "Right Now"
 - "tn" = "Tonight"
-
 
 Tone:
 - Keep responses concise. Prefer plain phrasing over long explanations
@@ -508,6 +524,7 @@ FastReplies rules:
 - Any suggested actions, or solutions contained in a clarification questions MUST have FastReplies options.
 - Any “I can…”, “tell me…”, “if you meant…”, or “do you want…” suggestion needs a FastReply.
 - e.g. "I couldn’t find a list called that. If you [[send: meant an event|Yes, I meant an event]], tell me which to remove."
+- soft max of 3 FastReplies per message
 
 -When multiple tool actions are needed, plan them as ordered steps:
   - Emit all independent actions that can run at the same time in the same assistant turn as multiple tool calls.
@@ -1448,11 +1465,9 @@ def ask_gpt54(user_input, system_prompt, results, previous_response_id=None, use
             parallel_tool_calls=True,
         )
         usage = response.usage
-
         input_tokens = usage.input_tokens
         cached_tokens = usage.input_tokens_details.cached_tokens
         uncached_tokens = input_tokens - cached_tokens
-
         print("input_tokens:", input_tokens)
         print("cached_tokens:", cached_tokens)
         print("uncached_tokens:", uncached_tokens)
@@ -1463,25 +1478,28 @@ def ask_gpt54(user_input, system_prompt, results, previous_response_id=None, use
         # Follow-up turns: send function outputs when available, otherwise send the new user turn.
         if results:
             input_items = results
+            #instructions = concise_prompt #Disabled Just For Now
+            instructions = system_prompt
+            print("[Concise Prompt]")
 
         else:
             input_items = [{"role": "user", "content": user_content}]
+            instructions = system_prompt
+            print("[Full System Prompt]")
 
         # Continue the same model conversation by passing previous_response_id.
         response = client.responses.create(
+            previous_response_id=previous_response_id,
             model=selected_model,
-            instructions=system_prompt,
+            instructions=instructions,
             tools=tools,
             input=input_items,
-            previous_response_id=previous_response_id,
             parallel_tool_calls=True,
         )
         usage = response.usage
-
         input_tokens = usage.input_tokens
         cached_tokens = usage.input_tokens_details.cached_tokens
         uncached_tokens = input_tokens - cached_tokens
-
         print("input_tokens:", input_tokens)
         print("cached_tokens:", cached_tokens)
         print("uncached_tokens:", uncached_tokens)
@@ -1546,6 +1564,11 @@ def run_secretariat(prompt_text, image_data_url=None, previous_response_id=None,
                     "args": json.loads(content["arguments"]),
                     "call_id": content["call_id"],
                 })
+
+        # If the model returned only a user-facing message and no tool calls,
+        # treat that turn as complete instead of spinning another model turn.
+        if not saw_function_call and assistant_message and state == "RUNNING":
+            state = "DONE"
 
         if saw_function_call:
             _log("TOOL_BATCH", f"Executing {len(function_calls)} tool call(s)")
@@ -1684,6 +1707,37 @@ def api_settings_caldav_get():
         "has_password": bool(str(row["caldav_password"] or "")) if row else False,
     }
     return jsonify({"ok": True, "settings": settings_payload})
+
+
+@app.get("/api/lists")
+def api_lists_get():
+    auth_error = _require_auth()
+    if auth_error:
+        return auth_error
+
+    user_id = int(session["user_id"])
+    return jsonify({"ok": True, "lists": get_available_list_entries(user_id)})
+
+
+@app.post("/api/lists/save")
+def api_lists_save():
+    auth_error = _require_auth()
+    if auth_error:
+        return auth_error
+
+    payload = request.get_json(silent=True) or {}
+    list_name = str(payload.get("list_name", "")).strip()
+    content = str(payload.get("content", ""))
+
+    if not list_name:
+        return jsonify({"ok": False, "error": "List name is required."}), 400
+
+    user_id = int(session["user_id"])
+    result = EditList(user_id=user_id, list_name=list_name, content=content)
+    if not isinstance(result, dict) or str(result.get("status", "")).strip().lower() != "success":
+        return jsonify({"ok": False, "error": "Failed to save list."}), 500
+
+    return jsonify({"ok": True, "list": {"list_name": list_name, "content": content}})
 
 
 @app.post("/api/settings/caldav")
@@ -2006,6 +2060,11 @@ def api_secretariat_stream():
                             "call_id": content["call_id"],
                         })
 
+                # If the model returned only a user-facing message and no tool calls,
+                # treat that turn as complete instead of spinning another model turn.
+                if not saw_function_call and assistant_message and state == "RUNNING":
+                    state = "DONE"
+
                 if saw_function_call:
                     _log("TOOL_BATCH", f"Executing {len(function_calls)} tool call(s)")
                     yield emit({"type": "status", "label": _batch_status_label(function_calls)})
@@ -2099,6 +2158,6 @@ if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8000, debug=False)
 
 """
-Beasly Boys
+Born In '0.5
 """
 

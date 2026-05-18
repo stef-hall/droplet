@@ -23,6 +23,8 @@ const navDrawerTriggerEl = document.getElementById("nav-drawer-trigger");
 const navDrawerEl = document.getElementById("nav-drawer");
 const navDrawerOverlayEl = document.getElementById("nav-drawer-overlay");
 const darkModeToggleEl = document.getElementById("dark-mode-toggle");
+const stickyNotesToggleEl = document.getElementById("sticky-notes-toggle");
+const stickyNotesToggleIconEl = document.getElementById("sticky-notes-toggle-icon");
 const themeColorMetaEl = document.getElementById("theme-color-meta");
 const themeToggleIconLeftEl = document.getElementById("theme-toggle-icon-left");
 const themeToggleIconRightEl = document.getElementById("theme-toggle-icon-right");
@@ -30,7 +32,23 @@ const authSubtitleEl = document.getElementById("auth-subtitle");
 const authStatusEl = document.getElementById("auth-status");
 const authTrustDeviceEl = document.getElementById("auth-trust-device");
 const authTrustWrapEl = document.getElementById("auth-trust-wrap");
+const stickyNoteEffectsLayerEl = document.getElementById("sticky-note-effects-layer");
+const stickyNoteLayerEl = document.getElementById("sticky-note-layer");
+const stickyNoteDockSlotEl = document.getElementById("sticky-note-dock-slot");
 const MAX_PROMPT_HEIGHT = 180;
+const STICKY_NOTE_DOCK_THRESHOLD = 110;
+const STICKY_NOTE_STOWED_PEEK_WIDTH = 118;
+const STICKY_NOTE_STACK_TOP_START = 72;
+const STICKY_NOTE_STACK_GAP = 74;
+const STICKY_NOTE_SAFE_TOP = 64;
+const STICKY_NOTE_COLOR_CLASSES = [
+  "color-yellow",
+  "color-orange",
+  "color-red",
+  "color-blue",
+  "color-green",
+  "color-violet"
+];
 const isTouchDevice = window.matchMedia("(pointer: coarse)").matches;
 let attachedImageDataUrl = null;
 let composerDocked = false;
@@ -38,9 +56,11 @@ let doneFadeTimer = null;
 let detectedTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
 let detectedLocation = null;
 let currentSessionId = "";
+let currentUserId = "";
 let initSessionPromise = null;
 let isSignupMode = false;
 let isAuthenticated = false;
+const stickyNoteSaveTimers = new Map();
 const ALLOWED_DESKTOP_META_STATUSES = new Set([
   "Attachment removed",
   "Attachment added",
@@ -49,6 +69,25 @@ const ALLOWED_DESKTOP_META_STATUSES = new Set([
   "Done"
 ]);
 const THEME_STORAGE_KEY = "secretariat-theme";
+const STICKY_NOTES_ENABLED_STORAGE_KEY = "secretariat-sticky-notes-enabled";
+const STICKY_NOTE_LAYOUT_STORAGE_KEY = "secretariat-sticky-layout";
+
+function isStickyNotesEnabled() {
+  return !stickyNotesToggleEl || stickyNotesToggleEl.checked;
+}
+
+function refreshStickyNotesView() {
+  if (!isStickyNotesEnabled() || !isAuthenticated) {
+    clearStickyNotes();
+    return;
+  }
+  void loadStickyNotes();
+}
+
+function updateStickyNotesToggleVisual() {
+  if (!stickyNotesToggleIconEl || !stickyNotesToggleEl) return;
+  stickyNotesToggleIconEl.classList.toggle("is-disabled", !stickyNotesToggleEl.checked);
+}
 
 (function () {
   const isMobile = window.matchMedia("(max-width: 768px)").matches;
@@ -169,6 +208,486 @@ function initializeTheme() {
 }
 
 initializeTheme();
+
+function clamp(value, min, max) {
+  return Math.min(Math.max(value, min), max);
+}
+
+function getStickyNoteLayoutStorageKey() {
+  const scope = String(currentUserId || "guest").trim() || "guest";
+  return `${STICKY_NOTE_LAYOUT_STORAGE_KEY}:${scope}`;
+}
+
+function loadStickyNoteLayoutState() {
+  try {
+    const raw = localStorage.getItem(getStickyNoteLayoutStorageKey());
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch (_) {
+    return {};
+  }
+}
+
+function saveStickyNoteLayoutState(layoutState) {
+  try {
+    localStorage.setItem(getStickyNoteLayoutStorageKey(), JSON.stringify(layoutState || {}));
+  } catch (_) {
+    // Ignore storage failures.
+  }
+}
+
+function getStickyNoteLayoutEntry(noteEl) {
+  const listName = String(noteEl?.dataset?.listName || "").trim();
+  if (!listName) return null;
+  const layoutState = loadStickyNoteLayoutState();
+  const entry = layoutState[listName];
+  return entry && typeof entry === "object" ? entry : null;
+}
+
+function saveStickyNoteLayoutEntry(noteEl, partialEntry = {}) {
+  const listName = String(noteEl?.dataset?.listName || "").trim();
+  if (!listName) return;
+  const layoutState = loadStickyNoteLayoutState();
+  const previous = layoutState[listName];
+  layoutState[listName] = {
+    ...(previous && typeof previous === "object" ? previous : {}),
+    ...partialEntry
+  };
+  saveStickyNoteLayoutState(layoutState);
+}
+
+function normalizeStickyNoteColorClass(value) {
+  return STICKY_NOTE_COLOR_CLASSES.includes(value) ? value : null;
+}
+
+function syncStickyNoteLayoutState() {
+  const layoutState = loadStickyNoteLayoutState();
+  const liveNames = new Set();
+  const stowedNotes = [];
+
+  getStickyNotes().forEach((noteEl) => {
+    const listName = String(noteEl.dataset.listName || "").trim();
+    if (!listName) return;
+    liveNames.add(listName);
+
+    const left = Number.parseFloat(noteEl.style.left);
+    const top = Number.parseFloat(noteEl.style.top);
+    const entry = {
+      isStowed: noteEl.classList.contains("is-stowed")
+    };
+    if (Number.isFinite(left)) entry.left = Math.round(left);
+    if (Number.isFinite(top)) entry.top = Math.round(top);
+    layoutState[listName] = {
+      ...(layoutState[listName] && typeof layoutState[listName] === "object" ? layoutState[listName] : {}),
+      ...entry
+    };
+    if (entry.isStowed) {
+      stowedNotes.push(noteEl);
+    }
+  });
+
+  stowedNotes.forEach((noteEl, index) => {
+    const listName = String(noteEl.dataset.listName || "").trim();
+    if (!listName || !layoutState[listName]) return;
+    layoutState[listName].order = index;
+  });
+
+  Object.keys(layoutState).forEach((listName) => {
+    if (!liveNames.has(listName)) {
+      delete layoutState[listName];
+    }
+  });
+
+  saveStickyNoteLayoutState(layoutState);
+}
+
+function setStickyNoteDockHintVisible(visible) {
+  if (!stickyNoteEffectsLayerEl) return;
+  stickyNoteEffectsLayerEl.classList.toggle("show-dock-hint", visible);
+}
+
+function setStickyNoteDockSlotVisible(visible) {
+  if (!stickyNoteEffectsLayerEl) return;
+  stickyNoteEffectsLayerEl.classList.toggle("show-dock-slot", visible);
+}
+
+function setStickyNoteDragLayerActive(active) {
+  if (!stickyNoteLayerEl) return;
+  stickyNoteLayerEl.classList.toggle("is-drag-active", active);
+}
+
+function getStickyNotes() {
+  if (!stickyNoteLayerEl) return [];
+  return Array.from(stickyNoteLayerEl.querySelectorAll(".sticky-note"));
+}
+
+function clearStickyNotes() {
+  for (const timerId of stickyNoteSaveTimers.values()) {
+    clearTimeout(timerId);
+  }
+  stickyNoteSaveTimers.clear();
+  getStickyNotes().forEach((noteEl) => noteEl.remove());
+  setStickyNoteDockHintVisible(false);
+  setStickyNoteDockSlotVisible(false);
+}
+
+function autoSizeStickyNoteInput(inputEl) {
+  if (!(inputEl instanceof HTMLTextAreaElement)) return;
+  inputEl.style.height = "auto";
+  inputEl.style.height = `${inputEl.scrollHeight}px`;
+}
+
+function isStickyNoteNearDock(noteEl, left) {
+  return left + noteEl.offsetWidth >= window.innerWidth - STICKY_NOTE_DOCK_THRESHOLD;
+}
+
+function updateStickyNoteDockPreview(noteEl, left) {
+  const nearDock = isStickyNoteNearDock(noteEl, left);
+  noteEl.classList.toggle("is-near-dock", nearDock);
+  setStickyNoteDockHintVisible(nearDock);
+  return nearDock;
+}
+
+function getStickyNoteDockIndex(pointerY, draggingNoteEl) {
+  const stowedNotes = getStickyNotes().filter((noteEl) => noteEl.classList.contains("is-stowed") && noteEl !== draggingNoteEl);
+  for (let index = 0; index < stowedNotes.length; index += 1) {
+    const rect = stowedNotes[index].getBoundingClientRect();
+    const midpoint = rect.top + rect.height / 2;
+    if (pointerY < midpoint) {
+      return index;
+    }
+  }
+  return stowedNotes.length;
+}
+
+function positionStickyNoteDockSlot(index) {
+  if (!stickyNoteDockSlotEl) return;
+  const desiredTop = STICKY_NOTE_STACK_TOP_START + index * STICKY_NOTE_STACK_GAP;
+  const safeTop = clamp(desiredTop, STICKY_NOTE_SAFE_TOP, Math.max(STICKY_NOTE_SAFE_TOP, window.innerHeight - stickyNoteDockSlotEl.offsetHeight));
+  stickyNoteDockSlotEl.style.top = `${Math.round(safeTop)}px`;
+}
+
+function layoutStowedStickyNotes({ draggingNoteEl = null, previewIndex = null } = {}) {
+  const stowedNotes = getStickyNotes().filter((noteEl) => noteEl.classList.contains("is-stowed") && noteEl !== draggingNoteEl);
+  stowedNotes.forEach((noteEl, index) => {
+    const slotIndex = previewIndex !== null && index >= previewIndex ? index + 1 : index;
+    const maxTop = Math.max(0, window.innerHeight - noteEl.offsetHeight);
+    const desiredTop = STICKY_NOTE_STACK_TOP_START + slotIndex * STICKY_NOTE_STACK_GAP;
+    const safeTop = clamp(desiredTop, STICKY_NOTE_SAFE_TOP, Math.max(STICKY_NOTE_SAFE_TOP, maxTop));
+    const stowedLeft = Math.max(0, window.innerWidth - STICKY_NOTE_STOWED_PEEK_WIDTH);
+    noteEl.classList.toggle("is-stowed-preview", previewIndex !== null);
+    noteEl.style.left = `${Math.round(stowedLeft)}px`;
+    noteEl.style.top = `${Math.round(safeTop)}px`;
+  });
+  if (previewIndex !== null) {
+    positionStickyNoteDockSlot(previewIndex);
+    setStickyNoteDockSlotVisible(true);
+  } else {
+    setStickyNoteDockSlotVisible(false);
+    stowedNotes.forEach((noteEl) => noteEl.classList.remove("is-stowed-preview"));
+  }
+}
+
+function commitStickyNoteDockOrder(noteEl, insertIndex) {
+  if (!stickyNoteLayerEl) return;
+  const stowedNotes = getStickyNotes().filter((candidate) => candidate.classList.contains("is-stowed") && candidate !== noteEl);
+  const clampedIndex = clamp(insertIndex, 0, stowedNotes.length);
+  const anchorEl = stowedNotes[clampedIndex] || null;
+  if (anchorEl) {
+    stickyNoteLayerEl.insertBefore(noteEl, anchorEl);
+  } else {
+    stickyNoteLayerEl.appendChild(noteEl);
+  }
+  syncStickyNoteLayoutState();
+}
+
+async function saveStickyNote(noteEl) {
+  const inputEl = noteEl.querySelector(".sticky-note-input");
+  const listName = String(noteEl.dataset.listName || "").trim();
+  if (!(inputEl instanceof HTMLTextAreaElement) || !listName || !isAuthenticated) return;
+
+  noteEl.dataset.saveState = "saving";
+  try {
+    const response = await fetch("/api/lists/save", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        list_name: listName,
+        content: inputEl.value
+      })
+    });
+    const data = await response.json();
+    if (response.status === 401) {
+      isAuthenticated = false;
+      currentUserId = "";
+      updateAuthUi();
+      clearStickyNotes();
+      return;
+    }
+    if (!response.ok || !data.ok) {
+      throw new Error(data.error || "Failed to save list.");
+    }
+    noteEl.dataset.saveState = "saved";
+  } catch (_) {
+    noteEl.dataset.saveState = "error";
+  }
+}
+
+function queueStickyNoteSave(noteEl) {
+  const key = String(noteEl.dataset.listName || "");
+  if (!key) return;
+  const existingTimer = stickyNoteSaveTimers.get(key);
+  if (existingTimer) {
+    clearTimeout(existingTimer);
+  }
+  noteEl.dataset.saveState = "dirty";
+  const timerId = window.setTimeout(() => {
+    stickyNoteSaveTimers.delete(key);
+    void saveStickyNote(noteEl);
+  }, 350);
+  stickyNoteSaveTimers.set(key, timerId);
+}
+
+function createStickyNote(listEntry, colorClassName) {
+  const noteEl = document.createElement("article");
+  const savedLayoutEntry = loadStickyNoteLayoutState()[String(listEntry.list_name || "")] || null;
+  const startsStowed = !savedLayoutEntry || savedLayoutEntry.isStowed !== false;
+  const persistedColorClass = normalizeStickyNoteColorClass(savedLayoutEntry?.colorClass);
+  const appliedColorClass = persistedColorClass || normalizeStickyNoteColorClass(colorClassName) || STICKY_NOTE_COLOR_CLASSES[0];
+  noteEl.className = `sticky-note ${startsStowed ? "is-stowed" : ""} ${appliedColorClass}`.trim();
+  noteEl.setAttribute("aria-label", `Draggable note for ${listEntry.list_name}`);
+  noteEl.dataset.listName = String(listEntry.list_name || "");
+
+  noteEl.innerHTML = `
+    <div class="sticky-note-tape" aria-hidden="true"></div>
+    <div class="sticky-note-title"></div>
+    <div class="sticky-note-body">
+      <textarea class="sticky-note-input" rows="4" spellcheck="false"></textarea>
+    </div>
+  `;
+
+  const titleEl = noteEl.querySelector(".sticky-note-title");
+  const inputEl = noteEl.querySelector(".sticky-note-input");
+  if (titleEl) {
+    titleEl.textContent = String(listEntry.list_name || "");
+  }
+  if (inputEl instanceof HTMLTextAreaElement) {
+    inputEl.value = String(listEntry.content || "");
+    autoSizeStickyNoteInput(inputEl);
+    inputEl.addEventListener("input", () => {
+      autoSizeStickyNoteInput(inputEl);
+      queueStickyNoteSave(noteEl);
+    });
+  }
+
+  const savedLeft = Number.parseFloat(savedLayoutEntry?.left);
+  const savedTop = Number.parseFloat(savedLayoutEntry?.top);
+  if (Number.isFinite(savedLeft)) {
+    noteEl.style.left = `${Math.round(savedLeft)}px`;
+  }
+  if (Number.isFinite(savedTop)) {
+    noteEl.style.top = `${Math.round(savedTop)}px`;
+  }
+
+  let dragState = null;
+  let swayFrameId = 0;
+
+  function stopSwayAnimation() {
+    if (swayFrameId) {
+      cancelAnimationFrame(swayFrameId);
+      swayFrameId = 0;
+    }
+  }
+
+  function startSwayAnimation() {
+    stopSwayAnimation();
+    const tick = () => {
+      if (!dragState) {
+        swayFrameId = 0;
+        return;
+      }
+      dragState.angle += (dragState.targetAngle - dragState.angle) * 0.28;
+      noteEl.style.transform = `rotate(${dragState.angle.toFixed(2)}deg)`;
+      swayFrameId = requestAnimationFrame(tick);
+    };
+    swayFrameId = requestAnimationFrame(tick);
+  }
+
+  noteEl.addEventListener("pointerdown", (event) => {
+    if (event.button !== undefined && event.button !== 0) return;
+    const target = event.target;
+    if (target instanceof HTMLElement && target.closest(".sticky-note-input")) return;
+
+    stickyNoteLayerEl?.appendChild(noteEl);
+
+    const rect = noteEl.getBoundingClientRect();
+    const wasStowedAtGrab = noteEl.classList.contains("is-stowed");
+    dragState = {
+      pointerId: event.pointerId,
+      wasStowedAtGrab,
+      previewDockIndex: wasStowedAtGrab ? getStickyNoteDockIndex(event.clientY, noteEl) : null,
+      lastLeft: rect.left,
+      angle: 0,
+      targetAngle: 0,
+      offsetX: event.clientX - rect.left,
+      offsetY: event.clientY - rect.top
+    };
+
+    noteEl.style.transition = "transform 40ms linear, box-shadow 180ms ease";
+    noteEl.classList.add("is-dragging");
+    setStickyNoteDragLayerActive(true);
+    noteEl.setPointerCapture(event.pointerId);
+    startSwayAnimation();
+    event.preventDefault();
+  });
+
+  noteEl.addEventListener("pointermove", (event) => {
+    if (!dragState || event.pointerId !== dragState.pointerId) return;
+
+    const maxLeft = Math.max(0, window.innerWidth - noteEl.offsetWidth);
+    const maxTop = Math.max(0, window.innerHeight - noteEl.offsetHeight);
+    const nextLeft = clamp(event.clientX - dragState.offsetX, 0, maxLeft);
+    const nextTop = clamp(event.clientY - dragState.offsetY, -16, maxTop);
+    const nearDock = isStickyNoteNearDock(noteEl, nextLeft);
+    const previewDockIndex = nearDock ? getStickyNoteDockIndex(event.clientY, noteEl) : null;
+
+    if (dragState.wasStowedAtGrab) {
+      if (nearDock) {
+        noteEl.classList.add("is-stowed");
+      } else {
+        noteEl.classList.remove("is-stowed");
+      }
+    }
+    dragState.previewDockIndex = previewDockIndex;
+
+    noteEl.style.left = `${Math.round(nextLeft)}px`;
+    noteEl.style.top = `${Math.round(nextTop)}px`;
+    const deltaX = nextLeft - dragState.lastLeft;
+    dragState.lastLeft = nextLeft;
+    dragState.targetAngle = clamp(deltaX * 0.9, -12, 12);
+    noteEl.classList.toggle("is-near-dock", nearDock);
+    setStickyNoteDockHintVisible(nearDock);
+    if (nearDock) {
+      layoutStowedStickyNotes({ draggingNoteEl: noteEl, previewIndex: previewDockIndex });
+    } else {
+      layoutStowedStickyNotes();
+    }
+  });
+
+  function releaseStickyNote(event) {
+    if (!dragState || event.pointerId !== dragState.pointerId) return;
+    const currentLeft = Number.parseFloat(noteEl.style.left) || 0;
+    const shouldStow = isStickyNoteNearDock(noteEl, currentLeft);
+    const previewDockIndex = dragState.previewDockIndex;
+
+    noteEl.classList.remove("is-dragging");
+    noteEl.classList.remove("is-near-dock");
+    stopSwayAnimation();
+    noteEl.style.transition = "transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 180ms ease";
+    noteEl.style.transform = "";
+    setStickyNoteDockHintVisible(false);
+    setStickyNoteDockSlotVisible(false);
+    setStickyNoteDragLayerActive(false);
+
+    if (shouldStow) {
+      noteEl.classList.add("is-stowed");
+      commitStickyNoteDockOrder(noteEl, previewDockIndex ?? getStickyNotes().length);
+      layoutStowedStickyNotes();
+    } else {
+      const currentTop = Number.parseFloat(noteEl.style.top) || 0;
+      const settledTop = clamp(currentTop, STICKY_NOTE_SAFE_TOP, Math.max(STICKY_NOTE_SAFE_TOP, window.innerHeight - noteEl.offsetHeight));
+      noteEl.style.top = `${Math.round(settledTop)}px`;
+      layoutStowedStickyNotes();
+      saveStickyNoteLayoutEntry(noteEl, {
+        isStowed: false,
+        left: Math.round(Number.parseFloat(noteEl.style.left) || 0),
+        top: Math.round(Number.parseFloat(noteEl.style.top) || STICKY_NOTE_SAFE_TOP)
+      });
+    }
+
+    if (noteEl.hasPointerCapture(event.pointerId)) {
+      noteEl.releasePointerCapture(event.pointerId);
+    }
+    dragState = null;
+    syncStickyNoteLayoutState();
+  }
+
+  noteEl.addEventListener("pointerup", releaseStickyNote);
+  noteEl.addEventListener("pointercancel", releaseStickyNote);
+  return noteEl;
+}
+
+function renderStickyNotes(listEntries) {
+  clearStickyNotes();
+  if (!stickyNoteLayerEl || !Array.isArray(listEntries) || listEntries.length === 0) return;
+  const layoutState = loadStickyNoteLayoutState();
+  let didMutateLayoutState = false;
+  const sortedEntries = [...listEntries].sort((a, b) => {
+    const aEntry = layoutState[String(a?.list_name || "")];
+    const bEntry = layoutState[String(b?.list_name || "")];
+    const aOrder = Number.isFinite(Number(aEntry?.order)) ? Number(aEntry.order) : Number.MAX_SAFE_INTEGER;
+    const bOrder = Number.isFinite(Number(bEntry?.order)) ? Number(bEntry.order) : Number.MAX_SAFE_INTEGER;
+    if (aOrder !== bOrder) return aOrder - bOrder;
+    return String(a?.list_name || "").localeCompare(String(b?.list_name || ""));
+  });
+
+  sortedEntries.forEach((listEntry, index) => {
+    const listName = String(listEntry?.list_name || "");
+    const existingEntry = layoutState[listName] && typeof layoutState[listName] === "object" ? layoutState[listName] : {};
+    const persistedColorClass = normalizeStickyNoteColorClass(existingEntry.colorClass);
+    const colorClassName = persistedColorClass || STICKY_NOTE_COLOR_CLASSES[index % STICKY_NOTE_COLOR_CLASSES.length];
+    if (!persistedColorClass && listName) {
+      layoutState[listName] = {
+        ...existingEntry,
+        colorClass: colorClassName
+      };
+      didMutateLayoutState = true;
+    }
+    const noteEl = createStickyNote(listEntry, colorClassName);
+    stickyNoteLayerEl.appendChild(noteEl);
+  });
+  if (didMutateLayoutState) {
+    saveStickyNoteLayoutState(layoutState);
+  }
+  layoutStowedStickyNotes();
+  syncStickyNoteLayoutState();
+}
+
+async function loadStickyNotes() {
+  if (!isAuthenticated || !isStickyNotesEnabled()) {
+    clearStickyNotes();
+    return;
+  }
+
+  try {
+    const response = await fetch("/api/lists");
+    const data = await response.json();
+    if (response.status === 401) {
+      isAuthenticated = false;
+      currentUserId = "";
+      updateAuthUi();
+      clearStickyNotes();
+      return;
+    }
+    if (!response.ok || !data.ok) {
+      throw new Error(data.error || "Failed to load lists.");
+    }
+    renderStickyNotes(Array.isArray(data.lists) ? data.lists : []);
+  } catch (_) {
+    clearStickyNotes();
+  }
+}
+
+window.addEventListener("resize", () => {
+  getStickyNotes().forEach((noteEl) => {
+    const inputEl = noteEl.querySelector(".sticky-note-input");
+    if (inputEl instanceof HTMLTextAreaElement) {
+      autoSizeStickyNoteInput(inputEl);
+    }
+  });
+  layoutStowedStickyNotes();
+});
 
 
 
@@ -678,10 +1197,18 @@ async function checkAuth() {
     const response = await fetch("/api/auth/me");
     const data = await response.json();
     isAuthenticated = Boolean(response.ok && data.ok && data.authenticated);
+    currentUserId = isAuthenticated ? String(data?.user?.id || "") : "";
     updateAuthUi();
+    if (isAuthenticated) {
+      void loadStickyNotes();
+    } else {
+      clearStickyNotes();
+    }
   } catch (_) {
     isAuthenticated = false;
+    currentUserId = "";
     updateAuthUi();
+    clearStickyNotes();
   }
 }
 
@@ -702,6 +1229,7 @@ async function initSession() {
     const data = await response.json();
     if (response.status === 401) {
       isAuthenticated = false;
+      currentUserId = "";
       updateAuthUi();
       return;
     }
@@ -753,6 +1281,7 @@ async function submitPromptText(prompt) {
 
     if (response.status === 401) {
       isAuthenticated = false;
+      currentUserId = "";
       updateAuthUi();
       throw new Error("Please sign in.");
     }
@@ -814,6 +1343,7 @@ async function submitPromptText(prompt) {
     };
     const mappedState = stateLabelMap[data.state] || data.state || "";
     setMetaStatus(mappedState, { autoFade: data.state === "DONE", fadeDelayMs: 5000 });
+    void loadStickyNotes();
   } catch (error) {
     resolveThinkingMessage(`Error: ${error.message}`, "assistant");
     setMetaStatus("");
@@ -849,10 +1379,12 @@ authFormEl.addEventListener("submit", async (event) => {
       throw new Error(data.error || "Authentication failed.");
     }
     isAuthenticated = true;
+    currentUserId = String(data?.user?.id || "");
     updateAuthUi();
     setAuthStatus("");
     authPasswordEl.value = "";
     initSessionPromise = initSession();
+    void loadStickyNotes();
   } catch (error) {
     setAuthStatus(error.message || "Authentication failed.");
   }
@@ -865,8 +1397,10 @@ async function signOut() {
     // Best-effort.
   }
   isAuthenticated = false;
+  currentUserId = "";
   currentSessionId = "";
   updateAuthUi();
+  clearStickyNotes();
   if (chatMenuEl) {
     chatMenuEl.classList.add("hidden");
   }
@@ -926,6 +1460,18 @@ if (darkModeToggleEl) {
   });
 }
 
+if (stickyNotesToggleEl) {
+  stickyNotesToggleEl.addEventListener("change", () => {
+    try {
+      localStorage.setItem(STICKY_NOTES_ENABLED_STORAGE_KEY, stickyNotesToggleEl.checked ? "1" : "0");
+    } catch (_) {
+      // Ignore storage failures.
+    }
+    updateStickyNotesToggleVisual();
+    refreshStickyNotesView();
+  });
+}
+
 if (chatSignoutEl) {
   chatSignoutEl.addEventListener("click", () => {
     if (!isAuthenticated) {
@@ -951,6 +1497,16 @@ document.addEventListener("keydown", (event) => {
 
 autoSizePrompt();
 initializeComposerFloating();
+if (stickyNotesToggleEl) {
+  let stickyNotesEnabled = true;
+  try {
+    stickyNotesEnabled = localStorage.getItem(STICKY_NOTES_ENABLED_STORAGE_KEY) !== "0";
+  } catch (_) {
+    stickyNotesEnabled = true;
+  }
+  stickyNotesToggleEl.checked = stickyNotesEnabled;
+  updateStickyNotesToggleVisual();
+}
 updateAuthUi();
 checkAuth().then(() => {
   if (isAuthenticated) {

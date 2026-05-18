@@ -466,8 +466,7 @@ def get_available_list_entries(user_id: int):
 
 configure_tools(_get_user_caldav_calendars, LISTS_DIR)
 
-
-system_prompt = """
+concise_prompt = """
 You are an assistant calender manager with access to tools.
 
 Use a tool whenever it is required to complete the user’s request or when the tool provides the most accurate way to perform the task.
@@ -482,6 +481,8 @@ Rules:
 - Consult your context first before calling GetEvents/Get...
 - If the USER tells you to Restore/Undo/Bring Back/Recreate an event your FIRST STEP is to look back in your context for the requested events, then recreate the event
 - If a requested time could be interpreted as AM or PM, do not guess; ask a clarifying question before calling tools
+- Display multipile events in a markdown time table 
+- If someone calls you 'bud' you have to call them 'bud' back
 - Always return a state:
   - RUNNING = Operating Tools/Thinking
   - WAITING = Waiting for User Input
@@ -492,13 +493,11 @@ Rules:
   - bullet lists
   - inline `code`, fenced ```code``` 
   - pipe tables | a | b |)
-- Display multipile events in a markdown time table 
-- Use FastReplies for obvious next steps, clarifications, undo, confirmations, or suggested actions.
-- 
-- If someone calls you 'bud' you have to call them 'bud' back
-
+"""
+system_prompt = concise_prompt + """
 Reminders:
 - If multiple details are missing, ask for them all in one message.
+- Use FastReplies for obvious next steps, clarifications, undo, confirmations, or suggested actions.
 - If a duration cannot be reasonably defered, default to *1 hour*
 - When a tool creates resources and returns IDs/UIDs, assume those returned IDs will be visible in conversation context after the batched tool results complete. Therefore, batch independent create calls together. Only serialize calls when the next call requires a value produced by a previous call.
 - If given a City to GetWeather for; default to using the Co-Ordinates (Lat/Long) of that City's Center. 
@@ -1466,11 +1465,9 @@ def ask_gpt54(user_input, system_prompt, results, previous_response_id=None, use
             parallel_tool_calls=True,
         )
         usage = response.usage
-
         input_tokens = usage.input_tokens
         cached_tokens = usage.input_tokens_details.cached_tokens
         uncached_tokens = input_tokens - cached_tokens
-
         print("input_tokens:", input_tokens)
         print("cached_tokens:", cached_tokens)
         print("uncached_tokens:", uncached_tokens)
@@ -1481,25 +1478,28 @@ def ask_gpt54(user_input, system_prompt, results, previous_response_id=None, use
         # Follow-up turns: send function outputs when available, otherwise send the new user turn.
         if results:
             input_items = results
+            #instructions = concise_prompt #Disabled Just For Now
+            instructions = system_prompt
+            print("[Concise Prompt]")
 
         else:
             input_items = [{"role": "user", "content": user_content}]
+            instructions = system_prompt
+            print("[Full System Prompt]")
 
         # Continue the same model conversation by passing previous_response_id.
         response = client.responses.create(
+            previous_response_id=previous_response_id,
             model=selected_model,
-            instructions=system_prompt,
+            instructions=instructions,
             tools=tools,
             input=input_items,
-            previous_response_id=previous_response_id,
             parallel_tool_calls=True,
         )
         usage = response.usage
-
         input_tokens = usage.input_tokens
         cached_tokens = usage.input_tokens_details.cached_tokens
         uncached_tokens = input_tokens - cached_tokens
-
         print("input_tokens:", input_tokens)
         print("cached_tokens:", cached_tokens)
         print("uncached_tokens:", uncached_tokens)
