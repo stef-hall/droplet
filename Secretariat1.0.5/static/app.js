@@ -23,6 +23,7 @@ const navDrawerTriggerEl = document.getElementById("nav-drawer-trigger");
 const navDrawerEl = document.getElementById("nav-drawer");
 const navDrawerOverlayEl = document.getElementById("nav-drawer-overlay");
 const darkModeToggleEl = document.getElementById("dark-mode-toggle");
+const stickyNotesToggleEl = document.getElementById("sticky-notes-toggle");
 const themeColorMetaEl = document.getElementById("theme-color-meta");
 const themeToggleIconLeftEl = document.getElementById("theme-toggle-icon-left");
 const themeToggleIconRightEl = document.getElementById("theme-toggle-icon-right");
@@ -67,7 +68,20 @@ const ALLOWED_DESKTOP_META_STATUSES = new Set([
   "Done"
 ]);
 const THEME_STORAGE_KEY = "secretariat-theme";
+const STICKY_NOTES_ENABLED_STORAGE_KEY = "secretariat-sticky-notes-enabled";
 const STICKY_NOTE_LAYOUT_STORAGE_KEY = "secretariat-sticky-layout";
+
+function isStickyNotesEnabled() {
+  return !stickyNotesToggleEl || stickyNotesToggleEl.checked;
+}
+
+function refreshStickyNotesView() {
+  if (!isStickyNotesEnabled() || !isAuthenticated) {
+    clearStickyNotes();
+    return;
+  }
+  void loadStickyNotes();
+}
 
 (function () {
   const isMobile = window.matchMedia("(max-width: 768px)").matches;
@@ -635,7 +649,7 @@ function renderStickyNotes(listEntries) {
 }
 
 async function loadStickyNotes() {
-  if (!isAuthenticated) {
+  if (!isAuthenticated || !isStickyNotesEnabled()) {
     clearStickyNotes();
     return;
   }
@@ -1440,6 +1454,17 @@ if (darkModeToggleEl) {
   });
 }
 
+if (stickyNotesToggleEl) {
+  stickyNotesToggleEl.addEventListener("change", () => {
+    try {
+      localStorage.setItem(STICKY_NOTES_ENABLED_STORAGE_KEY, stickyNotesToggleEl.checked ? "1" : "0");
+    } catch (_) {
+      // Ignore storage failures.
+    }
+    refreshStickyNotesView();
+  });
+}
+
 if (chatSignoutEl) {
   chatSignoutEl.addEventListener("click", () => {
     if (!isAuthenticated) {
@@ -1465,6 +1490,15 @@ document.addEventListener("keydown", (event) => {
 
 autoSizePrompt();
 initializeComposerFloating();
+if (stickyNotesToggleEl) {
+  let stickyNotesEnabled = true;
+  try {
+    stickyNotesEnabled = localStorage.getItem(STICKY_NOTES_ENABLED_STORAGE_KEY) !== "0";
+  } catch (_) {
+    stickyNotesEnabled = true;
+  }
+  stickyNotesToggleEl.checked = stickyNotesEnabled;
+}
 updateAuthUi();
 checkAuth().then(() => {
   if (isAuthenticated) {
