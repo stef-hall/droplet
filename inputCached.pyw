@@ -2,31 +2,36 @@ import re
 import tkinter as tk
 from tkinter import scrolledtext
 
+def extract_numbers(label, text):
+    pattern = rf"(?m)^\s*{re.escape(label)}:\s*(\d+)"
+    return [int(x) for x in re.findall(pattern, text)]
+
 def calculate_tokens():
     text = input_box.get("1.0", tk.END)
 
-    input_tokens = [int(x) for x in re.findall(r"input_tokens:\s*(\d+)", text)]
-    cached_tokens = [int(x) for x in re.findall(r"cached_tokens:\s*(\d+)", text)]
-    uncached_tokens = [int(x) for x in re.findall(r"uncached_tokens:\s*(\d+)", text)]
+    input_tokens = extract_numbers("input_tokens", text)
+    cached_tokens = extract_numbers("cached_tokens", text)
+    uncached_tokens = extract_numbers("uncached_tokens", text)
 
     total_input = sum(input_tokens)
     total_cached = sum(cached_tokens)
-    total_uncached = sum(uncached_tokens) if uncached_tokens else total_input - total_cached
+    total_uncached = sum(uncached_tokens)
+
     model_calls = len(input_tokens)
     cache_rate = (total_cached / total_input * 100) if total_input else 0
 
     output = (
         f"Model calls: {model_calls}\n"
-        f"Total input tokens: {total_input}\n"
-        f"Cached tokens: {total_cached}\n"
-        f"Uncached tokens: {total_uncached}\n"
-        f"Cache hit rate: {cache_rate:.2f}%"
+        f"Total input tokens: {total_input:,}\n"
+        f"Cached input tokens: {total_cached:,}\n"
+        f"Uncached input tokens: {total_uncached:,}\n"
+        f"Cached percent: {cache_rate:.2f}%"
     )
 
     output_box.config(state="normal")
     output_box.delete("1.0", tk.END)
     output_box.insert(tk.END, output)
-    output_box.config(state="normal")
+    output_box.config(state="disabled")
 
 def copy_output():
     output = output_box.get("1.0", tk.END).strip()
