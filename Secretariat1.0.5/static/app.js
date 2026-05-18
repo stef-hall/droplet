@@ -42,6 +42,7 @@ const STICKY_NOTE_STACK_TOP_START = 72;
 const STICKY_NOTE_STACK_MIN_GAP = 46;
 const STICKY_NOTE_STACK_GAP_PADDING = 7.2;
 const STICKY_NOTE_SAFE_TOP = 64;
+const MAX_STICKY_NOTE_INPUT_HEIGHT = 220;
 const STICKY_NOTE_COLOR_CLASSES = [
   "color-yellow",
   "color-orange",
@@ -336,7 +337,9 @@ function clearStickyNotes() {
 function autoSizeStickyNoteInput(inputEl) {
   if (!(inputEl instanceof HTMLTextAreaElement)) return;
   inputEl.style.height = "auto";
-  inputEl.style.height = `${inputEl.scrollHeight}px`;
+  const nextHeight = Math.min(inputEl.scrollHeight, MAX_STICKY_NOTE_INPUT_HEIGHT);
+  inputEl.style.height = `${nextHeight}px`;
+  inputEl.style.overflowY = inputEl.scrollHeight > MAX_STICKY_NOTE_INPUT_HEIGHT ? "auto" : "hidden";
 }
 
 function isStickyNoteNearDock(noteEl, left) {
