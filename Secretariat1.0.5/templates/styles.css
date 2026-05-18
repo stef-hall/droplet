@@ -1211,7 +1211,7 @@ textarea {
   margin-top: 10px;
   flex: 1;
   min-height: 0;
-  max-height: none;
+  max-height: 1000px;
   opacity: 1;
   overflow: hidden;
   transition: max-height 180ms ease, opacity 140ms ease, margin-top 180ms ease;

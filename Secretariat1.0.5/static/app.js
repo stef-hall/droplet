@@ -37,7 +37,10 @@ const stickyNoteLayerEl = document.getElementById("sticky-note-layer");
 const stickyNoteDockSlotEl = document.getElementById("sticky-note-dock-slot");
 const MAX_PROMPT_HEIGHT = 180;
 const STICKY_NOTE_DOCK_THRESHOLD = 110;
+const STICKY_NOTE_DOCK_HYSTERESIS = 24;
 const STICKY_NOTE_STOWED_PEEK_WIDTH = 118;
+const STICKY_NOTE_DEFAULT_WIDTH = 182;
+const STICKY_NOTE_STOWED_HEIGHT = 40;
 const STICKY_NOTE_STACK_TOP_START = 72;
 const STICKY_NOTE_STACK_MIN_GAP = 46;
 const STICKY_NOTE_STACK_GAP_PADDING = 7.2;
@@ -277,11 +280,15 @@ function syncStickyNoteLayoutState() {
 
     const left = Number.parseFloat(noteEl.style.left);
     const top = Number.parseFloat(noteEl.style.top);
+    const width = Number.parseFloat(noteEl.dataset.preferredWidth || "");
+    const height = Number.parseFloat(noteEl.dataset.preferredHeight || "");
     const entry = {
       isStowed: noteEl.classList.contains("is-stowed")
     };
     if (Number.isFinite(left)) entry.left = Math.round(left);
     if (Number.isFinite(top)) entry.top = Math.round(top);
+    if (Number.isFinite(width)) entry.width = Math.round(width);
+    if (Number.isFinite(height)) entry.height = Math.round(height);
     layoutState[listName] = {
       ...(layoutState[listName] && typeof layoutState[listName] === "object" ? layoutState[listName] : {}),
       ...entry
@@ -349,8 +356,11 @@ function autoSizeStickyNoteInput(inputEl, noteEl = null) {
   inputEl.style.overflowY = inputEl.scrollHeight > maxHeight ? "auto" : "hidden";
 }
 
-function isStickyNoteNearDock(noteEl, left) {
-  return left + noteEl.offsetWidth >= window.innerWidth - STICKY_NOTE_DOCK_THRESHOLD;
+function isStickyNoteNearDock(noteEl, left, pointerX = null, currentlyNearDock = false) {
+  const edgeX = Number.isFinite(pointerX) ? pointerX : left + noteEl.offsetWidth;
+  const enterThreshold = window.innerWidth - STICKY_NOTE_DOCK_THRESHOLD;
+  const exitThreshold = enterThreshold - STICKY_NOTE_DOCK_HYSTERESIS;
+  return currentlyNearDock ? edgeX >= exitThreshold : edgeX >= enterThreshold;
 }
 
 function updateStickyNoteDockPreview(noteEl, left) {
@@ -518,6 +528,20 @@ function createStickyNote(listEntry, colorClassName) {
 
   const savedLeft = Number.parseFloat(savedLayoutEntry?.left);
   const savedTop = Number.parseFloat(savedLayoutEntry?.top);
+  const savedWidth = Number.parseFloat(savedLayoutEntry?.width);
+  const savedHeight = Number.parseFloat(savedLayoutEntry?.height);
+  if (Number.isFinite(savedWidth) && savedWidth >= STICKY_NOTE_MIN_WIDTH) {
+    noteEl.dataset.preferredWidth = `${Math.round(savedWidth)}`;
+    if (!startsStowed) {
+      noteEl.style.width = `${Math.round(savedWidth)}px`;
+    }
+  }
+  if (Number.isFinite(savedHeight) && savedHeight >= STICKY_NOTE_MIN_HEIGHT) {
+    noteEl.dataset.preferredHeight = `${Math.round(savedHeight)}`;
+    if (!startsStowed) {
+      noteEl.style.height = `${Math.round(savedHeight)}px`;
+    }
+  }
   if (Number.isFinite(savedLeft)) {
     noteEl.style.left = `${Math.round(savedLeft)}px`;
   }
@@ -527,7 +551,60 @@ function createStickyNote(listEntry, colorClassName) {
 
   let dragState = null;
   let resizeState = null;
+  let dockPreviewState = null;
   let swayFrameId = 0;
+
+  function restoreExpandedSizeFromPreference() {
+    const preferredWidth = Number.parseFloat(noteEl.dataset.preferredWidth || "");
+    const preferredHeight = Number.parseFloat(noteEl.dataset.preferredHeight || "");
+    noteEl.style.width = Number.isFinite(preferredWidth) ? `${Math.round(preferredWidth)}px` : "";
+    noteEl.style.height = Number.isFinite(preferredHeight) ? `${Math.round(preferredHeight)}px` : "";
+    noteEl.style.minHeight = "";
+    if (inputEl instanceof HTMLTextAreaElement) {
+      autoSizeStickyNoteInput(inputEl, noteEl);
+    }
+  }
+
+  function enterDockPreview() {
+    if (dockPreviewState) return;
+    const rect = noteEl.getBoundingClientRect();
+    dockPreviewState = {
+      width: noteEl.style.width || "",
+      height: noteEl.style.height || "",
+      minHeight: noteEl.style.minHeight || "",
+      pointerRatioX: 0.5,
+      pointerRatioY: 0.5
+    };
+    noteEl.classList.add("is-near-dock");
+    noteEl.style.width = `${STICKY_NOTE_DEFAULT_WIDTH}px`;
+    noteEl.style.height = `${STICKY_NOTE_STOWED_HEIGHT}px`;
+    noteEl.style.minHeight = `${STICKY_NOTE_STOWED_HEIGHT}px`;
+    if (dragState && rect.width > 0 && rect.height > 0) {
+      dockPreviewState.pointerRatioX = clamp((dragState.lastPointerX - rect.left) / rect.width, 0, 1);
+      dockPreviewState.pointerRatioY = clamp((dragState.lastPointerY - rect.top) / rect.height, 0, 1);
+    }
+  }
+
+  function exitDockPreview({ keepFolded = false } = {}) {
+    if (!dockPreviewState) return;
+    if (!keepFolded) {
+      const preferredWidth = Number.parseFloat(noteEl.dataset.preferredWidth || "");
+      const preferredHeight = Number.parseFloat(noteEl.dataset.preferredHeight || "");
+      const shouldForcePreferredRestore = Boolean(dragState?.wasStowedAtGrab);
+      noteEl.style.width = shouldForcePreferredRestore
+        ? (Number.isFinite(preferredWidth) ? `${Math.round(preferredWidth)}px` : "")
+        : (dockPreviewState.width || (Number.isFinite(preferredWidth) ? `${Math.round(preferredWidth)}px` : ""));
+      noteEl.style.height = shouldForcePreferredRestore
+        ? (Number.isFinite(preferredHeight) ? `${Math.round(preferredHeight)}px` : "")
+        : (dockPreviewState.height || (Number.isFinite(preferredHeight) ? `${Math.round(preferredHeight)}px` : ""));
+      noteEl.style.minHeight = shouldForcePreferredRestore ? "" : dockPreviewState.minHeight;
+      if (inputEl instanceof HTMLTextAreaElement) {
+        autoSizeStickyNoteInput(inputEl, noteEl);
+      }
+    }
+    noteEl.classList.remove("is-near-dock");
+    dockPreviewState = null;
+  }
 
   function stopSwayAnimation() {
     if (swayFrameId) {
@@ -563,15 +640,19 @@ function createStickyNote(listEntry, colorClassName) {
     dragState = {
       pointerId: event.pointerId,
       wasStowedAtGrab,
+      unstowedDuringDrag: false,
       previewDockIndex: wasStowedAtGrab ? getStickyNoteDockIndex(event.clientY, noteEl) : null,
       lastLeft: rect.left,
+      lastTop: rect.top,
+      lastPointerX: event.clientX,
+      lastPointerY: event.clientY,
       angle: 0,
       targetAngle: 0,
       offsetX: event.clientX - rect.left,
       offsetY: event.clientY - rect.top
     };
 
-    noteEl.style.transition = "transform 40ms linear, box-shadow 180ms ease";
+    noteEl.style.transition = "transform 40ms linear, box-shadow 180ms ease, width 180ms ease, height 180ms ease, min-height 180ms ease, border-radius 180ms ease";
     noteEl.classList.add("is-dragging");
     setStickyNoteDragLayerActive(true);
     noteEl.setPointerCapture(event.pointerId);
@@ -582,28 +663,46 @@ function createStickyNote(listEntry, colorClassName) {
   noteEl.addEventListener("pointermove", (event) => {
     if (!dragState || event.pointerId !== dragState.pointerId) return;
 
-    const maxLeft = Math.max(0, window.innerWidth - noteEl.offsetWidth);
-    const maxTop = Math.max(0, window.innerHeight - noteEl.offsetHeight);
-    const nextLeft = clamp(event.clientX - dragState.offsetX, 0, maxLeft);
-    const nextTop = clamp(event.clientY - dragState.offsetY, -16, maxTop);
-    const nearDock = isStickyNoteNearDock(noteEl, nextLeft);
+    dragState.lastPointerX = event.clientX;
+    dragState.lastPointerY = event.clientY;
+    const nearDock = isStickyNoteNearDock(noteEl, dragState.lastLeft, event.clientX, Boolean(dockPreviewState));
     const previewDockIndex = nearDock ? getStickyNoteDockIndex(event.clientY, noteEl) : null;
 
     if (dragState.wasStowedAtGrab) {
       if (nearDock) {
         noteEl.classList.add("is-stowed");
       } else {
+        if (!dragState.unstowedDuringDrag) {
+          restoreExpandedSizeFromPreference();
+          dragState.unstowedDuringDrag = true;
+        }
         noteEl.classList.remove("is-stowed");
       }
     }
     dragState.previewDockIndex = previewDockIndex;
 
-    noteEl.style.left = `${Math.round(nextLeft)}px`;
-    noteEl.style.top = `${Math.round(nextTop)}px`;
-    const deltaX = nextLeft - dragState.lastLeft;
-    dragState.lastLeft = nextLeft;
+    const previousLeft = dragState.lastLeft;
+    if (nearDock) {
+      enterDockPreview();
+      const previewWidth = STICKY_NOTE_DEFAULT_WIDTH;
+      const previewHeight = STICKY_NOTE_STOWED_HEIGHT;
+      const maxLeft = Math.max(0, window.innerWidth - previewWidth);
+      const maxTop = Math.max(0, window.innerHeight - previewHeight);
+      const anchorX = (dockPreviewState?.pointerRatioX ?? 0.5) * previewWidth;
+      const anchorY = (dockPreviewState?.pointerRatioY ?? 0.5) * previewHeight;
+      dragState.lastLeft = clamp(event.clientX - anchorX, 0, maxLeft);
+      dragState.lastTop = clamp(event.clientY - anchorY, -16, maxTop);
+    } else {
+      exitDockPreview();
+      const maxLeft = Math.max(0, window.innerWidth - noteEl.offsetWidth);
+      const maxTop = Math.max(0, window.innerHeight - noteEl.offsetHeight);
+      dragState.lastLeft = clamp(event.clientX - dragState.offsetX, 0, maxLeft);
+      dragState.lastTop = clamp(event.clientY - dragState.offsetY, -16, maxTop);
+    }
+    noteEl.style.left = `${Math.round(dragState.lastLeft)}px`;
+    noteEl.style.top = `${Math.round(dragState.lastTop)}px`;
+    const deltaX = dragState.lastLeft - previousLeft;
     dragState.targetAngle = clamp(deltaX * 0.9, -12, 12);
-    noteEl.classList.toggle("is-near-dock", nearDock);
     setStickyNoteDockHintVisible(nearDock);
     if (nearDock) {
       layoutStowedStickyNotes({ draggingNoteEl: noteEl, previewIndex: previewDockIndex });
@@ -615,13 +714,13 @@ function createStickyNote(listEntry, colorClassName) {
   function releaseStickyNote(event) {
     if (!dragState || event.pointerId !== dragState.pointerId) return;
     const currentLeft = Number.parseFloat(noteEl.style.left) || 0;
-    const shouldStow = isStickyNoteNearDock(noteEl, currentLeft);
+    const shouldStow = isStickyNoteNearDock(noteEl, currentLeft, dragState.lastPointerX, Boolean(dockPreviewState));
     const previewDockIndex = dragState.previewDockIndex;
 
     noteEl.classList.remove("is-dragging");
-    noteEl.classList.remove("is-near-dock");
+    exitDockPreview({ keepFolded: shouldStow });
     stopSwayAnimation();
-    noteEl.style.transition = "transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 180ms ease";
+    noteEl.style.transition = "transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 180ms ease, width 180ms ease, height 180ms ease, min-height 180ms ease, border-radius 180ms ease";
     noteEl.style.transform = "";
     setStickyNoteDockHintVisible(false);
     setStickyNoteDockSlotVisible(false);
@@ -639,7 +738,9 @@ function createStickyNote(listEntry, colorClassName) {
       saveStickyNoteLayoutEntry(noteEl, {
         isStowed: false,
         left: Math.round(Number.parseFloat(noteEl.style.left) || 0),
-        top: Math.round(Number.parseFloat(noteEl.style.top) || STICKY_NOTE_SAFE_TOP)
+        top: Math.round(Number.parseFloat(noteEl.style.top) || STICKY_NOTE_SAFE_TOP),
+        width: Math.round(Number.parseFloat(noteEl.dataset.preferredWidth || noteEl.offsetWidth) || noteEl.offsetWidth),
+        height: Math.round(Number.parseFloat(noteEl.dataset.preferredHeight || noteEl.offsetHeight) || noteEl.offsetHeight)
       });
     }
 
@@ -685,9 +786,8 @@ function createStickyNote(listEntry, colorClassName) {
       const nextHeight = clamp(resizeState.startHeight + deltaY, STICKY_NOTE_MIN_HEIGHT, maxHeight);
       noteEl.style.width = `${Math.round(nextWidth)}px`;
       noteEl.style.height = `${Math.round(nextHeight)}px`;
-      if (inputEl instanceof HTMLTextAreaElement) {
-        autoSizeStickyNoteInput(inputEl, noteEl);
-      }
+      noteEl.dataset.preferredWidth = `${Math.round(nextWidth)}`;
+      noteEl.dataset.preferredHeight = `${Math.round(nextHeight)}`;
     });
 
     const releaseResize = (event) => {
@@ -697,6 +797,13 @@ function createStickyNote(listEntry, colorClassName) {
       }
       noteEl.classList.remove("is-resizing");
       setStickyNoteDragLayerActive(false);
+      if (inputEl instanceof HTMLTextAreaElement) {
+        autoSizeStickyNoteInput(inputEl, noteEl);
+      }
+      saveStickyNoteLayoutEntry(noteEl, {
+        width: Math.round(Number.parseFloat(noteEl.dataset.preferredWidth || noteEl.offsetWidth) || noteEl.offsetWidth),
+        height: Math.round(Number.parseFloat(noteEl.dataset.preferredHeight || noteEl.offsetHeight) || noteEl.offsetHeight)
+      });
       resizeState = null;
       syncStickyNoteLayoutState();
     };
