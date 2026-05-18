@@ -277,6 +277,23 @@ textarea {
   box-shadow: 0 0 0 3px rgba(78, 140, 255, 0.3);
 }
 
+.sticky-notes-toggle {
+  justify-content: space-between;
+}
+
+.sticky-notes-toggle-icon {
+  width: 57px;
+  height: 57px;
+  object-fit: contain;
+  transform: scale(1.3);
+  transform-origin: left center;
+  transition: filter 180ms ease;
+}
+
+.sticky-notes-toggle-icon.is-disabled {
+  filter: grayscale(1);
+}
+
 
 .chat-menu-wrap {
   position: relative;

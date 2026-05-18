@@ -24,6 +24,7 @@ const navDrawerEl = document.getElementById("nav-drawer");
 const navDrawerOverlayEl = document.getElementById("nav-drawer-overlay");
 const darkModeToggleEl = document.getElementById("dark-mode-toggle");
 const stickyNotesToggleEl = document.getElementById("sticky-notes-toggle");
+const stickyNotesToggleIconEl = document.getElementById("sticky-notes-toggle-icon");
 const themeColorMetaEl = document.getElementById("theme-color-meta");
 const themeToggleIconLeftEl = document.getElementById("theme-toggle-icon-left");
 const themeToggleIconRightEl = document.getElementById("theme-toggle-icon-right");
@@ -81,6 +82,11 @@ function refreshStickyNotesView() {
     return;
   }
   void loadStickyNotes();
+}
+
+function updateStickyNotesToggleVisual() {
+  if (!stickyNotesToggleIconEl || !stickyNotesToggleEl) return;
+  stickyNotesToggleIconEl.classList.toggle("is-disabled", !stickyNotesToggleEl.checked);
 }
 
 (function () {
@@ -1461,6 +1467,7 @@ if (stickyNotesToggleEl) {
     } catch (_) {
       // Ignore storage failures.
     }
+    updateStickyNotesToggleVisual();
     refreshStickyNotesView();
   });
 }
@@ -1498,6 +1505,7 @@ if (stickyNotesToggleEl) {
     stickyNotesEnabled = true;
   }
   stickyNotesToggleEl.checked = stickyNotesEnabled;
+  updateStickyNotesToggleVisual();
 }
 updateAuthUi();
 checkAuth().then(() => {
