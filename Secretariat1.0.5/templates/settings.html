@@ -40,6 +40,11 @@
 
           <form id="caldav-settings-form" class="settings-form">
             <label class="settings-field">
+              <span>Username / Email</span>
+              <input id="caldav-username" name="caldav_username" type="text" placeholder="your CalDAV username" autocomplete="username">
+            </label>
+
+            <label class="settings-field">
               <span>Calendar provider</span>
               <select id="caldav-provider" name="caldav_provider">
                 <option value="icloud">iCloud Calendar</option>
@@ -48,18 +53,13 @@
             </label>
 
             <label class="settings-field">
-              <span>Username</span>
-              <input id="caldav-username" name="caldav_username" type="text" placeholder="your CalDAV username" autocomplete="username">
+              <span>Calendar name</span>
+              <input id="caldav-calendar" name="caldav_calendar" type="text" placeholder="Optional. Uses your first calendar if left blank.">
             </label>
 
             <label class="settings-field">
               <span>Password or app password</span>
               <input id="caldav-password" name="caldav_password" type="password" placeholder="Leave blank to keep the current password" autocomplete="new-password">
-            </label>
-
-            <label class="settings-field">
-              <span>Calendar name</span>
-              <input id="caldav-calendar" name="caldav_calendar" type="text" placeholder="Optional. Uses your first calendar if left blank.">
             </label>
 
             <label class="settings-field">
