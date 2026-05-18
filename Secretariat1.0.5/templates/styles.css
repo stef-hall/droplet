@@ -1015,7 +1015,7 @@ textarea {
 
 .sticky-note-dock-slot {
   position: absolute;
-  right: 0;
+  left: 0;
   width: 132px;
   height: 50px;
   border: 1px dashed rgba(74, 59, 5, 0.38);

@@ -385,17 +385,20 @@ function getStickyNoteDockIndex(pointerY, draggingNoteEl) {
 function getStickyNoteDockSlotSize(draggingNoteEl = null) {
   const sampleNoteEl = getStickyNotes().find((noteEl) => noteEl.classList.contains("is-stowed") && noteEl !== draggingNoteEl) || draggingNoteEl;
   if (!sampleNoteEl) {
-    return { width: STICKY_NOTE_STOWED_PEEK_WIDTH, height: STICKY_NOTE_STACK_MIN_GAP };
+    return { width: STICKY_NOTE_STOWED_PEEK_WIDTH, height: STICKY_NOTE_STOWED_HEIGHT };
   }
   return {
-    width: Math.max(STICKY_NOTE_STOWED_PEEK_WIDTH, Math.round(sampleNoteEl.offsetWidth)),
-    height: Math.max(STICKY_NOTE_STACK_MIN_GAP, Math.round(sampleNoteEl.offsetHeight))
+    width: STICKY_NOTE_STOWED_PEEK_WIDTH,
+    height: Math.max(STICKY_NOTE_STOWED_HEIGHT, Math.round(sampleNoteEl.offsetHeight))
   };
 }
 
 function positionStickyNoteDockSlot(index, draggingNoteEl = null) {
   if (!stickyNoteDockSlotEl) return;
   const slotSize = getStickyNoteDockSlotSize(draggingNoteEl);
+  const stowedLeft = Math.max(0, window.innerWidth - STICKY_NOTE_STOWED_PEEK_WIDTH);
+  stickyNoteDockSlotEl.style.right = "auto";
+  stickyNoteDockSlotEl.style.left = `${Math.round(stowedLeft)}px`;
   stickyNoteDockSlotEl.style.width = `${slotSize.width}px`;
   stickyNoteDockSlotEl.style.height = `${slotSize.height}px`;
   const stackGap = getStickyNoteStackGap();
@@ -727,6 +730,7 @@ function createStickyNote(listEntry, colorClassName) {
     setStickyNoteDragLayerActive(false);
 
     if (shouldStow) {
+      noteEl.style.transition = "left 180ms ease, top 180ms ease, transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 180ms ease, width 180ms ease, height 180ms ease, min-height 180ms ease, border-radius 180ms ease";
       noteEl.classList.add("is-stowed");
       commitStickyNoteDockOrder(noteEl, previewDockIndex ?? getStickyNotes().length);
       layoutStowedStickyNotes();
