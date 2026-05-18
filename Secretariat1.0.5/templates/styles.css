@@ -1048,9 +1048,13 @@ textarea {
   --sticky-note-shadow: rgba(46, 36, 5, 0.18);
   --sticky-note-tape: rgba(255, 247, 210, 0.72);
   --sticky-note-tape-border: rgba(126, 112, 76, 0.16);
-  --sticky-note-radius: var(--composer-radius);
-  --sticky-note-squircle: var(--composer-squircle);
-  border-radius: var(--sticky-note-radius);
+  --sticky-note-radius-top: calc(var(--composer-radius) * 0.96);
+  --sticky-note-radius-bottom: calc(var(--composer-radius) * 1.04);
+  border-radius:
+    var(--sticky-note-radius-top)
+    var(--sticky-note-radius-top)
+    var(--sticky-note-radius-bottom)
+    var(--sticky-note-radius-bottom);
   position: absolute;
   display: flex;
   flex-direction: column;
@@ -1076,8 +1080,13 @@ textarea {
     box-shadow 180ms ease,
     transform 180ms ease,
     border-radius 180ms ease;
-  /* Match the composer bar shape in browsers without corner-shape support. */
-  clip-path: superellipse(0.5 / calc(var(--sticky-note-squircle) * 1%));
+  clip-path: inset(
+    0 round
+    var(--sticky-note-radius-top)
+    var(--sticky-note-radius-top)
+    var(--sticky-note-radius-bottom)
+    var(--sticky-note-radius-bottom)
+  );
 }
 
 .sticky-note.is-resizing {
@@ -1095,9 +1104,9 @@ textarea {
 .sticky-note.is-near-dock,
 .sticky-note.is-stowed {
   min-height: 40px;
-  border-radius: var(--sticky-note-radius) 0 0 var(--sticky-note-radius);
+  border-radius: var(--sticky-note-radius-top) 0 0 var(--sticky-note-radius-bottom);
   transform: rotate(0deg);
-  clip-path: inset(0 0 0 0 round var(--sticky-note-radius) 0 0 var(--sticky-note-radius));
+  clip-path: inset(0 0 0 0 round var(--sticky-note-radius-top) 0 0 var(--sticky-note-radius-bottom));
 }
 
 .sticky-note-resize-handle {
