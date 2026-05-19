@@ -345,15 +345,8 @@ function clearStickyNotes() {
 
 function autoSizeStickyNoteInput(inputEl, noteEl = null) {
   if (!(inputEl instanceof HTMLTextAreaElement)) return;
-  const bodyEl = inputEl.closest(".sticky-note-body");
-  const bodyHeight = bodyEl instanceof HTMLElement ? bodyEl.clientHeight : 0;
-  const availableHeight = Math.max(92, bodyHeight || 0);
-  const dynamicMaxHeight = Math.max(availableHeight, MAX_STICKY_NOTE_INPUT_HEIGHT);
-  const maxHeight = Math.max(MAX_STICKY_NOTE_INPUT_HEIGHT, dynamicMaxHeight);
-  inputEl.style.height = "auto";
-  const nextHeight = Math.max(availableHeight, Math.min(inputEl.scrollHeight, maxHeight));
-  inputEl.style.height = `${nextHeight}px`;
-  inputEl.style.overflowY = inputEl.scrollHeight > maxHeight ? "auto" : "hidden";
+  inputEl.style.height = "100%";
+  inputEl.style.overflowY = "auto";
 }
 
 function isStickyNoteNearDock(noteEl, left, pointerX = null, currentlyNearDock = false) {
