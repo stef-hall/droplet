@@ -367,6 +367,18 @@ function isPointerOverStickyNoteDeleteTarget(pointerX, pointerY) {
   return pointerX >= rect.left && pointerX <= rect.right && pointerY >= rect.top && pointerY <= rect.bottom;
 }
 
+function isStickyNoteTouchingDeleteTarget(noteEl) {
+  if (!(stickyNoteDeleteTargetEl instanceof HTMLElement) || !(noteEl instanceof HTMLElement)) return false;
+  const noteRect = noteEl.getBoundingClientRect();
+  const targetRect = stickyNoteDeleteTargetEl.getBoundingClientRect();
+  return (
+    noteRect.left < targetRect.right &&
+    noteRect.right > targetRect.left &&
+    noteRect.top < targetRect.bottom &&
+    noteRect.bottom > targetRect.top
+  );
+}
+
 function removeStickyNoteLayoutEntry(noteEl) {
   const listName = String(noteEl?.dataset?.listName || "").trim();
   if (!listName) return;
@@ -702,7 +714,9 @@ function createStickyNote(listEntry, colorClassName) {
       angle: 0,
       targetAngle: 0,
       offsetX: event.clientX - rect.left,
-      offsetY: event.clientY - rect.top
+      offsetY: event.clientY - rect.top,
+      deleteHoldTimerId: 0,
+      deleteArmed: false
     };
 
     noteEl.style.transition = "transform 40ms linear, box-shadow 180ms ease, width 180ms ease, height 180ms ease, min-height 180ms ease, border-radius 180ms ease";
@@ -721,8 +735,25 @@ function createStickyNote(listEntry, colorClassName) {
     dragState.lastPointerX = event.clientX;
     dragState.lastPointerY = event.clientY;
     const overDeleteTarget = isPointerOverStickyNoteDeleteTarget(event.clientX, event.clientY);
+    const touchingDeleteTarget = isStickyNoteTouchingDeleteTarget(noteEl);
     setStickyNoteDeleteTargetActive(overDeleteTarget);
+    noteEl.classList.toggle("is-touching-delete", touchingDeleteTarget);
     noteEl.classList.toggle("is-near-delete", overDeleteTarget);
+    if (overDeleteTarget && !dragState.deleteHoldTimerId) {
+      dragState.deleteHoldTimerId = window.setTimeout(() => {
+        if (!dragState) return;
+        if (!isPointerOverStickyNoteDeleteTarget(dragState.lastPointerX, dragState.lastPointerY)) return;
+        dragState.deleteArmed = true;
+        dragState.deleteHoldTimerId = 0;
+      }, 320);
+    }
+    if (!overDeleteTarget && dragState.deleteHoldTimerId) {
+      clearTimeout(dragState.deleteHoldTimerId);
+      dragState.deleteHoldTimerId = 0;
+    }
+    if (!overDeleteTarget) {
+      dragState.deleteArmed = false;
+    }
     const nearDock = isStickyNoteNearDock(noteEl, dragState.lastLeft, event.clientX, Boolean(dockPreviewState));
     const effectiveNearDock = !overDeleteTarget && nearDock;
     const previewDockIndex = effectiveNearDock ? getStickyNoteDockIndex(event.clientY, noteEl) : null;
@@ -745,28 +776,22 @@ function createStickyNote(listEntry, colorClassName) {
       enterDockPreview();
       const previewWidth = STICKY_NOTE_DEFAULT_WIDTH;
       const previewHeight = STICKY_NOTE_STOWED_HEIGHT;
-      const maxLeft = Math.max(0, window.innerWidth - previewWidth);
-      const maxTop = Math.max(0, window.innerHeight - previewHeight);
       const anchorX = (dockPreviewState?.pointerRatioX ?? 0.5) * previewWidth;
       const anchorY = (dockPreviewState?.pointerRatioY ?? 0.5) * previewHeight;
-      dragState.lastLeft = clamp(event.clientX - anchorX, 0, maxLeft);
-      dragState.lastTop = clamp(event.clientY - anchorY, -16, maxTop);
+      dragState.lastLeft = event.clientX - anchorX;
+      dragState.lastTop = event.clientY - anchorY;
     } else if (effectiveNearDock) {
       enterDockPreview();
       const previewWidth = STICKY_NOTE_DEFAULT_WIDTH;
       const previewHeight = STICKY_NOTE_STOWED_HEIGHT;
-      const maxLeft = Math.max(0, window.innerWidth - previewWidth);
-      const maxTop = Math.max(0, window.innerHeight - previewHeight);
       const anchorX = (dockPreviewState?.pointerRatioX ?? 0.5) * previewWidth;
       const anchorY = (dockPreviewState?.pointerRatioY ?? 0.5) * previewHeight;
-      dragState.lastLeft = clamp(event.clientX - anchorX, 0, maxLeft);
-      dragState.lastTop = clamp(event.clientY - anchorY, -16, maxTop);
+      dragState.lastLeft = event.clientX - anchorX;
+      dragState.lastTop = event.clientY - anchorY;
     } else {
       exitDockPreview();
-      const maxLeft = Math.max(0, window.innerWidth - noteEl.offsetWidth);
-      const maxTop = Math.max(0, window.innerHeight - noteEl.offsetHeight);
-      dragState.lastLeft = clamp(event.clientX - dragState.offsetX, 0, maxLeft);
-      dragState.lastTop = clamp(event.clientY - dragState.offsetY, -16, maxTop);
+      dragState.lastLeft = event.clientX - dragState.offsetX;
+      dragState.lastTop = event.clientY - dragState.offsetY;
     }
     noteEl.style.left = `${Math.round(dragState.lastLeft)}px`;
     noteEl.style.top = `${Math.round(dragState.lastTop)}px`;
@@ -782,12 +807,17 @@ function createStickyNote(listEntry, colorClassName) {
 
   function releaseStickyNote(event) {
     if (!dragState || event.pointerId !== dragState.pointerId) return;
-    const shouldDelete = isPointerOverStickyNoteDeleteTarget(dragState.lastPointerX, dragState.lastPointerY);
+    if (dragState.deleteHoldTimerId) {
+      clearTimeout(dragState.deleteHoldTimerId);
+      dragState.deleteHoldTimerId = 0;
+    }
+    const shouldDelete = Boolean(dragState.deleteArmed) && isPointerOverStickyNoteDeleteTarget(dragState.lastPointerX, dragState.lastPointerY);
     const currentLeft = Number.parseFloat(noteEl.style.left) || 0;
     const shouldStow = isStickyNoteNearDock(noteEl, currentLeft, dragState.lastPointerX, Boolean(dockPreviewState));
     const previewDockIndex = dragState.previewDockIndex;
 
     noteEl.classList.remove("is-dragging");
+    noteEl.classList.remove("is-touching-delete");
     noteEl.classList.remove("is-near-delete");
     exitDockPreview({ keepFolded: shouldStow });
     stopSwayAnimation();
@@ -800,21 +830,18 @@ function createStickyNote(listEntry, colorClassName) {
     setStickyNoteDragLayerActive(false);
 
     if (shouldDelete) {
-      const finalizeDelete = () => {
-        const key = String(noteEl.dataset.listName || "");
-        const timerId = key ? stickyNoteSaveTimers.get(key) : null;
-        if (timerId) {
-          clearTimeout(timerId);
-          stickyNoteSaveTimers.delete(key);
-        }
-        noteEl.remove();
-        removeStickyNoteLayoutEntry(noteEl);
-        layoutStowedStickyNotes();
-        syncStickyNoteLayoutState();
-      };
+      const key = String(noteEl.dataset.listName || "");
+      const timerId = key ? stickyNoteSaveTimers.get(key) : null;
+      if (timerId) {
+        clearTimeout(timerId);
+        stickyNoteSaveTimers.delete(key);
+      }
       void deleteStickyNote(noteEl).then((deleted) => {
         if (deleted) {
-          finalizeDelete();
+          noteEl.remove();
+          removeStickyNoteLayoutEntry(noteEl);
+          layoutStowedStickyNotes();
+          syncStickyNoteLayoutState();
         }
       });
       if (noteEl.hasPointerCapture(event.pointerId)) {
@@ -830,9 +857,6 @@ function createStickyNote(listEntry, colorClassName) {
       commitStickyNoteDockOrder(noteEl, previewDockIndex ?? getStickyNotes().length);
       layoutStowedStickyNotes();
     } else {
-      const currentTop = Number.parseFloat(noteEl.style.top) || 0;
-      const settledTop = clamp(currentTop, STICKY_NOTE_SAFE_TOP, Math.max(STICKY_NOTE_SAFE_TOP, window.innerHeight - noteEl.offsetHeight));
-      noteEl.style.top = `${Math.round(settledTop)}px`;
       layoutStowedStickyNotes();
       saveStickyNoteLayoutEntry(noteEl, {
         isStowed: false,

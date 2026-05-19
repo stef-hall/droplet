@@ -1144,7 +1144,7 @@ textarea {
   clip-path: inset(0 0 0 0 round var(--sticky-note-radius-top) 0 0 var(--sticky-note-radius-bottom));
 }
 
-.sticky-note.is-near-delete {
+.sticky-note.is-touching-delete {
   opacity: 0.72;
 }
 
@@ -1213,6 +1213,15 @@ textarea {
   --sticky-note-tape-border: rgba(126, 112, 76, 0.16);
 }
 
+.sticky-note.color-amber {
+  --sticky-note-bg: #f7c76a;
+  --sticky-note-text: #5b3905;
+  --sticky-note-border: rgba(129, 83, 16, 0.18);
+  --sticky-note-shadow: rgba(82, 53, 9, 0.2);
+  --sticky-note-tape: rgba(255, 240, 206, 0.74);
+  --sticky-note-tape-border: rgba(147, 110, 62, 0.16);
+}
+
 .sticky-note.color-orange {
   --sticky-note-bg: #f5b35c;
   --sticky-note-text: #5a2d00;
@@ -1220,6 +1229,15 @@ textarea {
   --sticky-note-shadow: rgba(99, 49, 7, 0.2);
   --sticky-note-tape: rgba(255, 232, 201, 0.74);
   --sticky-note-tape-border: rgba(161, 107, 51, 0.16);
+}
+
+.sticky-note.color-coral {
+  --sticky-note-bg: #f5986b;
+  --sticky-note-text: #5f250e;
+  --sticky-note-border: rgba(152, 62, 25, 0.2);
+  --sticky-note-shadow: rgba(95, 39, 13, 0.2);
+  --sticky-note-tape: rgba(255, 228, 214, 0.74);
+  --sticky-note-tape-border: rgba(158, 98, 72, 0.16);
 }
 
 .sticky-note.color-red {
@@ -1231,6 +1249,24 @@ textarea {
   --sticky-note-tape-border: rgba(144, 69, 62, 0.16);
 }
 
+.sticky-note.color-rose {
+  --sticky-note-bg: #e780b8;
+  --sticky-note-text: #581a3e;
+  --sticky-note-border: rgba(137, 39, 96, 0.18);
+  --sticky-note-shadow: rgba(95, 25, 65, 0.2);
+  --sticky-note-tape: rgba(250, 226, 240, 0.72);
+  --sticky-note-tape-border: rgba(145, 86, 117, 0.16);
+}
+
+.sticky-note.color-lime {
+  --sticky-note-bg: #b9df6c;
+  --sticky-note-text: #2e4d0d;
+  --sticky-note-border: rgba(72, 111, 18, 0.18);
+  --sticky-note-shadow: rgba(48, 76, 13, 0.18);
+  --sticky-note-tape: rgba(238, 249, 214, 0.72);
+  --sticky-note-tape-border: rgba(111, 141, 69, 0.16);
+}
+
 .sticky-note.color-blue {
   --sticky-note-bg: #7eb8f5;
   --sticky-note-text: #12385f;
@@ -1238,6 +1274,15 @@ textarea {
   --sticky-note-shadow: rgba(13, 58, 103, 0.2);
   --sticky-note-tape: rgba(227, 240, 255, 0.72);
   --sticky-note-tape-border: rgba(73, 111, 155, 0.16);
+}
+
+.sticky-note.color-cyan {
+  --sticky-note-bg: #6fd9de;
+  --sticky-note-text: #0f4b52;
+  --sticky-note-border: rgba(20, 106, 112, 0.18);
+  --sticky-note-shadow: rgba(12, 72, 76, 0.2);
+  --sticky-note-tape: rgba(221, 248, 250, 0.72);
+  --sticky-note-tape-border: rgba(79, 136, 140, 0.16);
 }
 
 .sticky-note.color-green {
