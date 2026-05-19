@@ -375,6 +375,11 @@ function setStickyNoteMobileScrollTop(nextScrollTop) {
   const clampedScrollTop = clamp(nextScrollTop, 0, stickyNoteMobileMaxScrollTop);
   if (Math.abs(clampedScrollTop - stickyNoteMobileScrollTop) < 0.5) return;
   stickyNoteMobileScrollTop = clampedScrollTop;
+  getStickyNotes()
+    .filter((noteEl) => noteEl.classList.contains("is-stowed") && !noteEl.classList.contains("is-dragging"))
+    .forEach((noteEl) => {
+      noteEl.style.transition = "";
+    });
   layoutStowedStickyNotes();
 }
 
@@ -519,6 +524,11 @@ function getStickyNoteStackGap(draggingNoteEl = null) {
   return Math.max(STICKY_NOTE_STACK_MIN_GAP, Math.round(sampleNoteEl.offsetHeight + STICKY_NOTE_STACK_GAP_PADDING));
 }
 
+function getStickyNoteRevealCurve(progress) {
+  const clampedProgress = clamp(progress, 0, 1);
+  return 1 - ((1 - clampedProgress) ** 2.2);
+}
+
 function layoutStowedStickyNotes({ draggingNoteEl = null, previewIndex = null } = {}) {
   const stowedNotes = getStickyNotes().filter((noteEl) => noteEl.classList.contains("is-stowed") && noteEl !== draggingNoteEl);
   const stackGap = getStickyNoteStackGap(draggingNoteEl);
@@ -542,11 +552,15 @@ function layoutStowedStickyNotes({ draggingNoteEl = null, previewIndex = null } 
       const slotIndex = previewIndex !== null && index >= previewIndex ? index + 1 : index;
       const desiredTop = stackTopStart + slotIndex * stackGap - stickyNoteMobileScrollTop;
       const revealProgress = clamp((viewportHeight - desiredTop) / MOBILE_STICKY_NOTE_ENTRY_DISTANCE, 0, 1);
+      const revealCurve = getStickyNoteRevealCurve(revealProgress);
       const stowedLeft = STICKY_NOTE_DEFAULT_WIDTH - STICKY_NOTE_STOWED_PEEK_WIDTH;
-      const revealOffset = Math.round((1 - revealProgress) * MOBILE_STICKY_NOTE_ENTRY_OFFSET);
+      const revealOffset = Math.round((1 - revealCurve) * MOBILE_STICKY_NOTE_ENTRY_OFFSET);
       noteEl.classList.toggle("is-stowed-preview", previewIndex !== null);
       if (contentEl instanceof HTMLElement && noteEl.parentElement !== contentEl) {
         contentEl.appendChild(noteEl);
+      }
+      if (previewIndex === null) {
+        noteEl.style.transition = "";
       }
       noteEl.style.left = `${Math.round(stowedLeft + revealOffset)}px`;
       noteEl.style.top = `${Math.round(desiredTop)}px`;
@@ -785,6 +799,7 @@ function createStickyNote(listEntry, colorClassName) {
   function beginStickyNoteDrag(pointerState) {
     const rect = noteEl.getBoundingClientRect();
     stickyNoteLayerEl?.appendChild(noteEl);
+    noteEl.style.transition = "";
     noteEl.style.left = `${Math.round(rect.left)}px`;
     noteEl.style.top = `${Math.round(rect.top)}px`;
     const wasStowedAtGrab = noteEl.classList.contains("is-stowed");
@@ -1004,6 +1019,10 @@ function createStickyNote(listEntry, colorClassName) {
       noteEl.classList.add("is-stowed");
       commitStickyNoteDockOrder(noteEl, previewDockIndex ?? getStickyNotes().length);
       layoutStowedStickyNotes();
+      window.setTimeout(() => {
+        if (!noteEl.isConnected || !noteEl.classList.contains("is-stowed") || noteEl.classList.contains("is-dragging")) return;
+        noteEl.style.transition = "";
+      }, 220);
     } else {
       layoutStowedStickyNotes();
       saveStickyNoteLayoutEntry(noteEl, {
