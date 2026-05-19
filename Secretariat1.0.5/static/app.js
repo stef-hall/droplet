@@ -40,16 +40,17 @@ const MAX_PROMPT_HEIGHT = 180;
 const STICKY_NOTE_DOCK_THRESHOLD = 110;
 const STICKY_NOTE_DOCK_HYSTERESIS = 24;
 const STICKY_NOTE_STOWED_PEEK_WIDTH = 118;
+const MOBILE_STICKY_NOTE_STOWED_PEEK_WIDTH = 100;
 const STICKY_NOTE_DEFAULT_WIDTH = 182;
-const STICKY_NOTE_STOWED_HEIGHT = 40;
-const STICKY_NOTE_STACK_MIN_GAP = 46;
-const STICKY_NOTE_STACK_GAP_PADDING = 11;
-const STICKY_NOTE_SAFE_TOP = 64;
+const STICKY_NOTE_STOWED_HEIGHT = 30; 
+const STICKY_NOTE_STACK_GAP_PADDING = 7;
+const STICKY_NOTE_STACK_MIN_GAP = STICKY_NOTE_STOWED_HEIGHT + STICKY_NOTE_STACK_GAP_PADDING;
+const STICKY_NOTE_SAFE_TOP = 40;
 const STICKY_NOTE_MIN_WIDTH = 160;
 const STICKY_NOTE_MIN_HEIGHT = 120;
 const MAX_STICKY_NOTE_INPUT_HEIGHT = 220;
 const MOBILE_STICKY_NOTE_VISIBLE_COUNT = 1;
-const MOBILE_STICKY_NOTE_ENTRY_DISTANCE = 199;
+const MOBILE_STICKY_NOTE_ENTRY_DISTANCE = 169;
 const MOBILE_STICKY_NOTE_ENTRY_OFFSET = STICKY_NOTE_DEFAULT_WIDTH + 12;
 const MOBILE_STICKY_NOTE_DRAG_THRESHOLD = 12;
 const MOBILE_STICKY_NOTE_DRAG_HOLD_MS = 180;
@@ -79,6 +80,7 @@ let isSignupMode = false;
 let isAuthenticated = false;
 let stickyNoteMobileViewportEl = null;
 let stickyNoteMobileContentEl = null;
+let stickyNoteDragHostEl = null;
 let stickyNoteMobileScrollTop = 0;
 let stickyNoteMobileMaxScrollTop = 0;
 let stickyNoteViewportTouchScrollState = null;
@@ -353,6 +355,29 @@ function setStickyNoteDragLayerActive(active) {
   stickyNoteLayerEl.classList.toggle("is-drag-active", active);
 }
 
+function ensureStickyNoteDragHost() {
+  if (stickyNoteDragHostEl instanceof HTMLElement) return stickyNoteDragHostEl;
+  stickyNoteDragHostEl = document.createElement("div");
+  stickyNoteDragHostEl.className = "sticky-note-drag-host";
+  document.body.appendChild(stickyNoteDragHostEl);
+  return stickyNoteDragHostEl;
+}
+
+function moveStickyNoteToDragHost(noteEl) {
+  const dragHostEl = ensureStickyNoteDragHost();
+  if (!(dragHostEl instanceof HTMLElement)) return;
+  dragHostEl.appendChild(noteEl);
+}
+
+function restoreStickyNoteFromDragHost(noteEl) {
+  if (!stickyNoteLayerEl || noteEl.parentElement !== stickyNoteDragHostEl) return;
+  if (noteEl.classList.contains("is-stowed") && isTouchDevice && stickyNoteMobileContentEl instanceof HTMLElement) {
+    stickyNoteMobileContentEl.appendChild(noteEl);
+    return;
+  }
+  stickyNoteLayerEl.appendChild(noteEl);
+}
+
 function getStickyNotes() {
   if (!stickyNoteLayerEl) return [];
   return Array.from(stickyNoteLayerEl.querySelectorAll(".sticky-note"));
@@ -538,7 +563,7 @@ function positionStickyNoteDockSlot(index, draggingNoteEl = null) {
   const slotSize = getStickyNoteDockSlotSize(draggingNoteEl);
   const stackTopStart = getStickyNoteStackTopStart();
   const stowedLeft = isTouchDevice
-    ? Math.max(0, window.innerWidth - STICKY_NOTE_DEFAULT_WIDTH + (STICKY_NOTE_DEFAULT_WIDTH - STICKY_NOTE_STOWED_PEEK_WIDTH))
+    ? Math.max(0, window.innerWidth - STICKY_NOTE_DEFAULT_WIDTH + (STICKY_NOTE_DEFAULT_WIDTH - MOBILE_STICKY_NOTE_STOWED_PEEK_WIDTH))
     : Math.max(0, window.innerWidth - STICKY_NOTE_STOWED_PEEK_WIDTH);
   stickyNoteDockSlotEl.style.right = "auto";
   stickyNoteDockSlotEl.style.left = `${Math.round(stowedLeft)}px`;
@@ -578,15 +603,14 @@ function layoutStowedStickyNotes({ draggingNoteEl = null, previewIndex = null } 
     stickyNoteLayerEl?.classList.toggle("is-mobile-scroll-enabled", stowedNotes.length > 0);
     if (viewportEl instanceof HTMLElement && contentEl instanceof HTMLElement) {
       viewportEl.style.height = `${viewportHeight}px`;
-      viewportEl.style.width = `${STICKY_NOTE_DEFAULT_WIDTH}px`;
-      contentEl.style.height = `${contentHeight}px`;
+      viewportEl.style.width = `${STICKY_NOTE_DEFAULT_WIDTH}px`;;
     }
     stowedNotes.forEach((noteEl, index) => {
       const slotIndex = previewIndex !== null && index >= previewIndex ? index + 1 : index;
       const desiredTop = stackTopStart + slotIndex * stackGap - stickyNoteMobileScrollTop;
       const revealProgress = clamp((viewportHeight - desiredTop) / MOBILE_STICKY_NOTE_ENTRY_DISTANCE, 0, 1);
       const revealCurve = getStickyNoteRevealCurve(revealProgress);
-      const stowedLeft = STICKY_NOTE_DEFAULT_WIDTH - STICKY_NOTE_STOWED_PEEK_WIDTH;
+      const stowedLeft = STICKY_NOTE_DEFAULT_WIDTH - MOBILE_STICKY_NOTE_STOWED_PEEK_WIDTH;
       const revealOffset = Math.round((1 - revealCurve) * MOBILE_STICKY_NOTE_ENTRY_OFFSET);
       noteEl.classList.toggle("is-stowed-preview", previewIndex !== null);
       if (contentEl instanceof HTMLElement && noteEl.parentElement !== contentEl) {
@@ -831,7 +855,7 @@ function createStickyNote(listEntry, colorClassName) {
 
   function beginStickyNoteDrag(pointerState) {
     const rect = noteEl.getBoundingClientRect();
-    stickyNoteLayerEl?.appendChild(noteEl);
+    moveStickyNoteToDragHost(noteEl);
     noteEl.style.transition = "";
     noteEl.style.left = `${Math.round(rect.left)}px`;
     noteEl.style.top = `${Math.round(rect.top)}px`;
@@ -867,8 +891,9 @@ function createStickyNote(listEntry, colorClassName) {
     const target = event.target;
     if (target instanceof HTMLElement && target.closest(".sticky-note-input")) return;
     if (target instanceof HTMLElement && target.closest(".sticky-note-resize-handle")) return;
+    const isStowedAtPointerDown = noteEl.classList.contains("is-stowed");
 
-    if (isTouchDevice) {
+    if (isTouchDevice && isStowedAtPointerDown) {
       clearTouchIntent();
       touchIntentState = {
         pointerId: event.pointerId,
@@ -1057,6 +1082,8 @@ function createStickyNote(listEntry, colorClassName) {
         noteEl.style.transition = "";
       }, 220);
     } else {
+      restoreExpandedSizeFromPreference();
+      restoreStickyNoteFromDragHost(noteEl);
       layoutStowedStickyNotes();
       saveStickyNoteLayoutEntry(noteEl, {
         isStowed: false,
@@ -1081,7 +1108,7 @@ function createStickyNote(listEntry, colorClassName) {
     resizeHandleEl.addEventListener("pointerdown", (event) => {
       if (event.button !== undefined && event.button !== 0) return;
       if (noteEl.classList.contains("is-stowed")) return;
-      stickyNoteLayerEl?.appendChild(noteEl);
+      moveStickyNoteToDragHost(noteEl);
       const rect = noteEl.getBoundingClientRect();
       resizeState = {
         pointerId: event.pointerId,
@@ -1118,6 +1145,7 @@ function createStickyNote(listEntry, colorClassName) {
       if (resizeHandleEl.hasPointerCapture(event.pointerId)) {
         resizeHandleEl.releasePointerCapture(event.pointerId);
       }
+      restoreStickyNoteFromDragHost(noteEl);
       noteEl.classList.remove("is-resizing");
       setStickyNoteDragLayerActive(false);
       if (inputEl instanceof HTMLTextAreaElement) {

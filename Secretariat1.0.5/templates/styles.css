@@ -988,6 +988,13 @@ textarea {
 }
 
 .sticky-note-layer.is-drag-active {
+  z-index: 29;
+}
+
+.sticky-note-drag-host {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
   z-index: 45;
 }
 
@@ -1157,7 +1164,7 @@ textarea {
 
 .sticky-note.is-near-dock,
 .sticky-note.is-near-delete {
-  min-height: 40px;
+  min-height: 30px;
   border-radius:
     var(--sticky-note-radius-top)
     var(--sticky-note-radius-top)
@@ -1174,7 +1181,7 @@ textarea {
 }
 
 .sticky-note.is-stowed {
-  min-height: 40px;
+  min-height: 35px;
   border-radius: var(--sticky-note-radius-top) 0 0 var(--sticky-note-radius-bottom);
   transform: rotate(0deg);
   clip-path: inset(0 0 0 0 round var(--sticky-note-radius-top) 0 0 var(--sticky-note-radius-bottom));
