@@ -35,6 +35,7 @@ const authTrustWrapEl = document.getElementById("auth-trust-wrap");
 const stickyNoteEffectsLayerEl = document.getElementById("sticky-note-effects-layer");
 const stickyNoteLayerEl = document.getElementById("sticky-note-layer");
 const stickyNoteDockSlotEl = document.getElementById("sticky-note-dock-slot");
+const stickyNoteDeleteTargetEl = document.getElementById("sticky-note-delete-target");
 const MAX_PROMPT_HEIGHT = 180;
 const STICKY_NOTE_DOCK_THRESHOLD = 110;
 const STICKY_NOTE_DOCK_HYSTERESIS = 24;
@@ -50,9 +51,14 @@ const STICKY_NOTE_MIN_HEIGHT = 120;
 const MAX_STICKY_NOTE_INPUT_HEIGHT = 220;
 const STICKY_NOTE_COLOR_CLASSES = [
   "color-yellow",
+  "color-amber",
   "color-orange",
+  "color-coral",
   "color-red",
+  "color-rose",
+  "color-lime",
   "color-blue",
+  "color-cyan",
   "color-green",
   "color-violet"
 ];
@@ -323,6 +329,16 @@ function setStickyNoteDockSlotVisible(visible) {
   stickyNoteEffectsLayerEl.classList.toggle("show-dock-slot", visible);
 }
 
+function setStickyNoteDeleteTargetVisible(visible) {
+  if (!stickyNoteEffectsLayerEl) return;
+  stickyNoteEffectsLayerEl.classList.toggle("show-delete-target", visible);
+}
+
+function setStickyNoteDeleteTargetActive(active) {
+  if (!stickyNoteEffectsLayerEl) return;
+  stickyNoteEffectsLayerEl.classList.toggle("delete-target-active", active);
+}
+
 function setStickyNoteDragLayerActive(active) {
   if (!stickyNoteLayerEl) return;
   stickyNoteLayerEl.classList.toggle("is-drag-active", active);
@@ -341,6 +357,47 @@ function clearStickyNotes() {
   getStickyNotes().forEach((noteEl) => noteEl.remove());
   setStickyNoteDockHintVisible(false);
   setStickyNoteDockSlotVisible(false);
+  setStickyNoteDeleteTargetVisible(false);
+  setStickyNoteDeleteTargetActive(false);
+}
+
+function isPointerOverStickyNoteDeleteTarget(pointerX, pointerY) {
+  if (!(stickyNoteDeleteTargetEl instanceof HTMLElement)) return false;
+  const rect = stickyNoteDeleteTargetEl.getBoundingClientRect();
+  return pointerX >= rect.left && pointerX <= rect.right && pointerY >= rect.top && pointerY <= rect.bottom;
+}
+
+function removeStickyNoteLayoutEntry(noteEl) {
+  const listName = String(noteEl?.dataset?.listName || "").trim();
+  if (!listName) return;
+  const layoutState = loadStickyNoteLayoutState();
+  if (layoutState[listName]) {
+    delete layoutState[listName];
+    saveStickyNoteLayoutState(layoutState);
+  }
+}
+
+async function deleteStickyNote(noteEl) {
+  const listName = String(noteEl?.dataset?.listName || "").trim();
+  if (!listName || !isAuthenticated) return false;
+  try {
+    const response = await fetch("/api/lists/delete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ list_name: listName })
+    });
+    const data = await response.json();
+    if (response.status === 401) {
+      isAuthenticated = false;
+      currentUserId = "";
+      updateAuthUi();
+      clearStickyNotes();
+      return false;
+    }
+    return Boolean(response.ok && data.ok);
+  } catch (_) {
+    return false;
+  }
 }
 
 function autoSizeStickyNoteInput(inputEl, noteEl = null) {
@@ -651,6 +708,8 @@ function createStickyNote(listEntry, colorClassName) {
     noteEl.style.transition = "transform 40ms linear, box-shadow 180ms ease, width 180ms ease, height 180ms ease, min-height 180ms ease, border-radius 180ms ease";
     noteEl.classList.add("is-dragging");
     setStickyNoteDragLayerActive(true);
+    setStickyNoteDeleteTargetVisible(true);
+    setStickyNoteDeleteTargetActive(false);
     noteEl.setPointerCapture(event.pointerId);
     startSwayAnimation();
     event.preventDefault();
@@ -661,11 +720,15 @@ function createStickyNote(listEntry, colorClassName) {
 
     dragState.lastPointerX = event.clientX;
     dragState.lastPointerY = event.clientY;
+    const overDeleteTarget = isPointerOverStickyNoteDeleteTarget(event.clientX, event.clientY);
+    setStickyNoteDeleteTargetActive(overDeleteTarget);
+    noteEl.classList.toggle("is-near-delete", overDeleteTarget);
     const nearDock = isStickyNoteNearDock(noteEl, dragState.lastLeft, event.clientX, Boolean(dockPreviewState));
-    const previewDockIndex = nearDock ? getStickyNoteDockIndex(event.clientY, noteEl) : null;
+    const effectiveNearDock = !overDeleteTarget && nearDock;
+    const previewDockIndex = effectiveNearDock ? getStickyNoteDockIndex(event.clientY, noteEl) : null;
 
     if (dragState.wasStowedAtGrab) {
-      if (nearDock) {
+      if (effectiveNearDock) {
         noteEl.classList.add("is-stowed");
       } else {
         if (!dragState.unstowedDuringDrag) {
@@ -678,7 +741,17 @@ function createStickyNote(listEntry, colorClassName) {
     dragState.previewDockIndex = previewDockIndex;
 
     const previousLeft = dragState.lastLeft;
-    if (nearDock) {
+    if (overDeleteTarget) {
+      enterDockPreview();
+      const previewWidth = STICKY_NOTE_DEFAULT_WIDTH;
+      const previewHeight = STICKY_NOTE_STOWED_HEIGHT;
+      const maxLeft = Math.max(0, window.innerWidth - previewWidth);
+      const maxTop = Math.max(0, window.innerHeight - previewHeight);
+      const anchorX = (dockPreviewState?.pointerRatioX ?? 0.5) * previewWidth;
+      const anchorY = (dockPreviewState?.pointerRatioY ?? 0.5) * previewHeight;
+      dragState.lastLeft = clamp(event.clientX - anchorX, 0, maxLeft);
+      dragState.lastTop = clamp(event.clientY - anchorY, -16, maxTop);
+    } else if (effectiveNearDock) {
       enterDockPreview();
       const previewWidth = STICKY_NOTE_DEFAULT_WIDTH;
       const previewHeight = STICKY_NOTE_STOWED_HEIGHT;
@@ -699,8 +772,8 @@ function createStickyNote(listEntry, colorClassName) {
     noteEl.style.top = `${Math.round(dragState.lastTop)}px`;
     const deltaX = dragState.lastLeft - previousLeft;
     dragState.targetAngle = clamp(deltaX * 0.9, -12, 12);
-    setStickyNoteDockHintVisible(nearDock);
-    if (nearDock) {
+    setStickyNoteDockHintVisible(effectiveNearDock);
+    if (effectiveNearDock) {
       layoutStowedStickyNotes({ draggingNoteEl: noteEl, previewIndex: previewDockIndex });
     } else {
       layoutStowedStickyNotes();
@@ -709,18 +782,47 @@ function createStickyNote(listEntry, colorClassName) {
 
   function releaseStickyNote(event) {
     if (!dragState || event.pointerId !== dragState.pointerId) return;
+    const shouldDelete = isPointerOverStickyNoteDeleteTarget(dragState.lastPointerX, dragState.lastPointerY);
     const currentLeft = Number.parseFloat(noteEl.style.left) || 0;
     const shouldStow = isStickyNoteNearDock(noteEl, currentLeft, dragState.lastPointerX, Boolean(dockPreviewState));
     const previewDockIndex = dragState.previewDockIndex;
 
     noteEl.classList.remove("is-dragging");
+    noteEl.classList.remove("is-near-delete");
     exitDockPreview({ keepFolded: shouldStow });
     stopSwayAnimation();
     noteEl.style.transition = "transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 180ms ease, width 180ms ease, height 180ms ease, min-height 180ms ease, border-radius 180ms ease";
     noteEl.style.transform = "";
     setStickyNoteDockHintVisible(false);
     setStickyNoteDockSlotVisible(false);
+    setStickyNoteDeleteTargetVisible(false);
+    setStickyNoteDeleteTargetActive(false);
     setStickyNoteDragLayerActive(false);
+
+    if (shouldDelete) {
+      const finalizeDelete = () => {
+        const key = String(noteEl.dataset.listName || "");
+        const timerId = key ? stickyNoteSaveTimers.get(key) : null;
+        if (timerId) {
+          clearTimeout(timerId);
+          stickyNoteSaveTimers.delete(key);
+        }
+        noteEl.remove();
+        removeStickyNoteLayoutEntry(noteEl);
+        layoutStowedStickyNotes();
+        syncStickyNoteLayoutState();
+      };
+      void deleteStickyNote(noteEl).then((deleted) => {
+        if (deleted) {
+          finalizeDelete();
+        }
+      });
+      if (noteEl.hasPointerCapture(event.pointerId)) {
+        noteEl.releasePointerCapture(event.pointerId);
+      }
+      dragState = null;
+      return;
+    }
 
     if (shouldStow) {
       noteEl.style.transition = "left 180ms ease, top 180ms ease, transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 180ms ease, width 180ms ease, height 180ms ease, min-height 180ms ease, border-radius 180ms ease";

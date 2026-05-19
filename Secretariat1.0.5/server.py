@@ -1818,6 +1818,26 @@ def api_lists_save():
     return jsonify({"ok": True, "list": {"list_name": list_name, "content": content}})
 
 
+@app.post("/api/lists/delete")
+def api_lists_delete():
+    auth_error = _require_auth()
+    if auth_error:
+        return auth_error
+
+    payload = request.get_json(silent=True) or {}
+    list_name = str(payload.get("list_name", "")).strip()
+    if not list_name:
+        return jsonify({"ok": False, "error": "List name is required."}), 400
+
+    user_id = int(session["user_id"])
+    result = DeleteList(user_id=user_id, list_name=list_name)
+    status = str(result.get("status", "")).strip().lower() if isinstance(result, dict) else ""
+    if status not in {"success", "deleted"}:
+        return jsonify({"ok": False, "error": "Failed to delete list."}), 500
+
+    return jsonify({"ok": True, "list": {"list_name": list_name}})
+
+
 @app.post("/api/settings/caldav")
 def api_settings_caldav_save():
     auth_error = _require_auth()
