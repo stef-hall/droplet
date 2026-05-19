@@ -1137,6 +1137,23 @@ textarea {
 }
 
 .sticky-note.is-near-dock,
+.sticky-note.is-near-delete {
+  min-height: 40px;
+  border-radius:
+    var(--sticky-note-radius-top)
+    var(--sticky-note-radius-top)
+    var(--sticky-note-radius-bottom)
+    var(--sticky-note-radius-bottom);
+  transform: rotate(0deg);
+  clip-path: inset(
+    0 round
+    var(--sticky-note-radius-top)
+    var(--sticky-note-radius-top)
+    var(--sticky-note-radius-bottom)
+    var(--sticky-note-radius-bottom)
+  );
+}
+
 .sticky-note.is-stowed {
   min-height: 40px;
   border-radius: var(--sticky-note-radius-top) 0 0 var(--sticky-note-radius-bottom);
