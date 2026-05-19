@@ -1738,6 +1738,12 @@ textarea {
 }
 
 @media (max-width: 640px) {
+  .sticky-note,
+  .sticky-note.is-near-dock,
+  .sticky-note.is-stowed {
+    clip-path: none;
+  }
+
   .app-shell {
     height: 100dvh;
     padding: 38px 10px 00px 10px;
