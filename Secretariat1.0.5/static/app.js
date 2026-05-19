@@ -48,8 +48,8 @@ const STICKY_NOTE_SAFE_TOP = 64;
 const STICKY_NOTE_MIN_WIDTH = 160;
 const STICKY_NOTE_MIN_HEIGHT = 120;
 const MAX_STICKY_NOTE_INPUT_HEIGHT = 220;
-const MOBILE_STICKY_NOTE_VISIBLE_COUNT = 2;
-const MOBILE_STICKY_NOTE_ENTRY_DISTANCE = 140;
+const MOBILE_STICKY_NOTE_VISIBLE_COUNT = 1;
+const MOBILE_STICKY_NOTE_ENTRY_DISTANCE = 199;
 const MOBILE_STICKY_NOTE_ENTRY_OFFSET = STICKY_NOTE_DEFAULT_WIDTH + 12;
 const MOBILE_STICKY_NOTE_DRAG_THRESHOLD = 12;
 const MOBILE_STICKY_NOTE_DRAG_HOLD_MS = 180;
@@ -81,6 +81,7 @@ let stickyNoteMobileViewportEl = null;
 let stickyNoteMobileContentEl = null;
 let stickyNoteMobileScrollTop = 0;
 let stickyNoteMobileMaxScrollTop = 0;
+let stickyNoteViewportTouchScrollState = null;
 const stickyNoteSaveTimers = new Map();
 const ALLOWED_DESKTOP_META_STATUSES = new Set([
   "Attachment removed",
@@ -368,6 +369,38 @@ function ensureStickyNoteMobileViewport() {
   stickyNoteMobileContentEl.className = "sticky-note-mobile-content";
   stickyNoteMobileViewportEl.appendChild(stickyNoteMobileContentEl);
   stickyNoteLayerEl.appendChild(stickyNoteMobileViewportEl);
+
+  stickyNoteMobileViewportEl.addEventListener("pointerdown", (event) => {
+    if (event.pointerType !== "touch") return;
+    if (event.button !== undefined && event.button !== 0) return;
+    const target = event.target;
+    if (target instanceof HTMLElement && target.closest(".sticky-note")) return;
+    stickyNoteViewportTouchScrollState = {
+      pointerId: event.pointerId,
+      startY: event.clientY,
+      startScrollTop: stickyNoteMobileScrollTop,
+      scrolling: false
+    };
+  });
+
+  stickyNoteMobileViewportEl.addEventListener("pointermove", (event) => {
+    if (!stickyNoteViewportTouchScrollState || stickyNoteViewportTouchScrollState.pointerId !== event.pointerId) return;
+    const deltaY = event.clientY - stickyNoteViewportTouchScrollState.startY;
+    if (!stickyNoteViewportTouchScrollState.scrolling && Math.abs(deltaY) > MOBILE_STICKY_NOTE_DRAG_THRESHOLD) {
+      stickyNoteViewportTouchScrollState.scrolling = true;
+    }
+    if (!stickyNoteViewportTouchScrollState.scrolling) return;
+    setStickyNoteMobileScrollTop(stickyNoteViewportTouchScrollState.startScrollTop - deltaY);
+    event.preventDefault();
+  });
+
+  const clearViewportTouchScrollState = (event) => {
+    if (!stickyNoteViewportTouchScrollState || stickyNoteViewportTouchScrollState.pointerId !== event.pointerId) return;
+    stickyNoteViewportTouchScrollState = null;
+  };
+  stickyNoteMobileViewportEl.addEventListener("pointerup", clearViewportTouchScrollState);
+  stickyNoteMobileViewportEl.addEventListener("pointercancel", clearViewportTouchScrollState);
+
   return stickyNoteMobileViewportEl;
 }
 
