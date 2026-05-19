@@ -7,7 +7,9 @@ const caldavSettingsFormEl = document.getElementById("caldav-settings-form");
 const caldavProviderEl = document.getElementById("caldav-provider");
 const caldavUsernameEl = document.getElementById("caldav-username");
 const caldavPasswordEl = document.getElementById("caldav-password");
-const caldavCalendarEl = document.getElementById("caldav-calendar");
+const caldavCalendarDropdownEl = document.getElementById("caldav-calendar-dropdown");
+const caldavCalendarSummaryEl = document.getElementById("caldav-calendar-summary");
+const caldavCalendarOptionsEl = document.getElementById("caldav-calendar-options");
 const assistantModelEl = document.getElementById("assistant-model");
 const settingsStatusEl = document.getElementById("settings-status");
 const deleteUserFormEl = document.getElementById("delete-user-form");
@@ -15,9 +17,12 @@ const deleteConfirmationEl = document.getElementById("delete-confirmation");
 const deleteUserStatusEl = document.getElementById("delete-user-status");
 
 let currentUser = null;
+let selectedCalendars = [];
+let availableCalendars = [];
+let calendarsDropdownOpen = false;
 const CALDAV_PROVIDER_URLS = {
   icloud: "https://caldav.icloud.com",
-  google: "https://apidata.googleusercontent.com/caldav/v2/",
+  google: "https://www.google.com/calendar/dav/",
 };
 
 (function () {
@@ -109,7 +114,7 @@ if (settingsBackLinkEl) {
 
 function providerFromUrl(url) {
   const clean = String(url || "").trim().toLowerCase();
-  if (clean === CALDAV_PROVIDER_URLS.google.toLowerCase()) return "google";
+  if (clean.includes("googleusercontent.com/caldav/v2") || clean.includes("google.com/calendar/dav/")) return "google";
   return "icloud";
 }
 
@@ -123,6 +128,104 @@ function setDeleteStatus(text, isError = false) {
   if (!deleteUserStatusEl) return;
   deleteUserStatusEl.textContent = text || "";
   deleteUserStatusEl.classList.toggle("is-error", Boolean(isError && text));
+}
+
+function normalizeCalendarNames(values) {
+  if (!Array.isArray(values)) return [];
+  const seen = new Set();
+  const names = [];
+  for (const raw of values) {
+    const name = String(raw || "").trim();
+    if (!name) continue;
+    const key = name.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    names.push(name);
+  }
+  return names;
+}
+
+function splitCalendarNames(raw) {
+  const text = String(raw || "").trim();
+  if (!text) return [];
+  return normalizeCalendarNames(text.split(","));
+}
+
+function updateCalendarSummary() {
+  if (!caldavCalendarSummaryEl) return;
+  if (!selectedCalendars.length) {
+    caldavCalendarSummaryEl.textContent = "No calendars selected";
+    return;
+  }
+  caldavCalendarSummaryEl.textContent = selectedCalendars.join(", ");
+}
+
+function renderCalendarOptions() {
+  if (!caldavCalendarOptionsEl) return;
+  caldavCalendarOptionsEl.innerHTML = "";
+
+  if (!availableCalendars.length) {
+    const emptyEl = document.createElement("p");
+    emptyEl.textContent = "No calendars found. Save settings first.";
+    caldavCalendarOptionsEl.appendChild(emptyEl);
+    updateCalendarSummary();
+    return;
+  }
+
+  for (const calendarName of availableCalendars) {
+    const labelEl = document.createElement("label");
+    labelEl.className = "settings-multi-select-option";
+
+    const inputEl = document.createElement("input");
+    inputEl.type = "checkbox";
+    inputEl.value = calendarName;
+    inputEl.checked = selectedCalendars.some((name) => name.toLowerCase() === calendarName.toLowerCase());
+    inputEl.addEventListener("change", () => {
+      if (inputEl.checked) {
+        selectedCalendars = normalizeCalendarNames([...selectedCalendars, calendarName]);
+      } else {
+        selectedCalendars = selectedCalendars.filter((name) => name.toLowerCase() !== calendarName.toLowerCase());
+      }
+      updateCalendarSummary();
+    });
+
+    const textEl = document.createElement("span");
+    textEl.textContent = calendarName;
+    labelEl.appendChild(textEl);
+    labelEl.appendChild(inputEl);
+    caldavCalendarOptionsEl.appendChild(labelEl);
+  }
+
+  updateCalendarSummary();
+}
+
+function setCalendarsDropdownOpen(open) {
+  calendarsDropdownOpen = Boolean(open);
+  if (!caldavCalendarOptionsEl || !caldavCalendarSummaryEl || !caldavCalendarDropdownEl) return;
+  caldavCalendarOptionsEl.classList.toggle("hidden", !calendarsDropdownOpen);
+  caldavCalendarDropdownEl.classList.toggle("is-open", calendarsDropdownOpen);
+  caldavCalendarSummaryEl.setAttribute("aria-expanded", calendarsDropdownOpen ? "true" : "false");
+}
+
+async function fetchCalendarNames() {
+  try {
+    const response = await fetch("/api/settings/caldav/calendars");
+    const data = await response.json();
+    if (!response.ok || !data.ok) {
+      throw new Error(data.error || "Unable to fetch calendar names.");
+    }
+    availableCalendars = normalizeCalendarNames(data.calendars || []);
+    const selectedFromServer = normalizeCalendarNames(data.selected || []);
+    const availableSet = new Set(availableCalendars.map((name) => name.toLowerCase()));
+    const localSelected = normalizeCalendarNames(selectedCalendars).filter((name) => availableSet.has(name.toLowerCase()));
+    const serverSelected = selectedFromServer.filter((name) => availableSet.has(name.toLowerCase()));
+    selectedCalendars = normalizeCalendarNames([...serverSelected, ...localSelected]);
+    renderCalendarOptions();
+  } catch (error) {
+    availableCalendars = [];
+    renderCalendarOptions();
+    throw error;
+  }
 }
 
 async function requireAuth() {
@@ -151,12 +254,20 @@ async function loadSettings() {
     const settings = data.settings || {};
     caldavProviderEl.value = providerFromUrl(settings.caldav_url || "");
     caldavUsernameEl.value = settings.caldav_username || "";
-    caldavCalendarEl.value = settings.caldav_calendar || "";
+    selectedCalendars = normalizeCalendarNames((settings.caldav_calendars && settings.caldav_calendars.length)
+      ? settings.caldav_calendars
+      : splitCalendarNames(settings.caldav_calendar || ""));
+    renderCalendarOptions();
     if (assistantModelEl) {
       assistantModelEl.value = settings.assistant_model || "gpt-5.4";
     }
     caldavPasswordEl.value = "";
     setSettingsStatus(settings.has_password ? "Saved password is already on file." : "No CalDAV password saved yet.");
+    try {
+      await fetchCalendarNames();
+    } catch (error) {
+      setSettingsStatus(error.message || "Unable to fetch calendar names.", true);
+    }
   } catch (error) {
     setSettingsStatus(error.message || "Unable to load settings.", true);
   }
@@ -201,7 +312,19 @@ document.addEventListener("click", (event) => {
   if (chatMenuEl.contains(target) || chatMenuTriggerEl.contains(target)) return;
   chatMenuEl.classList.add("hidden");
   chatMenuTriggerEl.setAttribute("aria-expanded", "false");
+
+  if (!caldavCalendarDropdownEl || !caldavCalendarOptionsEl || !calendarsDropdownOpen) return;
+  const dropdownTarget = event.target;
+  if (!(dropdownTarget instanceof Node)) return;
+  if (caldavCalendarDropdownEl.contains(dropdownTarget)) return;
+  setCalendarsDropdownOpen(false);
 });
+
+if (caldavCalendarSummaryEl) {
+  caldavCalendarSummaryEl.addEventListener("click", () => {
+    setCalendarsDropdownOpen(!calendarsDropdownOpen);
+  });
+}
 
 if (caldavSettingsFormEl) {
   caldavSettingsFormEl.addEventListener("submit", async (event) => {
@@ -215,7 +338,7 @@ if (caldavSettingsFormEl) {
           caldav_url: CALDAV_PROVIDER_URLS[caldavProviderEl.value] || CALDAV_PROVIDER_URLS.icloud,
           caldav_username: caldavUsernameEl.value.trim(),
           caldav_password: caldavPasswordEl.value,
-          caldav_calendar: caldavCalendarEl.value.trim(),
+          caldav_calendars: selectedCalendars,
           assistant_model: assistantModelEl ? assistantModelEl.value : "gpt-5.4",
         }),
       });
@@ -225,6 +348,7 @@ if (caldavSettingsFormEl) {
       }
 
       caldavPasswordEl.value = "";
+      await fetchCalendarNames();
       setSettingsStatus("Settings saved.");
     } catch (error) {
       setSettingsStatus(error.message || "Unable to save settings.", true);

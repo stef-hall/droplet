@@ -22,7 +22,7 @@ import uuid
 import traceback
 import secrets
 import hashlib
-from urllib.parse import urlencode
+from urllib.parse import urlencode, unquote
 from urllib.request import urlopen
 from pathlib import Path
 from werkzeug.security import check_password_hash, generate_password_hash # type: ignore
@@ -39,7 +39,7 @@ SESSION_TTL_SECONDS = 6 * 60 * 60
 TRUSTED_DEVICE_COOKIE = "secretariat_trusted_device"
 TRUSTED_DEVICE_DAYS = 60
 MAX_PARALLEL_TOOL_CALLS = 10
-LISTS_DIR = Path(__file__).resolve().parent / "lists"
+LISTS_DIR = Path(__file__).resolve( ).parent / "lists"
 DB_PATH = Path(__file__).resolve().parent / "secretariat.db"
 DEFAULT_ASSISTANT_MODEL = "gpt-5.4"
 ALLOWED_ASSISTANT_MODELS = {"gpt-5.4-mini", "gpt-5.4"}
@@ -233,6 +233,48 @@ def _valid_email(email: str) -> bool:
     return bool(email)
 
 
+def _normalize_caldav_url(caldav_url: str, caldav_username: str) -> str:
+    raw_url = str(caldav_url or "").strip()
+    if not raw_url:
+        return raw_url
+
+    lowered = raw_url.lower()
+    is_google = (
+        "googleusercontent.com/caldav/v2" in lowered
+        or "google.com/calendar/dav/" in lowered
+    )
+    if not is_google:
+        return raw_url
+
+    username = str(caldav_username or "").strip()
+    if not username:
+        match = re.search(r"/calendar/dav/([^/]+)/events/?", raw_url, flags=re.IGNORECASE)
+        if match:
+            username = unquote(match.group(1)).strip()
+    if not username:
+        return raw_url
+
+    return f"https://www.google.com/calendar/dav/{username}/events/"
+
+
+def _parse_caldav_calendar_names(raw_value: str | None) -> list[str]:
+    raw = str(raw_value or "").strip()
+    if not raw:
+        return []
+    seen: set[str] = set()
+    names: list[str] = []
+    for part in raw.split(","):
+        name = part.strip()
+        if not name:
+            continue
+        lowered = name.lower()
+        if lowered in seen:
+            continue
+        seen.add(lowered)
+        names.append(name)
+    return names
+
+
 def _require_auth():
     _restore_auth_from_trusted_device()
     user_id = session.get("user_id")
@@ -258,8 +300,8 @@ def _get_user_caldav_settings(user_id: int) -> dict[str, str]:
     if not row:
         raise ValueError("CalDAV settings are missing. Open Settings and add your CalDAV URL, username, and password.")
 
-    caldav_url = str(row["caldav_url"] or "").strip()
     caldav_username = str(row["caldav_username"] or "").strip()
+    caldav_url = _normalize_caldav_url(str(row["caldav_url"] or "").strip(), caldav_username)
     caldav_password = str(row["caldav_password"] or "")
     caldav_calendar = str(row["caldav_calendar"] or "").strip()
 
@@ -293,12 +335,13 @@ def _get_user_caldav_calendars(user_id: int):
     if not calendars:
         raise ValueError("No calendars are available for this CalDAV account.")
 
-    preferred_calendar = settings["calendar"].strip().lower()
-    if preferred_calendar:
+    preferred_calendars = _parse_caldav_calendar_names(settings["calendar"])
+    if preferred_calendars:
+        preferred_set = {name.strip().lower() for name in preferred_calendars}
         matching = [
             calendar
             for calendar in calendars
-            if str(calendar.get_display_name() or "").strip().lower() == preferred_calendar
+            if str(calendar.get_display_name() or "").strip().lower() in preferred_set
         ]
         if not matching:
             raise ValueError(f'Calendar "{settings["calendar"]}" was not found for this CalDAV account.')
@@ -808,6 +851,13 @@ def _parse_iso_datetime(value):
     text = str(value).strip()
     if not text:
         return None
+    compact_match = re.fullmatch(r"(\d{8}T\d{6})([+-]\d{2}:\d{2})", text)
+    if compact_match:
+        dt_part, offset_part = compact_match.groups()
+        try:
+            return datetime.strptime(f"{dt_part}{offset_part}", "%Y%m%dT%H%M%S%z")
+        except ValueError:
+            return None
     if text.endswith("Z"):
         text = text[:-1] + "+00:00"
     try:
@@ -1703,10 +1753,38 @@ def api_settings_caldav_get():
         "caldav_url": str(row["caldav_url"] or "").strip() if row else "",
         "caldav_username": str(row["caldav_username"] or "").strip() if row else "",
         "caldav_calendar": str(row["caldav_calendar"] or "").strip() if row else "",
+        "caldav_calendars": _parse_caldav_calendar_names(str(row["caldav_calendar"] or "")) if row else [],
         "assistant_model": _normalize_assistant_model(row["assistant_model"] if row else None),
         "has_password": bool(str(row["caldav_password"] or "")) if row else False,
     }
     return jsonify({"ok": True, "settings": settings_payload})
+
+
+@app.get("/api/settings/caldav/calendars")
+def api_settings_caldav_calendars_get():
+    auth_error = _require_auth()
+    if auth_error:
+        return auth_error
+
+    user_id = int(session["user_id"])
+    settings = _get_user_caldav_settings(user_id)
+    client = DAVClient(
+        url=settings["url"],
+        username=settings["username"],
+        password=settings["password"],
+    )
+    principal = client.principal()
+    calendars = principal.calendars()
+    names = sorted(
+        {
+            str(calendar.get_display_name() or "").strip()
+            for calendar in calendars
+            if str(calendar.get_display_name() or "").strip()
+        },
+        key=lambda value: value.lower(),
+    )
+    selected = _parse_caldav_calendar_names(settings["calendar"])
+    return jsonify({"ok": True, "calendars": names, "selected": selected})
 
 
 @app.get("/api/lists")
@@ -1748,9 +1826,17 @@ def api_settings_caldav_save():
 
     payload = request.get_json(silent=True) or {}
     user_id = int(session["user_id"])
-    caldav_url = str(payload.get("caldav_url", "")).strip()
     caldav_username = str(payload.get("caldav_username", "")).strip()
-    caldav_calendar = str(payload.get("caldav_calendar", "")).strip()
+    caldav_url = _normalize_caldav_url(str(payload.get("caldav_url", "")).strip(), caldav_username)
+    caldav_calendars_payload = payload.get("caldav_calendars")
+    if isinstance(caldav_calendars_payload, list):
+        caldav_calendar = ", ".join(
+            name
+            for name in [str(item).strip() for item in caldav_calendars_payload]
+            if name
+        )
+    else:
+        caldav_calendar = str(payload.get("caldav_calendar", "")).strip()
     assistant_model = _normalize_assistant_model(payload.get("assistant_model"))
     caldav_password_incoming = payload.get("caldav_password")
     caldav_password_incoming = "" if caldav_password_incoming is None else str(caldav_password_incoming)
@@ -1785,6 +1871,7 @@ def api_settings_caldav_save():
             "caldav_url": caldav_url,
             "caldav_username": caldav_username,
             "caldav_calendar": caldav_calendar,
+            "caldav_calendars": _parse_caldav_calendar_names(caldav_calendar),
             "assistant_model": assistant_model,
             "has_password": bool(caldav_password),
         },
