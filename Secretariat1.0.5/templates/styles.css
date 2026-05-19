@@ -1164,7 +1164,7 @@ textarea {
 
 .sticky-note.is-near-dock,
 .sticky-note.is-near-delete {
-  min-height: 30px;
+  min-height: 35px;
   border-radius:
     var(--sticky-note-radius-top)
     var(--sticky-note-radius-top)

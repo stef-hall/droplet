@@ -42,7 +42,7 @@ const STICKY_NOTE_DOCK_HYSTERESIS = 24;
 const STICKY_NOTE_STOWED_PEEK_WIDTH = 118;
 const MOBILE_STICKY_NOTE_STOWED_PEEK_WIDTH = 100;
 const STICKY_NOTE_DEFAULT_WIDTH = 182;
-const STICKY_NOTE_STOWED_HEIGHT = 30; 
+const STICKY_NOTE_STOWED_HEIGHT = 35; 
 const STICKY_NOTE_STACK_GAP_PADDING = 7;
 const STICKY_NOTE_STACK_MIN_GAP = STICKY_NOTE_STOWED_HEIGHT + STICKY_NOTE_STACK_GAP_PADDING;
 const STICKY_NOTE_SAFE_TOP = 40;
@@ -1074,6 +1074,9 @@ function createStickyNote(listEntry, colorClassName) {
 
     if (shouldStow) {
       noteEl.style.transition = "left 180ms ease, top 180ms ease, transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 180ms ease, width 180ms ease, height 180ms ease, min-height 180ms ease, border-radius 180ms ease";
+      noteEl.style.width = `${STICKY_NOTE_DEFAULT_WIDTH}px`;
+      noteEl.style.height = `${STICKY_NOTE_STOWED_HEIGHT}px`;
+      noteEl.style.minHeight = `${STICKY_NOTE_STOWED_HEIGHT}px`;
       noteEl.classList.add("is-stowed");
       commitStickyNoteDockOrder(noteEl, previewDockIndex ?? getStickyNotes().length);
       layoutStowedStickyNotes();
