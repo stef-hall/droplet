@@ -35,24 +35,35 @@ const authTrustWrapEl = document.getElementById("auth-trust-wrap");
 const stickyNoteEffectsLayerEl = document.getElementById("sticky-note-effects-layer");
 const stickyNoteLayerEl = document.getElementById("sticky-note-layer");
 const stickyNoteDockSlotEl = document.getElementById("sticky-note-dock-slot");
+const stickyNoteDeleteTargetEl = document.getElementById("sticky-note-delete-target");
 const MAX_PROMPT_HEIGHT = 180;
 const STICKY_NOTE_DOCK_THRESHOLD = 110;
 const STICKY_NOTE_DOCK_HYSTERESIS = 24;
 const STICKY_NOTE_STOWED_PEEK_WIDTH = 118;
+const MOBILE_STICKY_NOTE_STOWED_PEEK_WIDTH = 100;
 const STICKY_NOTE_DEFAULT_WIDTH = 182;
-const STICKY_NOTE_STOWED_HEIGHT = 40;
-const STICKY_NOTE_STACK_TOP_START = 72;
-const STICKY_NOTE_STACK_MIN_GAP = 46;
-const STICKY_NOTE_STACK_GAP_PADDING = 11;
-const STICKY_NOTE_SAFE_TOP = 64;
+const STICKY_NOTE_STOWED_HEIGHT = 35; 
+const STICKY_NOTE_STACK_GAP_PADDING = 7;
+const STICKY_NOTE_STACK_MIN_GAP = STICKY_NOTE_STOWED_HEIGHT + STICKY_NOTE_STACK_GAP_PADDING;
+const STICKY_NOTE_SAFE_TOP = 40;
 const STICKY_NOTE_MIN_WIDTH = 160;
 const STICKY_NOTE_MIN_HEIGHT = 120;
 const MAX_STICKY_NOTE_INPUT_HEIGHT = 220;
+const MOBILE_STICKY_NOTE_VISIBLE_COUNT = 1;
+const MOBILE_STICKY_NOTE_ENTRY_DISTANCE = 169;
+const MOBILE_STICKY_NOTE_ENTRY_OFFSET = STICKY_NOTE_DEFAULT_WIDTH + 12;
+const MOBILE_STICKY_NOTE_DRAG_THRESHOLD = 12;
+const MOBILE_STICKY_NOTE_DRAG_HOLD_MS = 180;
 const STICKY_NOTE_COLOR_CLASSES = [
   "color-yellow",
+  "color-amber",
   "color-orange",
+  "color-coral",
   "color-red",
+  "color-rose",
+  "color-lime",
   "color-blue",
+  "color-cyan",
   "color-green",
   "color-violet"
 ];
@@ -67,6 +78,12 @@ let currentUserId = "";
 let initSessionPromise = null;
 let isSignupMode = false;
 let isAuthenticated = false;
+let stickyNoteMobileViewportEl = null;
+let stickyNoteMobileContentEl = null;
+let stickyNoteDragHostEl = null;
+let stickyNoteMobileScrollTop = 0;
+let stickyNoteMobileMaxScrollTop = 0;
+let stickyNoteViewportTouchScrollState = null;
 const stickyNoteSaveTimers = new Map();
 const ALLOWED_DESKTOP_META_STATUSES = new Set([
   "Attachment removed",
@@ -323,14 +340,105 @@ function setStickyNoteDockSlotVisible(visible) {
   stickyNoteEffectsLayerEl.classList.toggle("show-dock-slot", visible);
 }
 
+function setStickyNoteDeleteTargetVisible(visible) {
+  if (!stickyNoteEffectsLayerEl) return;
+  stickyNoteEffectsLayerEl.classList.toggle("show-delete-target", visible);
+}
+
+function setStickyNoteDeleteTargetActive(active) {
+  if (!stickyNoteEffectsLayerEl) return;
+  stickyNoteEffectsLayerEl.classList.toggle("delete-target-active", active);
+}
+
 function setStickyNoteDragLayerActive(active) {
   if (!stickyNoteLayerEl) return;
   stickyNoteLayerEl.classList.toggle("is-drag-active", active);
 }
 
+function ensureStickyNoteDragHost() {
+  if (stickyNoteDragHostEl instanceof HTMLElement) return stickyNoteDragHostEl;
+  stickyNoteDragHostEl = document.createElement("div");
+  stickyNoteDragHostEl.className = "sticky-note-drag-host";
+  document.body.appendChild(stickyNoteDragHostEl);
+  return stickyNoteDragHostEl;
+}
+
+function moveStickyNoteToDragHost(noteEl) {
+  const dragHostEl = ensureStickyNoteDragHost();
+  if (!(dragHostEl instanceof HTMLElement)) return;
+  dragHostEl.appendChild(noteEl);
+}
+
+function restoreStickyNoteFromDragHost(noteEl) {
+  if (!stickyNoteLayerEl || noteEl.parentElement !== stickyNoteDragHostEl) return;
+  if (noteEl.classList.contains("is-stowed") && isTouchDevice && stickyNoteMobileContentEl instanceof HTMLElement) {
+    stickyNoteMobileContentEl.appendChild(noteEl);
+    return;
+  }
+  stickyNoteLayerEl.appendChild(noteEl);
+}
+
 function getStickyNotes() {
   if (!stickyNoteLayerEl) return [];
   return Array.from(stickyNoteLayerEl.querySelectorAll(".sticky-note"));
+}
+
+function ensureStickyNoteMobileViewport() {
+  if (!stickyNoteLayerEl || !isTouchDevice) return null;
+  if (stickyNoteMobileViewportEl instanceof HTMLElement && stickyNoteMobileContentEl instanceof HTMLElement) {
+    return stickyNoteMobileViewportEl;
+  }
+  stickyNoteMobileViewportEl = document.createElement("div");
+  stickyNoteMobileViewportEl.className = "sticky-note-mobile-viewport";
+  stickyNoteMobileContentEl = document.createElement("div");
+  stickyNoteMobileContentEl.className = "sticky-note-mobile-content";
+  stickyNoteMobileViewportEl.appendChild(stickyNoteMobileContentEl);
+  stickyNoteLayerEl.appendChild(stickyNoteMobileViewportEl);
+
+  stickyNoteMobileViewportEl.addEventListener("pointerdown", (event) => {
+    if (event.pointerType !== "touch") return;
+    if (event.button !== undefined && event.button !== 0) return;
+    const target = event.target;
+    if (target instanceof HTMLElement && target.closest(".sticky-note")) return;
+    stickyNoteViewportTouchScrollState = {
+      pointerId: event.pointerId,
+      startY: event.clientY,
+      startScrollTop: stickyNoteMobileScrollTop,
+      scrolling: false
+    };
+  });
+
+  stickyNoteMobileViewportEl.addEventListener("pointermove", (event) => {
+    if (!stickyNoteViewportTouchScrollState || stickyNoteViewportTouchScrollState.pointerId !== event.pointerId) return;
+    const deltaY = event.clientY - stickyNoteViewportTouchScrollState.startY;
+    if (!stickyNoteViewportTouchScrollState.scrolling && Math.abs(deltaY) > MOBILE_STICKY_NOTE_DRAG_THRESHOLD) {
+      stickyNoteViewportTouchScrollState.scrolling = true;
+    }
+    if (!stickyNoteViewportTouchScrollState.scrolling) return;
+    setStickyNoteMobileScrollTop(stickyNoteViewportTouchScrollState.startScrollTop - deltaY);
+    event.preventDefault();
+  });
+
+  const clearViewportTouchScrollState = (event) => {
+    if (!stickyNoteViewportTouchScrollState || stickyNoteViewportTouchScrollState.pointerId !== event.pointerId) return;
+    stickyNoteViewportTouchScrollState = null;
+  };
+  stickyNoteMobileViewportEl.addEventListener("pointerup", clearViewportTouchScrollState);
+  stickyNoteMobileViewportEl.addEventListener("pointercancel", clearViewportTouchScrollState);
+
+  return stickyNoteMobileViewportEl;
+}
+
+function setStickyNoteMobileScrollTop(nextScrollTop) {
+  const clampedScrollTop = clamp(nextScrollTop, 0, stickyNoteMobileMaxScrollTop);
+  if (Math.abs(clampedScrollTop - stickyNoteMobileScrollTop) < 0.5) return;
+  stickyNoteMobileScrollTop = clampedScrollTop;
+  getStickyNotes()
+    .filter((noteEl) => noteEl.classList.contains("is-stowed") && !noteEl.classList.contains("is-dragging"))
+    .forEach((noteEl) => {
+      noteEl.style.transition = "";
+    });
+  layoutStowedStickyNotes();
 }
 
 function clearStickyNotes() {
@@ -339,8 +447,63 @@ function clearStickyNotes() {
   }
   stickyNoteSaveTimers.clear();
   getStickyNotes().forEach((noteEl) => noteEl.remove());
+  stickyNoteMobileScrollTop = 0;
+  stickyNoteMobileMaxScrollTop = 0;
   setStickyNoteDockHintVisible(false);
   setStickyNoteDockSlotVisible(false);
+  setStickyNoteDeleteTargetVisible(false);
+  setStickyNoteDeleteTargetActive(false);
+}
+
+function isPointerOverStickyNoteDeleteTarget(pointerX, pointerY) {
+  if (!(stickyNoteDeleteTargetEl instanceof HTMLElement)) return false;
+  const rect = stickyNoteDeleteTargetEl.getBoundingClientRect();
+  return pointerX >= rect.left && pointerX <= rect.right && pointerY >= rect.top && pointerY <= rect.bottom;
+}
+
+function isStickyNoteTouchingDeleteTarget(noteEl) {
+  if (!(stickyNoteDeleteTargetEl instanceof HTMLElement) || !(noteEl instanceof HTMLElement)) return false;
+  const noteRect = noteEl.getBoundingClientRect();
+  const targetRect = stickyNoteDeleteTargetEl.getBoundingClientRect();
+  return (
+    noteRect.left < targetRect.right &&
+    noteRect.right > targetRect.left &&
+    noteRect.top < targetRect.bottom &&
+    noteRect.bottom > targetRect.top
+  );
+}
+
+function removeStickyNoteLayoutEntry(noteEl) {
+  const listName = String(noteEl?.dataset?.listName || "").trim();
+  if (!listName) return;
+  const layoutState = loadStickyNoteLayoutState();
+  if (layoutState[listName]) {
+    delete layoutState[listName];
+    saveStickyNoteLayoutState(layoutState);
+  }
+}
+
+async function deleteStickyNote(noteEl) {
+  const listName = String(noteEl?.dataset?.listName || "").trim();
+  if (!listName || !isAuthenticated) return false;
+  try {
+    const response = await fetch("/api/lists/delete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ list_name: listName })
+    });
+    const data = await response.json();
+    if (response.status === 401) {
+      isAuthenticated = false;
+      currentUserId = "";
+      updateAuthUi();
+      clearStickyNotes();
+      return false;
+    }
+    return Boolean(response.ok && data.ok);
+  } catch (_) {
+    return false;
+  }
 }
 
 function autoSizeStickyNoteInput(inputEl, noteEl = null) {
@@ -386,17 +549,30 @@ function getStickyNoteDockSlotSize(draggingNoteEl = null) {
   };
 }
 
+function getStickyNoteStackTopStart() {
+  const headerEl = document.querySelector(".chat-header");
+  if (!(headerEl instanceof HTMLElement)) {
+    return STICKY_NOTE_SAFE_TOP + STICKY_NOTE_STACK_GAP_PADDING;
+  }
+  const headerBottom = Math.round(headerEl.getBoundingClientRect().bottom);
+  return Math.max(STICKY_NOTE_SAFE_TOP, headerBottom + STICKY_NOTE_STACK_GAP_PADDING);
+}
+
 function positionStickyNoteDockSlot(index, draggingNoteEl = null) {
   if (!stickyNoteDockSlotEl) return;
   const slotSize = getStickyNoteDockSlotSize(draggingNoteEl);
-  const stowedLeft = Math.max(0, window.innerWidth - STICKY_NOTE_STOWED_PEEK_WIDTH);
+  const stackTopStart = getStickyNoteStackTopStart();
+  const stowedLeft = isTouchDevice
+    ? Math.max(0, window.innerWidth - STICKY_NOTE_DEFAULT_WIDTH + (STICKY_NOTE_DEFAULT_WIDTH - MOBILE_STICKY_NOTE_STOWED_PEEK_WIDTH))
+    : Math.max(0, window.innerWidth - STICKY_NOTE_STOWED_PEEK_WIDTH);
   stickyNoteDockSlotEl.style.right = "auto";
   stickyNoteDockSlotEl.style.left = `${Math.round(stowedLeft)}px`;
   stickyNoteDockSlotEl.style.width = `${slotSize.width}px`;
   stickyNoteDockSlotEl.style.height = `${slotSize.height}px`;
   const stackGap = getStickyNoteStackGap();
-  const desiredTop = STICKY_NOTE_STACK_TOP_START + index * stackGap;
-  const safeTop = clamp(desiredTop, STICKY_NOTE_SAFE_TOP, Math.max(STICKY_NOTE_SAFE_TOP, window.innerHeight - stickyNoteDockSlotEl.offsetHeight));
+  const desiredTop = stackTopStart + index * stackGap - (isTouchDevice ? stickyNoteMobileScrollTop : 0);
+  const minTop = isTouchDevice ? 0 : stackTopStart;
+  const safeTop = clamp(desiredTop, minTop, Math.max(minTop, window.innerHeight - stickyNoteDockSlotEl.offsetHeight));
   stickyNoteDockSlotEl.style.top = `${Math.round(safeTop)}px`;
 }
 
@@ -406,19 +582,61 @@ function getStickyNoteStackGap(draggingNoteEl = null) {
   return Math.max(STICKY_NOTE_STACK_MIN_GAP, Math.round(sampleNoteEl.offsetHeight + STICKY_NOTE_STACK_GAP_PADDING));
 }
 
+function getStickyNoteRevealCurve(progress) {
+  const clampedProgress = clamp(progress, 0, 1);
+  return 1 - ((1 - clampedProgress) ** 2.2);
+}
+
 function layoutStowedStickyNotes({ draggingNoteEl = null, previewIndex = null } = {}) {
   const stowedNotes = getStickyNotes().filter((noteEl) => noteEl.classList.contains("is-stowed") && noteEl !== draggingNoteEl);
   const stackGap = getStickyNoteStackGap(draggingNoteEl);
-  stowedNotes.forEach((noteEl, index) => {
-    const slotIndex = previewIndex !== null && index >= previewIndex ? index + 1 : index;
-    const maxTop = Math.max(0, window.innerHeight - noteEl.offsetHeight);
-    const desiredTop = STICKY_NOTE_STACK_TOP_START + slotIndex * stackGap;
-    const safeTop = clamp(desiredTop, STICKY_NOTE_SAFE_TOP, Math.max(STICKY_NOTE_SAFE_TOP, maxTop));
-    const stowedLeft = Math.max(0, window.innerWidth - STICKY_NOTE_STOWED_PEEK_WIDTH);
-    noteEl.classList.toggle("is-stowed-preview", previewIndex !== null);
-    noteEl.style.left = `${Math.round(stowedLeft)}px`;
-    noteEl.style.top = `${Math.round(safeTop)}px`;
-  });
+  const stackTopStart = getStickyNoteStackTopStart();
+  if (isTouchDevice) {
+    const viewportEl = ensureStickyNoteMobileViewport();
+    const contentEl = stickyNoteMobileContentEl;
+    const sampleHeight = getStickyNoteDockSlotSize(draggingNoteEl).height;
+    const visibleStackHeight = Math.max(sampleHeight, (Math.max(1, MOBILE_STICKY_NOTE_VISIBLE_COUNT) - 1) * stackGap + sampleHeight);
+    const viewportHeight = Math.min(window.innerHeight, Math.round(stackTopStart + visibleStackHeight + sampleHeight + MOBILE_STICKY_NOTE_ENTRY_DISTANCE));
+    const contentHeight = Math.round(stackTopStart + Math.max(0, stowedNotes.length - 1) * stackGap + (sampleHeight * 2) + MOBILE_STICKY_NOTE_ENTRY_DISTANCE);
+    stickyNoteMobileMaxScrollTop = Math.max(0, contentHeight - viewportHeight);
+    stickyNoteMobileScrollTop = clamp(stickyNoteMobileScrollTop, 0, stickyNoteMobileMaxScrollTop);
+    stickyNoteLayerEl?.classList.toggle("is-mobile-scroll-enabled", stowedNotes.length > 0);
+    if (viewportEl instanceof HTMLElement && contentEl instanceof HTMLElement) {
+      viewportEl.style.height = `${viewportHeight}px`;
+      viewportEl.style.width = `${STICKY_NOTE_DEFAULT_WIDTH}px`;;
+    }
+    stowedNotes.forEach((noteEl, index) => {
+      const slotIndex = previewIndex !== null && index >= previewIndex ? index + 1 : index;
+      const desiredTop = stackTopStart + slotIndex * stackGap - stickyNoteMobileScrollTop;
+      const revealProgress = clamp((viewportHeight - desiredTop) / MOBILE_STICKY_NOTE_ENTRY_DISTANCE, 0, 1);
+      const revealCurve = getStickyNoteRevealCurve(revealProgress);
+      const stowedLeft = STICKY_NOTE_DEFAULT_WIDTH - MOBILE_STICKY_NOTE_STOWED_PEEK_WIDTH;
+      const revealOffset = Math.round((1 - revealCurve) * MOBILE_STICKY_NOTE_ENTRY_OFFSET);
+      noteEl.classList.toggle("is-stowed-preview", previewIndex !== null);
+      if (contentEl instanceof HTMLElement && noteEl.parentElement !== contentEl) {
+        contentEl.appendChild(noteEl);
+      }
+      if (previewIndex === null) {
+        noteEl.style.transition = "";
+      }
+      noteEl.style.left = `${Math.round(stowedLeft + revealOffset)}px`;
+      noteEl.style.top = `${Math.round(desiredTop)}px`;
+    });
+  } else {
+    stowedNotes.forEach((noteEl, index) => {
+      const slotIndex = previewIndex !== null && index >= previewIndex ? index + 1 : index;
+      const maxTop = Math.max(0, window.innerHeight - noteEl.offsetHeight);
+      const desiredTop = stackTopStart + slotIndex * stackGap;
+      const safeTop = clamp(desiredTop, stackTopStart, Math.max(stackTopStart, maxTop));
+      const stowedLeft = Math.max(0, window.innerWidth - STICKY_NOTE_STOWED_PEEK_WIDTH);
+      noteEl.classList.toggle("is-stowed-preview", previewIndex !== null);
+      if (stickyNoteLayerEl && noteEl.parentElement !== stickyNoteLayerEl) {
+        stickyNoteLayerEl.appendChild(noteEl);
+      }
+      noteEl.style.left = `${Math.round(stowedLeft)}px`;
+      noteEl.style.top = `${Math.round(safeTop)}px`;
+    });
+  }
   if (previewIndex !== null) {
     positionStickyNoteDockSlot(previewIndex, draggingNoteEl);
     setStickyNoteDockSlotVisible(true);
@@ -433,10 +651,13 @@ function commitStickyNoteDockOrder(noteEl, insertIndex) {
   const stowedNotes = getStickyNotes().filter((candidate) => candidate.classList.contains("is-stowed") && candidate !== noteEl);
   const clampedIndex = clamp(insertIndex, 0, stowedNotes.length);
   const anchorEl = stowedNotes[clampedIndex] || null;
+  const stowedParentEl = isTouchDevice && stickyNoteMobileContentEl instanceof HTMLElement
+    ? stickyNoteMobileContentEl
+    : stickyNoteLayerEl;
   if (anchorEl) {
-    stickyNoteLayerEl.insertBefore(noteEl, anchorEl);
+    stowedParentEl.insertBefore(noteEl, anchorEl);
   } else {
-    stickyNoteLayerEl.appendChild(noteEl);
+    stowedParentEl.appendChild(noteEl);
   }
   syncStickyNoteLayoutState();
 }
@@ -546,6 +767,7 @@ function createStickyNote(listEntry, colorClassName) {
   }
 
   let dragState = null;
+  let touchIntentState = null;
   let resizeState = null;
   let dockPreviewState = null;
   let swayFrameId = 0;
@@ -623,49 +845,138 @@ function createStickyNote(listEntry, colorClassName) {
     swayFrameId = requestAnimationFrame(tick);
   }
 
-  noteEl.addEventListener("pointerdown", (event) => {
-    if (event.button !== undefined && event.button !== 0) return;
-    const target = event.target;
-    if (target instanceof HTMLElement && target.closest(".sticky-note-input")) return;
-    if (target instanceof HTMLElement && target.closest(".sticky-note-resize-handle")) return;
+  function clearTouchIntent() {
+    if (!touchIntentState) return;
+    if (touchIntentState.holdTimerId) {
+      clearTimeout(touchIntentState.holdTimerId);
+    }
+    touchIntentState = null;
+  }
 
-    stickyNoteLayerEl?.appendChild(noteEl);
-
+  function beginStickyNoteDrag(pointerState) {
     const rect = noteEl.getBoundingClientRect();
+    moveStickyNoteToDragHost(noteEl);
+    noteEl.style.transition = "";
+    noteEl.style.left = `${Math.round(rect.left)}px`;
+    noteEl.style.top = `${Math.round(rect.top)}px`;
     const wasStowedAtGrab = noteEl.classList.contains("is-stowed");
     dragState = {
-      pointerId: event.pointerId,
+      pointerId: pointerState.pointerId,
       wasStowedAtGrab,
       unstowedDuringDrag: false,
-      previewDockIndex: wasStowedAtGrab ? getStickyNoteDockIndex(event.clientY, noteEl) : null,
+      previewDockIndex: wasStowedAtGrab ? getStickyNoteDockIndex(pointerState.clientY, noteEl) : null,
       lastLeft: rect.left,
       lastTop: rect.top,
-      lastPointerX: event.clientX,
-      lastPointerY: event.clientY,
+      lastPointerX: pointerState.clientX,
+      lastPointerY: pointerState.clientY,
       angle: 0,
       targetAngle: 0,
-      offsetX: event.clientX - rect.left,
-      offsetY: event.clientY - rect.top
+      offsetX: pointerState.clientX - rect.left,
+      offsetY: pointerState.clientY - rect.top,
+      deleteHoldTimerId: 0,
+      deleteArmed: false
     };
 
     noteEl.style.transition = "transform 40ms linear, box-shadow 180ms ease, width 180ms ease, height 180ms ease, min-height 180ms ease, border-radius 180ms ease";
     noteEl.classList.add("is-dragging");
     setStickyNoteDragLayerActive(true);
-    noteEl.setPointerCapture(event.pointerId);
+    setStickyNoteDeleteTargetVisible(true);
+    setStickyNoteDeleteTargetActive(false);
+    noteEl.setPointerCapture(pointerState.pointerId);
     startSwayAnimation();
+  }
+
+  noteEl.addEventListener("pointerdown", (event) => {
+    if (event.button !== undefined && event.button !== 0) return;
+    const target = event.target;
+    if (target instanceof HTMLElement && target.closest(".sticky-note-input")) return;
+    if (target instanceof HTMLElement && target.closest(".sticky-note-resize-handle")) return;
+    const isStowedAtPointerDown = noteEl.classList.contains("is-stowed");
+
+    if (isTouchDevice && isStowedAtPointerDown) {
+      clearTouchIntent();
+      touchIntentState = {
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        lastX: event.clientX,
+        lastY: event.clientY,
+        startScrollTop: stickyNoteMobileScrollTop,
+        scrolling: false,
+        holdTimerId: window.setTimeout(() => {
+          if (!touchIntentState || touchIntentState.pointerId !== event.pointerId || touchIntentState.scrolling) return;
+          const snapshot = {
+            pointerId: touchIntentState.pointerId,
+            clientX: touchIntentState.lastX,
+            clientY: touchIntentState.lastY
+          };
+          clearTouchIntent();
+          beginStickyNoteDrag(snapshot);
+        }, MOBILE_STICKY_NOTE_DRAG_HOLD_MS)
+      };
+      return;
+    }
+
+    beginStickyNoteDrag(event);
     event.preventDefault();
   });
 
   noteEl.addEventListener("pointermove", (event) => {
+    if (touchIntentState && event.pointerId === touchIntentState.pointerId) {
+      touchIntentState.lastX = event.clientX;
+      touchIntentState.lastY = event.clientY;
+      const deltaX = event.clientX - touchIntentState.startX;
+      const deltaY = event.clientY - touchIntentState.startY;
+      if (!touchIntentState.scrolling && Math.abs(deltaY) > MOBILE_STICKY_NOTE_DRAG_THRESHOLD && Math.abs(deltaY) > Math.abs(deltaX)) {
+        touchIntentState.scrolling = true;
+      }
+      if (touchIntentState.scrolling) {
+        setStickyNoteMobileScrollTop(touchIntentState.startScrollTop - deltaY);
+        event.preventDefault();
+        return;
+      }
+      if (Math.abs(deltaX) > MOBILE_STICKY_NOTE_DRAG_THRESHOLD && Math.abs(deltaX) >= Math.abs(deltaY)) {
+        const snapshot = {
+          pointerId: touchIntentState.pointerId,
+          clientX: touchIntentState.lastX,
+          clientY: touchIntentState.lastY
+        };
+        clearTouchIntent();
+        beginStickyNoteDrag(snapshot);
+      } else {
+        return;
+      }
+    }
     if (!dragState || event.pointerId !== dragState.pointerId) return;
 
     dragState.lastPointerX = event.clientX;
     dragState.lastPointerY = event.clientY;
+    const overDeleteTarget = isPointerOverStickyNoteDeleteTarget(event.clientX, event.clientY);
+    const touchingDeleteTarget = isStickyNoteTouchingDeleteTarget(noteEl);
+    setStickyNoteDeleteTargetActive(overDeleteTarget);
+    noteEl.classList.toggle("is-touching-delete", touchingDeleteTarget);
+    noteEl.classList.toggle("is-near-delete", overDeleteTarget);
+    if (overDeleteTarget && !dragState.deleteHoldTimerId) {
+      dragState.deleteHoldTimerId = window.setTimeout(() => {
+        if (!dragState) return;
+        if (!isPointerOverStickyNoteDeleteTarget(dragState.lastPointerX, dragState.lastPointerY)) return;
+        dragState.deleteArmed = true;
+        dragState.deleteHoldTimerId = 0;
+      }, 320);
+    }
+    if (!overDeleteTarget && dragState.deleteHoldTimerId) {
+      clearTimeout(dragState.deleteHoldTimerId);
+      dragState.deleteHoldTimerId = 0;
+    }
+    if (!overDeleteTarget) {
+      dragState.deleteArmed = false;
+    }
     const nearDock = isStickyNoteNearDock(noteEl, dragState.lastLeft, event.clientX, Boolean(dockPreviewState));
-    const previewDockIndex = nearDock ? getStickyNoteDockIndex(event.clientY, noteEl) : null;
+    const effectiveNearDock = !overDeleteTarget && nearDock;
+    const previewDockIndex = effectiveNearDock ? getStickyNoteDockIndex(event.clientY, noteEl) : null;
 
     if (dragState.wasStowedAtGrab) {
-      if (nearDock) {
+      if (effectiveNearDock) {
         noteEl.classList.add("is-stowed");
       } else {
         if (!dragState.unstowedDuringDrag) {
@@ -678,29 +989,33 @@ function createStickyNote(listEntry, colorClassName) {
     dragState.previewDockIndex = previewDockIndex;
 
     const previousLeft = dragState.lastLeft;
-    if (nearDock) {
+    if (overDeleteTarget) {
       enterDockPreview();
       const previewWidth = STICKY_NOTE_DEFAULT_WIDTH;
       const previewHeight = STICKY_NOTE_STOWED_HEIGHT;
-      const maxLeft = Math.max(0, window.innerWidth - previewWidth);
-      const maxTop = Math.max(0, window.innerHeight - previewHeight);
       const anchorX = (dockPreviewState?.pointerRatioX ?? 0.5) * previewWidth;
       const anchorY = (dockPreviewState?.pointerRatioY ?? 0.5) * previewHeight;
-      dragState.lastLeft = clamp(event.clientX - anchorX, 0, maxLeft);
-      dragState.lastTop = clamp(event.clientY - anchorY, -16, maxTop);
+      dragState.lastLeft = event.clientX - anchorX;
+      dragState.lastTop = event.clientY - anchorY;
+    } else if (effectiveNearDock) {
+      enterDockPreview();
+      const previewWidth = STICKY_NOTE_DEFAULT_WIDTH;
+      const previewHeight = STICKY_NOTE_STOWED_HEIGHT;
+      const anchorX = (dockPreviewState?.pointerRatioX ?? 0.5) * previewWidth;
+      const anchorY = (dockPreviewState?.pointerRatioY ?? 0.5) * previewHeight;
+      dragState.lastLeft = event.clientX - anchorX;
+      dragState.lastTop = event.clientY - anchorY;
     } else {
       exitDockPreview();
-      const maxLeft = Math.max(0, window.innerWidth - noteEl.offsetWidth);
-      const maxTop = Math.max(0, window.innerHeight - noteEl.offsetHeight);
-      dragState.lastLeft = clamp(event.clientX - dragState.offsetX, 0, maxLeft);
-      dragState.lastTop = clamp(event.clientY - dragState.offsetY, -16, maxTop);
+      dragState.lastLeft = event.clientX - dragState.offsetX;
+      dragState.lastTop = event.clientY - dragState.offsetY;
     }
     noteEl.style.left = `${Math.round(dragState.lastLeft)}px`;
     noteEl.style.top = `${Math.round(dragState.lastTop)}px`;
     const deltaX = dragState.lastLeft - previousLeft;
     dragState.targetAngle = clamp(deltaX * 0.9, -12, 12);
-    setStickyNoteDockHintVisible(nearDock);
-    if (nearDock) {
+    setStickyNoteDockHintVisible(effectiveNearDock);
+    if (effectiveNearDock) {
       layoutStowedStickyNotes({ draggingNoteEl: noteEl, previewIndex: previewDockIndex });
     } else {
       layoutStowedStickyNotes();
@@ -708,29 +1023,70 @@ function createStickyNote(listEntry, colorClassName) {
   });
 
   function releaseStickyNote(event) {
+    if (touchIntentState && event.pointerId === touchIntentState.pointerId) {
+      clearTouchIntent();
+      return;
+    }
     if (!dragState || event.pointerId !== dragState.pointerId) return;
+    if (dragState.deleteHoldTimerId) {
+      clearTimeout(dragState.deleteHoldTimerId);
+      dragState.deleteHoldTimerId = 0;
+    }
+    const shouldDelete = Boolean(dragState.deleteArmed) && isPointerOverStickyNoteDeleteTarget(dragState.lastPointerX, dragState.lastPointerY);
     const currentLeft = Number.parseFloat(noteEl.style.left) || 0;
     const shouldStow = isStickyNoteNearDock(noteEl, currentLeft, dragState.lastPointerX, Boolean(dockPreviewState));
     const previewDockIndex = dragState.previewDockIndex;
 
     noteEl.classList.remove("is-dragging");
+    noteEl.classList.remove("is-touching-delete");
+    noteEl.classList.remove("is-near-delete");
     exitDockPreview({ keepFolded: shouldStow });
     stopSwayAnimation();
     noteEl.style.transition = "transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 180ms ease, width 180ms ease, height 180ms ease, min-height 180ms ease, border-radius 180ms ease";
     noteEl.style.transform = "";
     setStickyNoteDockHintVisible(false);
     setStickyNoteDockSlotVisible(false);
+    setStickyNoteDeleteTargetVisible(false);
+    setStickyNoteDeleteTargetActive(false);
     setStickyNoteDragLayerActive(false);
+
+    if (shouldDelete) {
+      const key = String(noteEl.dataset.listName || "");
+      const timerId = key ? stickyNoteSaveTimers.get(key) : null;
+      if (timerId) {
+        clearTimeout(timerId);
+        stickyNoteSaveTimers.delete(key);
+      }
+      void deleteStickyNote(noteEl).then((deleted) => {
+        if (deleted) {
+          noteEl.remove();
+          removeStickyNoteLayoutEntry(noteEl);
+          layoutStowedStickyNotes();
+          syncStickyNoteLayoutState();
+        }
+      });
+      if (noteEl.hasPointerCapture(event.pointerId)) {
+        noteEl.releasePointerCapture(event.pointerId);
+      }
+      dragState = null;
+      return;
+    }
 
     if (shouldStow) {
       noteEl.style.transition = "left 180ms ease, top 180ms ease, transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 180ms ease, width 180ms ease, height 180ms ease, min-height 180ms ease, border-radius 180ms ease";
+      noteEl.style.width = `${STICKY_NOTE_DEFAULT_WIDTH}px`;
+      noteEl.style.height = `${STICKY_NOTE_STOWED_HEIGHT}px`;
+      noteEl.style.minHeight = `${STICKY_NOTE_STOWED_HEIGHT}px`;
       noteEl.classList.add("is-stowed");
       commitStickyNoteDockOrder(noteEl, previewDockIndex ?? getStickyNotes().length);
       layoutStowedStickyNotes();
+      window.setTimeout(() => {
+        if (!noteEl.isConnected || !noteEl.classList.contains("is-stowed") || noteEl.classList.contains("is-dragging")) return;
+        noteEl.style.transition = "";
+      }, 220);
     } else {
-      const currentTop = Number.parseFloat(noteEl.style.top) || 0;
-      const settledTop = clamp(currentTop, STICKY_NOTE_SAFE_TOP, Math.max(STICKY_NOTE_SAFE_TOP, window.innerHeight - noteEl.offsetHeight));
-      noteEl.style.top = `${Math.round(settledTop)}px`;
+      restoreExpandedSizeFromPreference();
+      restoreStickyNoteFromDragHost(noteEl);
       layoutStowedStickyNotes();
       saveStickyNoteLayoutEntry(noteEl, {
         isStowed: false,
@@ -755,7 +1111,7 @@ function createStickyNote(listEntry, colorClassName) {
     resizeHandleEl.addEventListener("pointerdown", (event) => {
       if (event.button !== undefined && event.button !== 0) return;
       if (noteEl.classList.contains("is-stowed")) return;
-      stickyNoteLayerEl?.appendChild(noteEl);
+      moveStickyNoteToDragHost(noteEl);
       const rect = noteEl.getBoundingClientRect();
       resizeState = {
         pointerId: event.pointerId,
@@ -792,6 +1148,7 @@ function createStickyNote(listEntry, colorClassName) {
       if (resizeHandleEl.hasPointerCapture(event.pointerId)) {
         resizeHandleEl.releasePointerCapture(event.pointerId);
       }
+      restoreStickyNoteFromDragHost(noteEl);
       noteEl.classList.remove("is-resizing");
       setStickyNoteDragLayerActive(false);
       if (inputEl instanceof HTMLTextAreaElement) {
