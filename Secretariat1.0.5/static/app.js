@@ -569,12 +569,14 @@ function positionStickyNoteDockSlot(index, draggingNoteEl = null) {
   if (!stickyNoteDockSlotEl) return;
   const slotSize = getStickyNoteDockSlotSize(draggingNoteEl);
   const stackTopStart = getStickyNoteStackTopStart();
+  const isExpandedStowArea = !isTouchDevice && stickyNoteLayerEl?.classList.contains("is-stow-area-active");
+  const slotWidth = isExpandedStowArea ? STICKY_NOTE_DEFAULT_WIDTH : slotSize.width;
   const stowedLeft = isTouchDevice
     ? Math.max(0, window.innerWidth - STICKY_NOTE_DEFAULT_WIDTH + (STICKY_NOTE_DEFAULT_WIDTH - MOBILE_STICKY_NOTE_STOWED_PEEK_WIDTH))
-    : Math.max(0, window.innerWidth - STICKY_NOTE_STOWED_PEEK_WIDTH);
+    : Math.max(0, window.innerWidth - slotWidth);
   stickyNoteDockSlotEl.style.right = "auto";
   stickyNoteDockSlotEl.style.left = `${Math.round(stowedLeft)}px`;
-  stickyNoteDockSlotEl.style.width = `${slotSize.width}px`;
+  stickyNoteDockSlotEl.style.width = `${slotWidth}px`;
   stickyNoteDockSlotEl.style.height = `${slotSize.height}px`;
   const stackGap = getStickyNoteStackGap();
   const desiredTop = stackTopStart + index * stackGap - (isTouchDevice ? stickyNoteMobileScrollTop : 0);
