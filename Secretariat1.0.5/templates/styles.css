@@ -991,6 +991,20 @@ textarea {
   z-index: 29;
 }
 
+.sticky-note-stow-area {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 182px;
+  pointer-events: none;
+  background: transparent;
+}
+
+.sticky-note-layer.has-stowed-notes .sticky-note-stow-area {
+  pointer-events: auto;
+}
+
 .sticky-note-drag-host {
   position: fixed;
   inset: 0;
@@ -1056,6 +1070,10 @@ textarea {
 .sticky-note-effects-layer.show-dock-slot .sticky-note-dock-slot {
   opacity: 1;
   transform: translateX(0);
+}
+
+.sticky-note-effects-layer.is-stow-area-active.show-dock-slot .sticky-note-dock-slot {
+  transform: translateX(calc(-100% + 55px));
 }
 
 .sticky-note-dock-hint-label {
@@ -1185,6 +1203,21 @@ textarea {
   border-radius: var(--sticky-note-radius-top) 0 0 var(--sticky-note-radius-bottom);
   transform: rotate(0deg);
   clip-path: inset(0 0 0 0 round var(--sticky-note-radius-top) 0 0 var(--sticky-note-radius-bottom));
+  transition:
+    left 180ms ease,
+    top 180ms ease,
+    transform 180ms ease,
+    box-shadow 180ms ease,
+    border-radius 180ms ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .sticky-note-layer:has(.sticky-note-stow-area:hover) .sticky-note.is-stowed,
+  .sticky-note-layer.is-stow-area-active .sticky-note.is-stowed,
+  .sticky-note-layer:has(.sticky-note.is-stowed:hover) .sticky-note.is-stowed,
+  .sticky-note-layer:has(.sticky-note.is-stowed:focus-within) .sticky-note.is-stowed {
+    transform: translateX(calc(-100% + 55px));
+  }
 }
 
 .sticky-note.is-touching-delete {

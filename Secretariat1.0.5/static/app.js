@@ -39,9 +39,9 @@ const stickyNoteDeleteTargetEl = document.getElementById("sticky-note-delete-tar
 const MAX_PROMPT_HEIGHT = 180;
 const STICKY_NOTE_DOCK_THRESHOLD = 110;
 const STICKY_NOTE_DOCK_HYSTERESIS = 24;
-const STICKY_NOTE_STOWED_PEEK_WIDTH = 118;
-const MOBILE_STICKY_NOTE_STOWED_PEEK_WIDTH = 100;
 const STICKY_NOTE_DEFAULT_WIDTH = 182;
+const STICKY_NOTE_STOWED_PEEK_WIDTH = Math.round(STICKY_NOTE_DEFAULT_WIDTH * 0.3);
+const MOBILE_STICKY_NOTE_STOWED_PEEK_WIDTH = STICKY_NOTE_STOWED_PEEK_WIDTH;
 const STICKY_NOTE_STOWED_HEIGHT = 35; 
 const STICKY_NOTE_STACK_GAP_PADDING = 7;
 const STICKY_NOTE_STACK_MIN_GAP = STICKY_NOTE_STOWED_HEIGHT + STICKY_NOTE_STACK_GAP_PADDING;
@@ -335,6 +335,11 @@ function setStickyNoteDockHintVisible(visible) {
   stickyNoteEffectsLayerEl.classList.toggle("show-dock-hint", visible);
 }
 
+function setStickyNoteStowAreaActive(active) {
+  stickyNoteLayerEl?.classList.toggle("is-stow-area-active", active);
+  stickyNoteEffectsLayerEl?.classList.toggle("is-stow-area-active", active);
+}
+
 function setStickyNoteDockSlotVisible(visible) {
   if (!stickyNoteEffectsLayerEl) return;
   stickyNoteEffectsLayerEl.classList.toggle("show-dock-slot", visible);
@@ -450,6 +455,7 @@ function clearStickyNotes() {
   stickyNoteMobileScrollTop = 0;
   stickyNoteMobileMaxScrollTop = 0;
   setStickyNoteDockHintVisible(false);
+  setStickyNoteStowAreaActive(false);
   setStickyNoteDockSlotVisible(false);
   setStickyNoteDeleteTargetVisible(false);
   setStickyNoteDeleteTargetActive(false);
@@ -523,6 +529,7 @@ function updateStickyNoteDockPreview(noteEl, left) {
   const nearDock = isStickyNoteNearDock(noteEl, left);
   noteEl.classList.toggle("is-near-dock", nearDock);
   setStickyNoteDockHintVisible(nearDock);
+  setStickyNoteStowAreaActive(nearDock);
   return nearDock;
 }
 
@@ -589,6 +596,7 @@ function getStickyNoteRevealCurve(progress) {
 
 function layoutStowedStickyNotes({ draggingNoteEl = null, previewIndex = null } = {}) {
   const stowedNotes = getStickyNotes().filter((noteEl) => noteEl.classList.contains("is-stowed") && noteEl !== draggingNoteEl);
+  stickyNoteLayerEl?.classList.toggle("has-stowed-notes", stowedNotes.length > 0);
   const stackGap = getStickyNoteStackGap(draggingNoteEl);
   const stackTopStart = getStickyNoteStackTopStart();
   if (isTouchDevice) {
@@ -879,6 +887,8 @@ function createStickyNote(listEntry, colorClassName) {
 
     noteEl.style.transition = "transform 40ms linear, box-shadow 180ms ease, width 180ms ease, height 180ms ease, min-height 180ms ease, border-radius 180ms ease";
     noteEl.classList.add("is-dragging");
+    const startsNearDock = isStickyNoteNearDock(noteEl, rect.left, pointerState.clientX, false);
+    setStickyNoteStowAreaActive(startsNearDock);
     setStickyNoteDragLayerActive(true);
     setStickyNoteDeleteTargetVisible(true);
     setStickyNoteDeleteTargetActive(false);
@@ -1015,6 +1025,7 @@ function createStickyNote(listEntry, colorClassName) {
     const deltaX = dragState.lastLeft - previousLeft;
     dragState.targetAngle = clamp(deltaX * 0.9, -12, 12);
     setStickyNoteDockHintVisible(effectiveNearDock);
+    setStickyNoteStowAreaActive(effectiveNearDock);
     if (effectiveNearDock) {
       layoutStowedStickyNotes({ draggingNoteEl: noteEl, previewIndex: previewDockIndex });
     } else {
@@ -1045,6 +1056,7 @@ function createStickyNote(listEntry, colorClassName) {
     noteEl.style.transition = "transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 180ms ease, width 180ms ease, height 180ms ease, min-height 180ms ease, border-radius 180ms ease";
     noteEl.style.transform = "";
     setStickyNoteDockHintVisible(false);
+    setStickyNoteStowAreaActive(false);
     setStickyNoteDockSlotVisible(false);
     setStickyNoteDeleteTargetVisible(false);
     setStickyNoteDeleteTargetActive(false);
