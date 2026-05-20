@@ -54,6 +54,7 @@ const MOBILE_STICKY_NOTE_ENTRY_DISTANCE = 169;
 const MOBILE_STICKY_NOTE_ENTRY_OFFSET = STICKY_NOTE_DEFAULT_WIDTH + 12;
 const MOBILE_STICKY_NOTE_DRAG_THRESHOLD = 12;
 const MOBILE_STICKY_NOTE_DRAG_HOLD_MS = 180;
+const STICKY_NOTE_SYNC_INTERVAL_MS = 5000;
 const STICKY_NOTE_COLOR_CLASSES = [
   "color-yellow",
   "color-amber",
@@ -84,6 +85,9 @@ let stickyNoteDragHostEl = null;
 let stickyNoteMobileScrollTop = 0;
 let stickyNoteMobileMaxScrollTop = 0;
 let stickyNoteViewportTouchScrollState = null;
+let stickyNotesSnapshotToken = "";
+let stickyNotesPollTimerId = 0;
+let stickyNotesPollInFlight = false;
 const stickyNoteSaveTimers = new Map();
 const ALLOWED_DESKTOP_META_STATUSES = new Set([
   "Attachment removed",
@@ -111,6 +115,67 @@ function refreshStickyNotesView() {
 function updateStickyNotesToggleVisual() {
   if (!stickyNotesToggleIconEl || !stickyNotesToggleEl) return;
   stickyNotesToggleIconEl.classList.toggle("is-disabled", !stickyNotesToggleEl.checked);
+}
+
+function hasPendingStickyNoteEdits() {
+  return getStickyNotes().some((noteEl) => {
+    const saveState = String(noteEl.dataset.saveState || "");
+    const inputEl = noteEl.querySelector(".sticky-note-input");
+    return saveState === "dirty" || saveState === "saving" || (inputEl instanceof HTMLTextAreaElement && document.activeElement === inputEl);
+  });
+}
+
+function stopStickyNotePolling() {
+  if (stickyNotesPollTimerId) {
+    clearTimeout(stickyNotesPollTimerId);
+    stickyNotesPollTimerId = 0;
+  }
+}
+
+function scheduleStickyNotePoll(delayMs = STICKY_NOTE_SYNC_INTERVAL_MS) {
+  stopStickyNotePolling();
+  if (!isAuthenticated || !isStickyNotesEnabled() || document.hidden) return;
+  stickyNotesPollTimerId = window.setTimeout(() => {
+    void pollStickyNoteChanges();
+  }, delayMs);
+}
+
+async function pollStickyNoteChanges() {
+  if (stickyNotesPollInFlight || !isAuthenticated || !isStickyNotesEnabled() || document.hidden) {
+    scheduleStickyNotePoll();
+    return;
+  }
+  if (hasPendingStickyNoteEdits()) {
+    scheduleStickyNotePoll(1200);
+    return;
+  }
+
+  stickyNotesPollInFlight = true;
+  try {
+    const response = await fetch(`/api/lists/changes?since=${encodeURIComponent(stickyNotesSnapshotToken || "")}`);
+    const data = await response.json();
+    if (response.status === 401) {
+      isAuthenticated = false;
+      currentUserId = "";
+      updateAuthUi();
+      clearStickyNotes();
+      return;
+    }
+    if (!response.ok || !data.ok) {
+      throw new Error(data.error || "Failed to sync sticky notes.");
+    }
+    if (data.changed && Array.isArray(data.lists)) {
+      renderStickyNotes(data.lists);
+    }
+    if (typeof data.snapshot_token === "string" && data.snapshot_token) {
+      stickyNotesSnapshotToken = data.snapshot_token;
+    }
+  } catch (_) {
+    // Ignore transient sync failures and try again on the next interval.
+  } finally {
+    stickyNotesPollInFlight = false;
+    scheduleStickyNotePoll();
+  }
 }
 
 (function () {
@@ -262,19 +327,19 @@ function saveStickyNoteLayoutState(layoutState) {
 }
 
 function getStickyNoteLayoutEntry(noteEl) {
-  const listName = String(noteEl?.dataset?.listName || "").trim();
-  if (!listName) return null;
+  const noteKey = String(noteEl?.dataset?.noteKey || noteEl?.dataset?.listName || "").trim();
+  if (!noteKey) return null;
   const layoutState = loadStickyNoteLayoutState();
-  const entry = layoutState[listName];
+  const entry = layoutState[noteKey];
   return entry && typeof entry === "object" ? entry : null;
 }
 
 function saveStickyNoteLayoutEntry(noteEl, partialEntry = {}) {
-  const listName = String(noteEl?.dataset?.listName || "").trim();
-  if (!listName) return;
+  const noteKey = String(noteEl?.dataset?.noteKey || noteEl?.dataset?.listName || "").trim();
+  if (!noteKey) return;
   const layoutState = loadStickyNoteLayoutState();
-  const previous = layoutState[listName];
-  layoutState[listName] = {
+  const previous = layoutState[noteKey];
+  layoutState[noteKey] = {
     ...(previous && typeof previous === "object" ? previous : {}),
     ...partialEntry
   };
@@ -291,9 +356,9 @@ function syncStickyNoteLayoutState() {
   const stowedNotes = [];
 
   getStickyNotes().forEach((noteEl) => {
-    const listName = String(noteEl.dataset.listName || "").trim();
-    if (!listName) return;
-    liveNames.add(listName);
+    const noteKey = String(noteEl.dataset.noteKey || noteEl.dataset.listName || "").trim();
+    if (!noteKey) return;
+    liveNames.add(noteKey);
 
     const left = Number.parseFloat(noteEl.style.left);
     const top = Number.parseFloat(noteEl.style.top);
@@ -306,8 +371,8 @@ function syncStickyNoteLayoutState() {
     if (Number.isFinite(top)) entry.top = Math.round(top);
     if (Number.isFinite(width)) entry.width = Math.round(width);
     if (Number.isFinite(height)) entry.height = Math.round(height);
-    layoutState[listName] = {
-      ...(layoutState[listName] && typeof layoutState[listName] === "object" ? layoutState[listName] : {}),
+    layoutState[noteKey] = {
+      ...(layoutState[noteKey] && typeof layoutState[noteKey] === "object" ? layoutState[noteKey] : {}),
       ...entry
     };
     if (entry.isStowed) {
@@ -316,9 +381,9 @@ function syncStickyNoteLayoutState() {
   });
 
   stowedNotes.forEach((noteEl, index) => {
-    const listName = String(noteEl.dataset.listName || "").trim();
-    if (!listName || !layoutState[listName]) return;
-    layoutState[listName].order = index;
+    const noteKey = String(noteEl.dataset.noteKey || noteEl.dataset.listName || "").trim();
+    if (!noteKey || !layoutState[noteKey]) return;
+    layoutState[noteKey].order = index;
   });
 
   Object.keys(layoutState).forEach((listName) => {
@@ -442,6 +507,8 @@ function setStickyNoteMobileScrollTop(nextScrollTop) {
 }
 
 function clearStickyNotes() {
+  stopStickyNotePolling();
+  stickyNotesSnapshotToken = "";
   for (const timerId of stickyNoteSaveTimers.values()) {
     clearTimeout(timerId);
   }
@@ -474,23 +541,27 @@ function isStickyNoteTouchingDeleteTarget(noteEl) {
 }
 
 function removeStickyNoteLayoutEntry(noteEl) {
-  const listName = String(noteEl?.dataset?.listName || "").trim();
-  if (!listName) return;
+  const noteKey = String(noteEl?.dataset?.noteKey || noteEl?.dataset?.listName || "").trim();
+  if (!noteKey) return;
   const layoutState = loadStickyNoteLayoutState();
-  if (layoutState[listName]) {
-    delete layoutState[listName];
+  if (layoutState[noteKey]) {
+    delete layoutState[noteKey];
     saveStickyNoteLayoutState(layoutState);
   }
 }
 
 async function deleteStickyNote(noteEl) {
   const listName = String(noteEl?.dataset?.listName || "").trim();
+  const ownerUserId = String(noteEl?.dataset?.ownerUserId || "").trim();
   if (!listName || !isAuthenticated) return false;
   try {
     const response = await fetch("/api/lists/delete", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ list_name: listName })
+      body: JSON.stringify({
+        list_name: listName,
+        owner_user_id: ownerUserId ? Number(ownerUserId) : undefined
+      })
     });
     const data = await response.json();
     if (response.status === 401) {
@@ -665,6 +736,7 @@ function commitStickyNoteDockOrder(noteEl, insertIndex) {
 async function saveStickyNote(noteEl) {
   const inputEl = noteEl.querySelector(".sticky-note-input");
   const listName = String(noteEl.dataset.listName || "").trim();
+  const ownerUserId = String(noteEl.dataset.ownerUserId || "").trim();
   if (!(inputEl instanceof HTMLTextAreaElement) || !listName || !isAuthenticated) return;
 
   noteEl.dataset.saveState = "saving";
@@ -674,7 +746,8 @@ async function saveStickyNote(noteEl) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         list_name: listName,
-        content: inputEl.value
+        content: inputEl.value,
+        owner_user_id: ownerUserId ? Number(ownerUserId) : undefined
       })
     });
     const data = await response.json();
@@ -689,13 +762,66 @@ async function saveStickyNote(noteEl) {
       throw new Error(data.error || "Failed to save list.");
     }
     noteEl.dataset.saveState = "saved";
+    scheduleStickyNotePoll(800);
   } catch (_) {
     noteEl.dataset.saveState = "error";
   }
 }
 
+async function saveStickyNoteShareTargets(noteEl) {
+  const listName = String(noteEl.dataset.listName || "").trim();
+  const ownerUserId = Number.parseInt(String(noteEl.dataset.ownerUserId || ""), 10);
+  const shareInputEl = noteEl.querySelector(".sticky-note-share-input");
+  const shareStatusEl = noteEl.querySelector(".sticky-note-share-status");
+  if (!(shareInputEl instanceof HTMLInputElement) || !listName || !Number.isFinite(ownerUserId)) return;
+
+  const usernames = shareInputEl.value
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  noteEl.dataset.shareState = "saving";
+  if (shareStatusEl) {
+    shareStatusEl.textContent = "Saving share list...";
+  }
+  try {
+    const response = await fetch("/api/lists/share", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        list_name: listName,
+        owner_user_id: ownerUserId,
+        usernames
+      })
+    });
+    const data = await response.json();
+    if (response.status === 401) {
+      isAuthenticated = false;
+      currentUserId = "";
+      updateAuthUi();
+      clearStickyNotes();
+      return;
+    }
+    if (!response.ok || !data.ok) {
+      throw new Error(data.error || "Failed to update sharing.");
+    }
+    const normalizedNames = Array.isArray(data.list?.share_usernames) ? data.list.share_usernames : usernames;
+    shareInputEl.value = normalizedNames.join(", ");
+    noteEl.dataset.shareUsernames = normalizedNames.join(",");
+    noteEl.dataset.shareState = "saved";
+    if (shareStatusEl) {
+      shareStatusEl.textContent = normalizedNames.length ? "Shared and syncing." : "Private note.";
+    }
+    scheduleStickyNotePoll(400);
+  } catch (error) {
+    noteEl.dataset.shareState = "error";
+    if (shareStatusEl) {
+      shareStatusEl.textContent = error instanceof Error ? error.message : "Share update failed.";
+    }
+  }
+}
+
 function queueStickyNoteSave(noteEl) {
-  const key = String(noteEl.dataset.listName || "");
+  const key = String(noteEl.dataset.noteKey || noteEl.dataset.listName || "");
   if (!key) return;
   const existingTimer = stickyNoteSaveTimers.get(key);
   if (existingTimer) {
@@ -711,28 +837,72 @@ function queueStickyNoteSave(noteEl) {
 
 function createStickyNote(listEntry, colorClassName) {
   const noteEl = document.createElement("article");
-  const savedLayoutEntry = loadStickyNoteLayoutState()[String(listEntry.list_name || "")] || null;
+  const noteKey = String(listEntry.note_key || listEntry.list_name || "");
+  const savedLayoutEntry = loadStickyNoteLayoutState()[noteKey] || null;
   const startsStowed = !savedLayoutEntry || savedLayoutEntry.isStowed !== false;
   const persistedColorClass = normalizeStickyNoteColorClass(savedLayoutEntry?.colorClass);
   const appliedColorClass = persistedColorClass || normalizeStickyNoteColorClass(colorClassName) || STICKY_NOTE_COLOR_CLASSES[0];
   noteEl.className = `sticky-note ${startsStowed ? "is-stowed" : ""} ${appliedColorClass}`.trim();
   noteEl.setAttribute("aria-label", `Draggable note for ${listEntry.list_name}`);
   noteEl.dataset.listName = String(listEntry.list_name || "");
+  noteEl.dataset.noteKey = noteKey;
+  noteEl.dataset.ownerUserId = String(listEntry.owner_user_id || "");
+  noteEl.dataset.ownerUsername = String(listEntry.owner_username || "");
+  noteEl.dataset.isOwner = listEntry.is_owner ? "true" : "false";
+  noteEl.dataset.shareUsernames = Array.isArray(listEntry.share_usernames) ? listEntry.share_usernames.join(",") : "";
+  noteEl.dataset.updatedAt = String(listEntry.updated_at || "");
+  noteEl.dataset.isFlipped = "false";
+  const isOwner = String(noteEl.dataset.isOwner) === "true";
+  const shareUsernames = Array.isArray(listEntry.share_usernames) ? listEntry.share_usernames : [];
 
   noteEl.innerHTML = `
     <div class="sticky-note-tape" aria-hidden="true"></div>
-    <div class="sticky-note-title"></div>
-    <div class="sticky-note-body">
-      <textarea class="sticky-note-input" rows="4" spellcheck="false"></textarea>
+    <div class="sticky-note-inner">
+      <section class="sticky-note-face sticky-note-face-front">
+        <div class="sticky-note-header">
+          <div class="sticky-note-title-wrap">
+            <div class="sticky-note-title"></div>
+            <div class="sticky-note-subtitle"></div>
+          </div>
+          <button type="button" class="sticky-note-share-toggle" aria-label="Flip note to sharing settings">Share</button>
+        </div>
+        <div class="sticky-note-body">
+          <textarea class="sticky-note-input" rows="4" spellcheck="false"></textarea>
+        </div>
+      </section>
+      <section class="sticky-note-face sticky-note-face-back">
+        <div class="sticky-note-header">
+          <div class="sticky-note-title-wrap">
+            <div class="sticky-note-title">Share</div>
+            <div class="sticky-note-subtitle sticky-note-share-owner"></div>
+          </div>
+          <button type="button" class="sticky-note-share-toggle" aria-label="Flip note back">Back</button>
+        </div>
+        <div class="sticky-note-share-panel">
+          <label class="sticky-note-share-label">Usernames</label>
+          <input class="sticky-note-share-input" type="text" spellcheck="false" placeholder="comma,separated,usernames">
+          <div class="sticky-note-share-help"></div>
+          <div class="sticky-note-share-status"></div>
+        </div>
+      </section>
     </div>
     <div class="sticky-note-resize-handle" aria-hidden="true"></div>
   `;
 
   const titleEl = noteEl.querySelector(".sticky-note-title");
+  const subtitleEl = noteEl.querySelector(".sticky-note-subtitle");
   const inputEl = noteEl.querySelector(".sticky-note-input");
   const resizeHandleEl = noteEl.querySelector(".sticky-note-resize-handle");
+  const shareToggleEls = Array.from(noteEl.querySelectorAll(".sticky-note-share-toggle"));
+  const shareInputEl = noteEl.querySelector(".sticky-note-share-input");
+  const shareHelpEl = noteEl.querySelector(".sticky-note-share-help");
+  const shareStatusEl = noteEl.querySelector(".sticky-note-share-status");
+  const shareOwnerEl = noteEl.querySelector(".sticky-note-share-owner");
   if (titleEl) {
     titleEl.textContent = String(listEntry.list_name || "");
+  }
+  if (subtitleEl) {
+    subtitleEl.textContent = listEntry.is_shared ? `Shared with ${shareUsernames.length}` : "Private";
   }
   if (inputEl instanceof HTMLTextAreaElement) {
     inputEl.value = String(listEntry.content || "");
@@ -742,6 +912,43 @@ function createStickyNote(listEntry, colorClassName) {
       queueStickyNoteSave(noteEl);
     });
   }
+  if (shareOwnerEl) {
+    shareOwnerEl.textContent = isOwner ? "Add usernames to sync this note." : `Owned by ${String(listEntry.owner_username || "")}`;
+  }
+  if (shareHelpEl) {
+    shareHelpEl.textContent = isOwner
+      ? "Use the same sign-in usernames, separated by commas."
+      : "This note updates from the shared owner and any collaborator edits.";
+  }
+  if (shareStatusEl) {
+    shareStatusEl.textContent = shareUsernames.length ? "Shared and syncing." : "Private note.";
+  }
+  if (shareInputEl instanceof HTMLInputElement) {
+    shareInputEl.value = shareUsernames.join(", ");
+    shareInputEl.disabled = !isOwner;
+    shareInputEl.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        void saveStickyNoteShareTargets(noteEl);
+      }
+    });
+    shareInputEl.addEventListener("blur", () => {
+      if (!isOwner) return;
+      void saveStickyNoteShareTargets(noteEl);
+    });
+  }
+  shareToggleEls.forEach((buttonEl) => {
+    buttonEl.addEventListener("pointerdown", (event) => {
+      event.stopPropagation();
+    });
+    buttonEl.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const shouldFlip = noteEl.dataset.isFlipped !== "true";
+      noteEl.dataset.isFlipped = shouldFlip ? "true" : "false";
+      noteEl.classList.toggle("is-flipped", shouldFlip);
+    });
+  });
 
   const savedLeft = Number.parseFloat(savedLayoutEntry?.left);
   const savedTop = Number.parseFloat(savedLayoutEntry?.top);
@@ -890,6 +1097,9 @@ function createStickyNote(listEntry, colorClassName) {
     if (event.button !== undefined && event.button !== 0) return;
     const target = event.target;
     if (target instanceof HTMLElement && target.closest(".sticky-note-input")) return;
+    if (target instanceof HTMLElement && target.closest(".sticky-note-share-toggle")) return;
+    if (target instanceof HTMLElement && target.closest(".sticky-note-share-input")) return;
+    if (target instanceof HTMLElement && target.closest(".sticky-note-share-panel")) return;
     if (target instanceof HTMLElement && target.closest(".sticky-note-resize-handle")) return;
     const isStowedAtPointerDown = noteEl.classList.contains("is-stowed");
 
@@ -1051,7 +1261,7 @@ function createStickyNote(listEntry, colorClassName) {
     setStickyNoteDragLayerActive(false);
 
     if (shouldDelete) {
-      const key = String(noteEl.dataset.listName || "");
+      const key = String(noteEl.dataset.noteKey || noteEl.dataset.listName || "");
       const timerId = key ? stickyNoteSaveTimers.get(key) : null;
       if (timerId) {
         clearTimeout(timerId);
@@ -1174,21 +1384,23 @@ function renderStickyNotes(listEntries) {
   const layoutState = loadStickyNoteLayoutState();
   let didMutateLayoutState = false;
   const sortedEntries = [...listEntries].sort((a, b) => {
-    const aEntry = layoutState[String(a?.list_name || "")];
-    const bEntry = layoutState[String(b?.list_name || "")];
+    const aKey = String(a?.note_key || a?.list_name || "");
+    const bKey = String(b?.note_key || b?.list_name || "");
+    const aEntry = layoutState[aKey];
+    const bEntry = layoutState[bKey];
     const aOrder = Number.isFinite(Number(aEntry?.order)) ? Number(aEntry.order) : Number.MAX_SAFE_INTEGER;
     const bOrder = Number.isFinite(Number(bEntry?.order)) ? Number(bEntry.order) : Number.MAX_SAFE_INTEGER;
     if (aOrder !== bOrder) return aOrder - bOrder;
-    return String(a?.list_name || "").localeCompare(String(b?.list_name || ""));
+    return String(a?.note_key || a?.list_name || "").localeCompare(String(b?.note_key || b?.list_name || ""));
   });
 
   sortedEntries.forEach((listEntry, index) => {
-    const listName = String(listEntry?.list_name || "");
-    const existingEntry = layoutState[listName] && typeof layoutState[listName] === "object" ? layoutState[listName] : {};
+    const noteKey = String(listEntry?.note_key || listEntry?.list_name || "");
+    const existingEntry = layoutState[noteKey] && typeof layoutState[noteKey] === "object" ? layoutState[noteKey] : {};
     const persistedColorClass = normalizeStickyNoteColorClass(existingEntry.colorClass);
     const colorClassName = persistedColorClass || STICKY_NOTE_COLOR_CLASSES[index % STICKY_NOTE_COLOR_CLASSES.length];
-    if (!persistedColorClass && listName) {
-      layoutState[listName] = {
+    if (!persistedColorClass && noteKey) {
+      layoutState[noteKey] = {
         ...existingEntry,
         colorClass: colorClassName
       };
@@ -1224,6 +1436,8 @@ async function loadStickyNotes() {
       throw new Error(data.error || "Failed to load lists.");
     }
     renderStickyNotes(Array.isArray(data.lists) ? data.lists : []);
+    stickyNotesSnapshotToken = typeof data.snapshot_token === "string" ? data.snapshot_token : "";
+    scheduleStickyNotePoll();
   } catch (_) {
     clearStickyNotes();
   }
@@ -1237,6 +1451,16 @@ window.addEventListener("resize", () => {
     }
   });
   layoutStowedStickyNotes();
+});
+
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) {
+    stopStickyNotePolling();
+    return;
+  }
+  if (isAuthenticated && isStickyNotesEnabled()) {
+    scheduleStickyNotePoll(500);
+  }
 });
 
 

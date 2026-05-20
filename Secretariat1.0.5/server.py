@@ -218,6 +218,20 @@ def _init_db():
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS shared_lists (
+                owner_user_id INTEGER NOT NULL,
+                list_name TEXT NOT NULL,
+                shared_with_user_id INTEGER NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (owner_user_id, list_name, shared_with_user_id),
+                FOREIGN KEY (owner_user_id) REFERENCES users (id),
+                FOREIGN KEY (shared_with_user_id) REFERENCES users (id)
+            )
+            """
+        )
         columns = conn.execute("PRAGMA table_info(user_settings)").fetchall()
         existing_column_names = {str(row["name"]) for row in columns}
         if "assistant_model" not in existing_column_names:
@@ -231,6 +245,189 @@ def _normalize_email(email: str) -> str:
 
 def _valid_email(email: str) -> bool:
     return bool(email)
+
+
+def _get_user_by_login(login: str):
+    normalized = _normalize_email(login)
+    if not normalized:
+        return None
+    with _db_conn() as conn:
+        return conn.execute(
+            "SELECT id, email FROM users WHERE email = ?",
+            (normalized,),
+        ).fetchone()
+
+
+def _normalize_list_name(list_name: str) -> str:
+    return str(list_name or "").strip()
+
+
+def _list_path_for_user(user_id: int, list_name: str) -> Path:
+    return LISTS_DIR / str(int(user_id)) / f"{_normalize_list_name(list_name)}.txt"
+
+
+def _read_list_content_from_path(list_path: Path) -> str:
+    with open(list_path, "r", encoding="utf-8") as handle:
+        return handle.read()
+
+
+def _write_list_content_to_path(list_path: Path, content: str) -> None:
+    list_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(list_path, "w", encoding="utf-8") as handle:
+        handle.write(content)
+
+
+def _get_share_rows_for_owner(owner_user_id: int, list_name: str) -> list[sqlite3.Row]:
+    safe_name = _normalize_list_name(list_name)
+    if not safe_name:
+        return []
+    with _db_conn() as conn:
+        return conn.execute(
+            """
+            SELECT sl.owner_user_id, sl.list_name, sl.shared_with_user_id, sl.created_at, sl.updated_at, u.email AS shared_with_email
+            FROM shared_lists sl
+            JOIN users u ON u.id = sl.shared_with_user_id
+            WHERE sl.owner_user_id = ? AND sl.list_name = ?
+            ORDER BY u.email COLLATE NOCASE ASC
+            """,
+            (int(owner_user_id), safe_name),
+        ).fetchall()
+
+
+def _get_note_owner_and_access(user_id: int, list_name: str, owner_user_id: int | None = None):
+    safe_name = _normalize_list_name(list_name)
+    if not safe_name:
+        return None
+    resolved_owner_id = int(owner_user_id) if owner_user_id is not None else int(user_id)
+    canonical_path = _list_path_for_user(resolved_owner_id, safe_name)
+    if int(user_id) == resolved_owner_id:
+        return {
+            "owner_user_id": resolved_owner_id,
+            "viewer_user_id": int(user_id),
+            "viewer_is_owner": True,
+            "canonical_path": canonical_path,
+            "shared": bool(_get_share_rows_for_owner(resolved_owner_id, safe_name)),
+        }
+    with _db_conn() as conn:
+        row = conn.execute(
+            """
+            SELECT owner_user_id
+            FROM shared_lists
+            WHERE owner_user_id = ? AND list_name = ? AND shared_with_user_id = ?
+            """,
+            (resolved_owner_id, safe_name, int(user_id)),
+        ).fetchone()
+    if not row:
+        return None
+    return {
+        "owner_user_id": int(row["owner_user_id"]),
+        "viewer_user_id": int(user_id),
+        "viewer_is_owner": False,
+        "canonical_path": _list_path_for_user(int(row["owner_user_id"]), safe_name),
+        "shared": True,
+    }
+
+
+def _mirror_shared_list_to_collaborators(owner_user_id: int, list_name: str, content: str) -> None:
+    share_rows = _get_share_rows_for_owner(owner_user_id, list_name)
+    for row in share_rows:
+        collaborator_path = _list_path_for_user(int(row["shared_with_user_id"]), list_name)
+        _write_list_content_to_path(collaborator_path, content)
+
+
+def _cleanup_unshared_mirror(owner_user_id: int, list_name: str, removed_user_ids: set[int]) -> None:
+    for shared_with_user_id in removed_user_ids:
+        collaborator_path = _list_path_for_user(int(shared_with_user_id), list_name)
+        try:
+            if collaborator_path.exists() and collaborator_path.is_file():
+                collaborator_path.unlink()
+        except OSError:
+            pass
+
+
+def _touch_shared_list_rows(owner_user_id: int, list_name: str) -> None:
+    safe_name = _normalize_list_name(list_name)
+    if not safe_name:
+        return
+    now_iso = _utc_now().isoformat()
+    with _db_conn() as conn:
+        conn.execute(
+            """
+            UPDATE shared_lists
+            SET updated_at = ?
+            WHERE owner_user_id = ? AND list_name = ?
+            """,
+            (now_iso, int(owner_user_id), safe_name),
+        )
+        conn.commit()
+
+
+def _set_shared_list_targets(owner_user_id: int, list_name: str, usernames: list[str]):
+    safe_name = _normalize_list_name(list_name)
+    if not safe_name:
+        raise ValueError("List name is required.")
+
+    canonical_path = _list_path_for_user(owner_user_id, safe_name)
+    if not canonical_path.exists() or not canonical_path.is_file():
+        raise ValueError("List not found.")
+
+    normalized_usernames = []
+    seen_usernames = set()
+    for username in usernames:
+        normalized = _normalize_email(username)
+        if not normalized or normalized in seen_usernames:
+            continue
+        seen_usernames.add(normalized)
+        normalized_usernames.append(normalized)
+
+    target_rows = []
+    for username in normalized_usernames:
+        row = _get_user_by_login(username)
+        if not row:
+            raise ValueError(f"User not found: {username}")
+        if int(row["id"]) == int(owner_user_id):
+            continue
+        target_rows.append(row)
+
+    with _db_conn() as conn:
+        existing_rows = conn.execute(
+            """
+            SELECT shared_with_user_id
+            FROM shared_lists
+            WHERE owner_user_id = ? AND list_name = ?
+            """,
+            (int(owner_user_id), safe_name),
+        ).fetchall()
+        existing_user_ids = {int(row["shared_with_user_id"]) for row in existing_rows}
+        target_user_ids = {int(row["id"]) for row in target_rows}
+        to_remove = existing_user_ids - target_user_ids
+        now_iso = _utc_now().isoformat()
+
+        if to_remove:
+            conn.executemany(
+                """
+                DELETE FROM shared_lists
+                WHERE owner_user_id = ? AND list_name = ? AND shared_with_user_id = ?
+                """,
+                [(int(owner_user_id), safe_name, user_id) for user_id in to_remove],
+            )
+
+        for row in target_rows:
+            conn.execute(
+                """
+                INSERT INTO shared_lists (owner_user_id, list_name, shared_with_user_id, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(owner_user_id, list_name, shared_with_user_id)
+                DO UPDATE SET updated_at = excluded.updated_at
+                """,
+                (int(owner_user_id), safe_name, int(row["id"]), now_iso, now_iso),
+            )
+        conn.commit()
+
+    _cleanup_unshared_mirror(owner_user_id, safe_name, to_remove if "to_remove" in locals() else set())
+    content = _read_list_content_from_path(canonical_path)
+    _mirror_shared_list_to_collaborators(owner_user_id, safe_name, content)
+    return [str(row["email"]) for row in _get_share_rows_for_owner(owner_user_id, safe_name)]
 
 
 def _normalize_caldav_url(caldav_url: str, caldav_username: str) -> str:
@@ -352,6 +549,22 @@ def _get_user_caldav_calendars(user_id: int):
 
 def _utc_now():
     return datetime.now(timezone.utc)
+
+
+def _list_snapshot_for_user(user_id: int) -> tuple[str, list[dict]]:
+    entries = get_available_list_entries(int(user_id))
+    snapshot_parts = [
+        "|".join(
+            [
+                str(entry.get("note_key", "")),
+                str(entry.get("updated_at", "")),
+                ",".join(entry.get("share_usernames", [])),
+            ]
+        )
+        for entry in entries
+    ]
+    token = hashlib.sha256("\n".join(snapshot_parts).encode("utf-8")).hexdigest()
+    return token, entries
 
 
 def _device_token_hash(token: str) -> str:
@@ -490,21 +703,100 @@ def get_available_lists(user_id: int | None = None):
     )
 
 
+def _build_list_entry_for_viewer(
+    *,
+    viewer_user_id: int,
+    owner_user_id: int,
+    owner_email: str,
+    list_name: str,
+    content: str,
+    is_owner: bool,
+) -> dict:
+    share_rows = _get_share_rows_for_owner(owner_user_id, list_name)
+    share_usernames = [str(row["shared_with_email"]) for row in share_rows]
+    canonical_path = _list_path_for_user(owner_user_id, list_name)
+    updated_candidates = []
+    try:
+        if canonical_path.exists() and canonical_path.is_file():
+            updated_candidates.append(datetime.fromtimestamp(canonical_path.stat().st_mtime, tz=timezone.utc).isoformat())
+    except OSError:
+        pass
+    updated_candidates.extend(str(row["updated_at"]) for row in share_rows if row["updated_at"])
+    updated_at = max(updated_candidates) if updated_candidates else _utc_now().isoformat()
+    return {
+        "note_key": f"{int(owner_user_id)}:{list_name}",
+        "list_name": str(list_name),
+        "content": str(content or ""),
+        "owner_user_id": int(owner_user_id),
+        "owner_username": str(owner_email),
+        "is_owner": bool(is_owner),
+        "is_shared": bool(share_usernames),
+        "share_usernames": share_usernames,
+        "updated_at": updated_at,
+    }
+
+
 def get_available_list_entries(user_id: int):
-    names = get_available_lists(user_id=user_id)
     entries = []
+    with _db_conn() as conn:
+        user_row = conn.execute("SELECT id, email FROM users WHERE id = ?", (int(user_id),)).fetchone()
+        shared_rows = conn.execute(
+            """
+            SELECT sl.owner_user_id, sl.list_name, u.email AS owner_email
+            FROM shared_lists sl
+            JOIN users u ON u.id = sl.owner_user_id
+            WHERE sl.shared_with_user_id = ?
+            ORDER BY sl.list_name COLLATE NOCASE ASC
+            """,
+            (int(user_id),),
+        ).fetchall()
+
+    names = get_available_lists(user_id=user_id)
+    seen_note_keys = set()
+    shared_names = {str(row["list_name"]) for row in shared_rows if int(row["owner_user_id"]) != int(user_id)}
+    owner_email = str(user_row["email"]) if user_row else ""
     for name in names:
+        if name in shared_names:
+            continue
         result = ReadList(user_id=user_id, list_name=name)
         if not isinstance(result, dict):
             continue
         if str(result.get("status", "")).strip().lower() != "success":
             continue
+        note_key = f"{int(user_id)}:{name}"
+        seen_note_keys.add(note_key)
         entries.append(
-            {
-                "list_name": str(result.get("list_name", name)),
-                "content": str(result.get("content", "")),
-            }
+            _build_list_entry_for_viewer(
+                viewer_user_id=int(user_id),
+                owner_user_id=int(user_id),
+                owner_email=owner_email,
+                list_name=str(result.get("list_name", name)),
+                content=str(result.get("content", "")),
+                is_owner=True,
+            )
         )
+
+    for row in shared_rows:
+        list_name = str(row["list_name"])
+        note_key = f"{int(row['owner_user_id'])}:{list_name}"
+        if note_key in seen_note_keys:
+            continue
+        result = ReadList(user_id=int(row["owner_user_id"]), list_name=list_name)
+        if not isinstance(result, dict):
+            continue
+        if str(result.get("status", "")).strip().lower() != "success":
+            continue
+        entries.append(
+            _build_list_entry_for_viewer(
+                viewer_user_id=int(user_id),
+                owner_user_id=int(row["owner_user_id"]),
+                owner_email=str(row["owner_email"] or ""),
+                list_name=list_name,
+                content=str(result.get("content", "")),
+                is_owner=False,
+            )
+        )
+    entries.sort(key=lambda item: (str(item.get("list_name", "")).lower(), int(item.get("owner_user_id", 0))))
     return entries
 
 configure_tools(_get_user_caldav_calendars, LISTS_DIR)
@@ -1794,7 +2086,22 @@ def api_lists_get():
         return auth_error
 
     user_id = int(session["user_id"])
-    return jsonify({"ok": True, "lists": get_available_list_entries(user_id)})
+    token, entries = _list_snapshot_for_user(user_id)
+    return jsonify({"ok": True, "lists": entries, "snapshot_token": token})
+
+
+@app.get("/api/lists/changes")
+def api_lists_changes():
+    auth_error = _require_auth()
+    if auth_error:
+        return auth_error
+
+    user_id = int(session["user_id"])
+    previous_token = str(request.args.get("since", "")).strip()
+    next_token, entries = _list_snapshot_for_user(user_id)
+    if previous_token and previous_token == next_token:
+        return jsonify({"ok": True, "changed": False, "snapshot_token": next_token})
+    return jsonify({"ok": True, "changed": True, "snapshot_token": next_token, "lists": entries})
 
 
 @app.post("/api/lists/save")
@@ -1806,16 +2113,66 @@ def api_lists_save():
     payload = request.get_json(silent=True) or {}
     list_name = str(payload.get("list_name", "")).strip()
     content = str(payload.get("content", ""))
+    owner_user_id_raw = payload.get("owner_user_id")
 
     if not list_name:
         return jsonify({"ok": False, "error": "List name is required."}), 400
 
     user_id = int(session["user_id"])
-    result = EditList(user_id=user_id, list_name=list_name, content=content)
+    owner_user_id = int(owner_user_id_raw) if owner_user_id_raw is not None else user_id
+    access = _get_note_owner_and_access(user_id=user_id, list_name=list_name, owner_user_id=owner_user_id)
+    if access is None:
+        if owner_user_id != user_id:
+            return jsonify({"ok": False, "error": "You do not have access to that shared note."}), 403
+        access = {
+            "owner_user_id": owner_user_id,
+            "viewer_user_id": user_id,
+            "viewer_is_owner": True,
+            "canonical_path": _list_path_for_user(owner_user_id, list_name),
+            "shared": False,
+        }
+
+    _write_list_content_to_path(access["canonical_path"], content)
+    _touch_shared_list_rows(int(access["owner_user_id"]), list_name)
+    _mirror_shared_list_to_collaborators(int(access["owner_user_id"]), list_name, content)
+    result = {"status": "success"}
+
     if not isinstance(result, dict) or str(result.get("status", "")).strip().lower() != "success":
         return jsonify({"ok": False, "error": "Failed to save list."}), 500
 
-    return jsonify({"ok": True, "list": {"list_name": list_name, "content": content}})
+    return jsonify({"ok": True, "list": {"list_name": list_name, "content": content, "owner_user_id": int(access["owner_user_id"])}})
+
+
+@app.post("/api/lists/share")
+def api_lists_share():
+    auth_error = _require_auth()
+    if auth_error:
+        return auth_error
+
+    payload = request.get_json(silent=True) or {}
+    list_name = _normalize_list_name(payload.get("list_name", ""))
+    usernames_payload = payload.get("usernames", [])
+    if not list_name:
+        return jsonify({"ok": False, "error": "List name is required."}), 400
+    if isinstance(usernames_payload, str):
+        usernames = [value.strip() for value in usernames_payload.split(",") if value.strip()]
+    elif isinstance(usernames_payload, list):
+        usernames = [str(value).strip() for value in usernames_payload if str(value).strip()]
+    else:
+        usernames = []
+
+    user_id = int(session["user_id"])
+    owner_user_id_raw = payload.get("owner_user_id")
+    owner_user_id = int(owner_user_id_raw) if owner_user_id_raw is not None else user_id
+    if owner_user_id != user_id:
+        return jsonify({"ok": False, "error": "Only the note owner can change sharing."}), 403
+
+    try:
+        share_usernames = _set_shared_list_targets(owner_user_id, list_name, usernames)
+    except ValueError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+    return jsonify({"ok": True, "list": {"list_name": list_name, "owner_user_id": owner_user_id, "share_usernames": share_usernames}})
 
 
 @app.post("/api/lists/delete")
@@ -1826,16 +2183,54 @@ def api_lists_delete():
 
     payload = request.get_json(silent=True) or {}
     list_name = str(payload.get("list_name", "")).strip()
+    owner_user_id_raw = payload.get("owner_user_id")
     if not list_name:
         return jsonify({"ok": False, "error": "List name is required."}), 400
 
     user_id = int(session["user_id"])
-    result = DeleteList(user_id=user_id, list_name=list_name)
-    status = str(result.get("status", "")).strip().lower() if isinstance(result, dict) else ""
-    if status not in {"success", "deleted"}:
-        return jsonify({"ok": False, "error": "Failed to delete list."}), 500
+    owner_user_id = int(owner_user_id_raw) if owner_user_id_raw is not None else user_id
+    access = _get_note_owner_and_access(user_id=user_id, list_name=list_name, owner_user_id=owner_user_id)
+    if access is None:
+        return jsonify({"ok": False, "error": "List not found."}), 404
 
-    return jsonify({"ok": True, "list": {"list_name": list_name}})
+    if int(access["viewer_is_owner"]):
+        result = DeleteList(user_id=int(access["owner_user_id"]), list_name=list_name)
+        share_rows = _get_share_rows_for_owner(int(access["owner_user_id"]), list_name)
+        with _db_conn() as conn:
+            conn.execute(
+                "DELETE FROM shared_lists WHERE owner_user_id = ? AND list_name = ?",
+                (int(access["owner_user_id"]), list_name),
+            )
+            conn.commit()
+        for row in share_rows:
+            collaborator_path = _list_path_for_user(int(row["shared_with_user_id"]), list_name)
+            try:
+                if collaborator_path.exists() and collaborator_path.is_file():
+                    collaborator_path.unlink()
+            except OSError:
+                pass
+        status = str(result.get("status", "")).strip().lower() if isinstance(result, dict) else ""
+        if status not in {"success", "deleted"}:
+            return jsonify({"ok": False, "error": "Failed to delete list."}), 500
+        return jsonify({"ok": True, "list": {"list_name": list_name, "owner_user_id": int(access["owner_user_id"]), "deleted_scope": "everywhere"}})
+
+    with _db_conn() as conn:
+        conn.execute(
+            """
+            DELETE FROM shared_lists
+            WHERE owner_user_id = ? AND list_name = ? AND shared_with_user_id = ?
+            """,
+            (int(access["owner_user_id"]), list_name, user_id),
+        )
+        conn.commit()
+    collaborator_path = _list_path_for_user(user_id, list_name)
+    try:
+        if collaborator_path.exists() and collaborator_path.is_file():
+            collaborator_path.unlink()
+    except OSError:
+        pass
+    _touch_shared_list_rows(int(access["owner_user_id"]), list_name)
+    return jsonify({"ok": True, "list": {"list_name": list_name, "owner_user_id": int(access["owner_user_id"]), "deleted_scope": "mine"}})
 
 
 @app.post("/api/settings/caldav")

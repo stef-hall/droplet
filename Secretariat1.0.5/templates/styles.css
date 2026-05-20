@@ -1207,7 +1207,8 @@ textarea {
 
 .sticky-note.is-near-dock .sticky-note-resize-handle,
 .sticky-note.is-near-delete .sticky-note-resize-handle,
-.sticky-note.is-stowed .sticky-note-resize-handle {
+.sticky-note.is-stowed .sticky-note-resize-handle,
+.sticky-note.is-flipped .sticky-note-resize-handle {
   opacity: 0;
   pointer-events: none;
 }
@@ -1360,6 +1361,105 @@ textarea {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.sticky-note-inner {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  transform-style: preserve-3d;
+  transition: transform 240ms ease;
+}
+
+.sticky-note.is-flipped .sticky-note-inner {
+  transform: rotateY(180deg);
+}
+
+.sticky-note-face {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  backface-visibility: hidden;
+}
+
+.sticky-note-face-back {
+  transform: rotateY(180deg);
+}
+
+.sticky-note-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.sticky-note-title-wrap {
+  min-width: 0;
+}
+
+.sticky-note-subtitle {
+  margin-top: 3px;
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: none;
+  opacity: 0.78;
+}
+
+.sticky-note-share-toggle {
+  flex: 0 0 auto;
+  border: 1px solid rgba(74, 59, 5, 0.18);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.34);
+  color: inherit;
+  font: inherit;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 5px 9px;
+  cursor: pointer;
+}
+
+.sticky-note-share-panel {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.sticky-note-share-label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.sticky-note-share-input {
+  border: 1px solid rgba(74, 59, 5, 0.18);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.46);
+  color: inherit;
+  font: inherit;
+  font-size: 0.9rem;
+  padding: 9px 10px;
+  outline: none;
+}
+
+.sticky-note-share-input:disabled {
+  opacity: 0.72;
+  cursor: default;
+}
+
+.sticky-note-share-help,
+.sticky-note-share-status {
+  font-size: 0.76rem;
+  line-height: 1.35;
+  opacity: 0.82;
 }
 
 .sticky-note-body {
