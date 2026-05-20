@@ -27,7 +27,6 @@ Last updated: 2026-05-06
 ## Session notes
 - 2026-05-06: User asked for persistent memory to avoid forgetting context.
 - 2026-05-06: Added live backend-driven status updates for chat processing (`Thinking...`, `Getting Events...`, `Adding Event...`, `Deleting...`) via streamed API responses.
-- 2026-05-20: Added shared sticky notes with a flip-to-share panel, collaborator username syncing, mirrored shared note files, and low-frequency polling for cross-user note updates.
 
 ## How to use this memory
 - At session start: read this file first.

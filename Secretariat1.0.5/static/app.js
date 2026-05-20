@@ -326,14 +326,6 @@ function saveStickyNoteLayoutState(layoutState) {
   }
 }
 
-function getStickyNoteLayoutEntry(noteEl) {
-  const noteKey = String(noteEl?.dataset?.noteKey || noteEl?.dataset?.listName || "").trim();
-  if (!noteKey) return null;
-  const layoutState = loadStickyNoteLayoutState();
-  const entry = layoutState[noteKey];
-  return entry && typeof entry === "object" ? entry : null;
-}
-
 function saveStickyNoteLayoutEntry(noteEl, partialEntry = {}) {
   const noteKey = String(noteEl?.dataset?.noteKey || noteEl?.dataset?.listName || "").trim();
   if (!noteKey) return;
@@ -588,13 +580,6 @@ function isStickyNoteNearDock(noteEl, left, pointerX = null, currentlyNearDock =
   const enterThreshold = window.innerWidth - STICKY_NOTE_DOCK_THRESHOLD;
   const exitThreshold = enterThreshold - STICKY_NOTE_DOCK_HYSTERESIS;
   return currentlyNearDock ? edgeX >= exitThreshold : edgeX >= enterThreshold;
-}
-
-function updateStickyNoteDockPreview(noteEl, left) {
-  const nearDock = isStickyNoteNearDock(noteEl, left);
-  noteEl.classList.toggle("is-near-dock", nearDock);
-  setStickyNoteDockHintVisible(nearDock);
-  return nearDock;
 }
 
 function getStickyNoteDockIndex(pointerY, draggingNoteEl) {

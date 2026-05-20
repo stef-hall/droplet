@@ -303,10 +303,8 @@ def _get_note_owner_and_access(user_id: int, list_name: str, owner_user_id: int 
     if int(user_id) == resolved_owner_id:
         return {
             "owner_user_id": resolved_owner_id,
-            "viewer_user_id": int(user_id),
             "viewer_is_owner": True,
             "canonical_path": canonical_path,
-            "shared": bool(_get_share_rows_for_owner(resolved_owner_id, safe_name)),
         }
     with _db_conn() as conn:
         row = conn.execute(
@@ -321,10 +319,8 @@ def _get_note_owner_and_access(user_id: int, list_name: str, owner_user_id: int 
         return None
     return {
         "owner_user_id": int(row["owner_user_id"]),
-        "viewer_user_id": int(user_id),
         "viewer_is_owner": False,
         "canonical_path": _list_path_for_user(int(row["owner_user_id"]), safe_name),
-        "shared": True,
     }
 
 
@@ -333,16 +329,6 @@ def _mirror_shared_list_to_collaborators(owner_user_id: int, list_name: str, con
     for row in share_rows:
         collaborator_path = _list_path_for_user(int(row["shared_with_user_id"]), list_name)
         _write_list_content_to_path(collaborator_path, content)
-
-
-def _cleanup_unshared_mirror(owner_user_id: int, list_name: str, removed_user_ids: set[int]) -> None:
-    for shared_with_user_id in removed_user_ids:
-        collaborator_path = _list_path_for_user(int(shared_with_user_id), list_name)
-        try:
-            if collaborator_path.exists() and collaborator_path.is_file():
-                collaborator_path.unlink()
-        except OSError:
-            pass
 
 
 def _touch_shared_list_rows(owner_user_id: int, list_name: str) -> None:
@@ -424,7 +410,13 @@ def _set_shared_list_targets(owner_user_id: int, list_name: str, usernames: list
             )
         conn.commit()
 
-    _cleanup_unshared_mirror(owner_user_id, safe_name, to_remove if "to_remove" in locals() else set())
+    for shared_with_user_id in to_remove:
+        collaborator_path = _list_path_for_user(int(shared_with_user_id), safe_name)
+        try:
+            if collaborator_path.exists() and collaborator_path.is_file():
+                collaborator_path.unlink()
+        except OSError:
+            pass
     content = _read_list_content_from_path(canonical_path)
     _mirror_shared_list_to_collaborators(owner_user_id, safe_name, content)
     return [str(row["email"]) for row in _get_share_rows_for_owner(owner_user_id, safe_name)]
@@ -705,7 +697,6 @@ def get_available_lists(user_id: int | None = None):
 
 def _build_list_entry_for_viewer(
     *,
-    viewer_user_id: int,
     owner_user_id: int,
     owner_email: str,
     list_name: str,
@@ -767,7 +758,6 @@ def get_available_list_entries(user_id: int):
         seen_note_keys.add(note_key)
         entries.append(
             _build_list_entry_for_viewer(
-                viewer_user_id=int(user_id),
                 owner_user_id=int(user_id),
                 owner_email=owner_email,
                 list_name=str(result.get("list_name", name)),
@@ -788,7 +778,6 @@ def get_available_list_entries(user_id: int):
             continue
         entries.append(
             _build_list_entry_for_viewer(
-                viewer_user_id=int(user_id),
                 owner_user_id=int(row["owner_user_id"]),
                 owner_email=str(row["owner_email"] or ""),
                 list_name=list_name,
@@ -2126,20 +2115,13 @@ def api_lists_save():
             return jsonify({"ok": False, "error": "You do not have access to that shared note."}), 403
         access = {
             "owner_user_id": owner_user_id,
-            "viewer_user_id": user_id,
             "viewer_is_owner": True,
             "canonical_path": _list_path_for_user(owner_user_id, list_name),
-            "shared": False,
         }
 
     _write_list_content_to_path(access["canonical_path"], content)
     _touch_shared_list_rows(int(access["owner_user_id"]), list_name)
     _mirror_shared_list_to_collaborators(int(access["owner_user_id"]), list_name, content)
-    result = {"status": "success"}
-
-    if not isinstance(result, dict) or str(result.get("status", "")).strip().lower() != "success":
-        return jsonify({"ok": False, "error": "Failed to save list."}), 500
-
     return jsonify({"ok": True, "list": {"list_name": list_name, "content": content, "owner_user_id": int(access["owner_user_id"])}})
 
 
