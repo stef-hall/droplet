@@ -2042,7 +2042,6 @@ def api_secretariat():
             prompt_text,
             image_data_url=image_data_url,
             previous_response_id=previous_response_id,
-            user_timezone=user_timezone,
             location_context=weather_location,
             user_id=user_id,
         )

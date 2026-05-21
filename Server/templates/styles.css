@@ -19,6 +19,11 @@
   --composer-radius: var(--composer-radius-medium);
   --composer-squircle: var(--composer-squircle-medium);
   --content-width: 760px;
+  --sticky-note-default-width: 182px;
+  --sticky-note-stowed-peek-ratio: 0.2;
+  --sticky-note-hover-reveal-ratio: 0.7;
+  --sticky-note-stowed-peek-width: calc(var(--sticky-note-default-width) * var(--sticky-note-stowed-peek-ratio));
+  --sticky-note-hover-shift-distance: calc((var(--sticky-note-default-width) - var(--sticky-note-stowed-peek-width)) * var(--sticky-note-hover-reveal-ratio));
 }
 
 [data-theme="dark"] {
@@ -991,6 +996,20 @@ textarea {
   z-index: 29;
 }
 
+.sticky-note-stow-area {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 182px;
+  pointer-events: none;
+  background: transparent;
+}
+
+.sticky-note-layer.has-stowed-notes .sticky-note-stow-area {
+  pointer-events: auto;
+}
+
 .sticky-note-drag-host {
   position: fixed;
   inset: 0;
@@ -1055,6 +1074,10 @@ textarea {
 
 .sticky-note-effects-layer.show-dock-slot .sticky-note-dock-slot {
   opacity: 1;
+  transform: translateX(0);
+}
+
+.sticky-note-effects-layer.is-stow-area-active.show-dock-slot .sticky-note-dock-slot {
   transform: translateX(0);
 }
 
@@ -1135,6 +1158,7 @@ textarea {
   user-select: none;
   touch-action: none;
   pointer-events: auto;
+  box-sizing: border-box;
   transition:
     width 180ms ease,
     height 180ms ease,
@@ -1185,6 +1209,21 @@ textarea {
   border-radius: var(--sticky-note-radius-top) 0 0 var(--sticky-note-radius-bottom);
   transform: rotate(0deg);
   clip-path: inset(0 0 0 0 round var(--sticky-note-radius-top) 0 0 var(--sticky-note-radius-bottom));
+  transition:
+    left 180ms ease,
+    top 180ms ease,
+    transform 180ms ease,
+    box-shadow 180ms ease,
+    border-radius 180ms ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .sticky-note-layer:has(.sticky-note-stow-area:hover) .sticky-note.is-stowed,
+  .sticky-note-layer.is-stow-area-active .sticky-note.is-stowed,
+  .sticky-note-layer:has(.sticky-note.is-stowed:hover) .sticky-note.is-stowed,
+  .sticky-note-layer:has(.sticky-note.is-stowed:focus-within) .sticky-note.is-stowed {
+    transform: translateX(calc(-1 * var(--sticky-note-hover-shift-distance)));
+  }
 }
 
 .sticky-note.is-touching-delete {
