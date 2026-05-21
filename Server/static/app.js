@@ -42,7 +42,8 @@ function getCssRootNumberVar(name, fallback) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 const MAX_PROMPT_HEIGHT = 180;
-const STICKY_NOTE_DOCK_THRESHOLD = 110;
+const STICKY_NOTE_DOCK_THRESHOLD = 182;
+const STICKY_NOTE_DOCK_THRESHOLD_MOBILE = 50;
 const STICKY_NOTE_DOCK_HYSTERESIS = 24;
 const STICKY_NOTE_DEFAULT_WIDTH = Math.round(getCssRootNumberVar("--sticky-note-default-width", 182));
 const STICKY_NOTE_MOBILE_REST_PEEK_RATIO = getCssRootNumberVar("--sticky-note-mobile-rest-peek-ratio", 0.2);
@@ -574,7 +575,8 @@ function autoSizeStickyNoteInput(inputEl, noteEl = null) {
 
 function isStickyNoteNearDock(noteEl, left, pointerX = null, currentlyNearDock = false) {
   const edgeX = Number.isFinite(pointerX) ? pointerX : left + noteEl.offsetWidth;
-  const enterThreshold = window.innerWidth - STICKY_NOTE_DOCK_THRESHOLD;
+  const dockThreshold = isTouchDevice ? STICKY_NOTE_DOCK_THRESHOLD_MOBILE : STICKY_NOTE_DOCK_THRESHOLD;
+  const enterThreshold = window.innerWidth - dockThreshold;
   const exitThreshold = enterThreshold - STICKY_NOTE_DOCK_HYSTERESIS;
   return currentlyNearDock ? edgeX >= exitThreshold : edgeX >= enterThreshold;
 }
