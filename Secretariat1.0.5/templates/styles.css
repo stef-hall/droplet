@@ -1937,12 +1937,12 @@ textarea {
   right: 0;
   height: 50px;
   background: var(--header-bg);
-  z-index: 29;
+  z-index: 59;
 }
 
 .is-pwa .chat-header{
   margin-top: 45px;
-  
+  z-index: 60;
 }
 
 .sticky-note.is-stowed .sticky-note-title {
@@ -1950,7 +1950,8 @@ textarea {
 }
 
 .sticky-note-stow-area {
-  width:100px;
+  width:50px;
+  background: red;
 }
 }
 
