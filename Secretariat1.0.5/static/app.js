@@ -624,16 +624,34 @@ function positionStickyNoteDockSlot(index, draggingNoteEl = null) {
   const slotSize = getStickyNoteDockSlotSize(draggingNoteEl);
   const stackTopStart = getStickyNoteStackTopStart();
   const isExpandedStowArea = !isTouchDevice && stickyNoteLayerEl?.classList.contains("is-stow-area-active");
-  const slotWidth = isExpandedStowArea ? STICKY_NOTE_HOVER_REVEAL_WIDTH : slotSize.width;
-  const mobilePeekWidth = getMobilePeekWidth();
-  const stowedLeft = isTouchDevice
-    ? Math.max(0, window.innerWidth - STICKY_NOTE_DEFAULT_WIDTH + (STICKY_NOTE_DEFAULT_WIDTH - mobilePeekWidth))
-    : Math.max(0, window.innerWidth - slotWidth);
+  const stackGap = getStickyNoteStackGap();
+  let slotWidth = isExpandedStowArea ? STICKY_NOTE_HOVER_REVEAL_WIDTH : slotSize.width;
+  let stowedLeft = Math.max(0, window.innerWidth - slotWidth);
+  if (isTouchDevice) {
+    const sampleHeight = Math.max(STICKY_NOTE_STOWED_HEIGHT, Math.round(slotSize.height));
+    const visibleStackHeight = Math.max(
+      sampleHeight,
+      (Math.max(1, MOBILE_STICKY_NOTE_VISIBLE_COUNT) - 1) * stackGap + sampleHeight
+    );
+    const viewportHeight = Math.min(
+      window.innerHeight,
+      Math.round(stackTopStart + visibleStackHeight + sampleHeight + MOBILE_STICKY_NOTE_ENTRY_DISTANCE)
+    );
+    const previewBaseTop = stackTopStart + index * stackGap;
+    const previewViewportY = previewBaseTop - stickyNoteMobileScrollTop;
+    const revealProgress = clamp((viewportHeight - previewViewportY) / MOBILE_STICKY_NOTE_ENTRY_DISTANCE, 0, 1);
+    const revealCurve = getStickyNoteRevealCurve(revealProgress);
+    const revealOffset = Math.round((1 - revealCurve) * MOBILE_STICKY_NOTE_ENTRY_OFFSET);
+    const baseStowedLeft = STICKY_NOTE_DEFAULT_WIDTH - getMobilePeekWidth();
+    const noteLocalLeft = Math.round(baseStowedLeft + revealOffset);
+    const visibleWidth = clamp(STICKY_NOTE_DEFAULT_WIDTH - noteLocalLeft, 0, STICKY_NOTE_DEFAULT_WIDTH);
+    slotWidth = Math.max(0, Math.round(visibleWidth));
+    stowedLeft = Math.round(window.innerWidth - STICKY_NOTE_DEFAULT_WIDTH + noteLocalLeft);
+  }
   stickyNoteDockSlotEl.style.right = "auto";
   stickyNoteDockSlotEl.style.left = `${Math.round(stowedLeft)}px`;
   stickyNoteDockSlotEl.style.width = `${slotWidth}px`;
   stickyNoteDockSlotEl.style.height = `${slotSize.height}px`;
-  const stackGap = getStickyNoteStackGap();
   const desiredTop = stackTopStart + index * stackGap - (isTouchDevice ? stickyNoteMobileScrollTop : 0);
   const minTop = isTouchDevice ? 0 : stackTopStart;
   const safeTop = clamp(desiredTop, minTop, Math.max(minTop, window.innerHeight - stickyNoteDockSlotEl.offsetHeight));
@@ -954,6 +972,9 @@ function createStickyNote(listEntry, colorClassName) {
     noteEl.classList.add("is-dragging");
     const startsNearDock = isStickyNoteNearDock(noteEl, rect.left, pointerState.clientX, false);
     setStickyNoteStowAreaActive(startsNearDock);
+    if (isTouchDevice) {
+      setMobilePeekExpanded(startsNearDock);
+    }
     setStickyNoteDragLayerActive(true);
     setStickyNoteDeleteTargetVisible(true);
     setStickyNoteDeleteTargetActive(false);
@@ -1091,6 +1112,9 @@ function createStickyNote(listEntry, colorClassName) {
     dragState.targetAngle = clamp(deltaX * 0.9, -12, 12);
     setStickyNoteDockHintVisible(effectiveNearDock);
     setStickyNoteStowAreaActive(effectiveNearDock);
+    if (isTouchDevice) {
+      setMobilePeekExpanded(effectiveNearDock);
+    }
     if (effectiveNearDock) {
       layoutStowedStickyNotes({ draggingNoteEl: noteEl, previewIndex: previewDockIndex });
     } else {
@@ -1122,6 +1146,9 @@ function createStickyNote(listEntry, colorClassName) {
     noteEl.style.transform = "";
     setStickyNoteDockHintVisible(false);
     setStickyNoteStowAreaActive(false);
+    if (isTouchDevice) {
+      setMobilePeekExpanded(false);
+    }
     setStickyNoteDockSlotVisible(false);
     setStickyNoteDeleteTargetVisible(false);
     setStickyNoteDeleteTargetActive(false);
