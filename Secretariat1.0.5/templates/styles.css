@@ -1117,6 +1117,10 @@ textarea {
   transform: translateY(0) scale(1);
 }
 
+.sticky-note-effects-layer.show-delete-target {
+  z-index: 32;
+}
+
 .sticky-note-effects-layer.delete-target-active .sticky-note-delete-target {
   background: rgba(224, 29, 29, 0.88);
   border-color: rgba(255, 226, 226, 0.92);

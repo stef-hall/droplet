@@ -20,6 +20,7 @@
   --composer-squircle: var(--composer-squircle-medium);
   --content-width: 760px;
   --sticky-note-default-width: 182px;
+  --sticky-note-mobile-rest-peek-ratio: 0.2;
   --sticky-note-stowed-peek-ratio: 0.2;
   --sticky-note-hover-reveal-ratio: 0.7;
   --sticky-note-stowed-peek-width: calc(var(--sticky-note-default-width) * var(--sticky-note-stowed-peek-ratio));
@@ -841,6 +842,8 @@ textarea {
 }
 
 .composer {
+  position: relative;
+  z-index: 31;
   display: grid;
   grid-template-columns: auto 1fr auto;
   align-items: center;
@@ -1030,6 +1033,7 @@ textarea {
   position: relative;
   width: 100%;
   min-height: 100%;
+  will-change: transform;
 }
 
 .sticky-note-layer.is-mobile-scroll-enabled .sticky-note-mobile-viewport {
@@ -1111,6 +1115,10 @@ textarea {
 .sticky-note-effects-layer.show-delete-target .sticky-note-delete-target {
   opacity: 1;
   transform: translateY(0) scale(1);
+}
+
+.sticky-note-effects-layer.show-delete-target {
+  z-index: 32;
 }
 
 .sticky-note-effects-layer.delete-target-active .sticky-note-delete-target {
@@ -1844,7 +1852,7 @@ textarea {
   .composer {
     position: sticky;
     position: -webkit-sticky;
-    z-index: 5;
+    z-index: 31;
     margin-bottom: 6px;
     padding: 7px 9px 7px 9px;
     touch-action: none;
@@ -1939,6 +1947,10 @@ textarea {
 
 .sticky-note.is-stowed .sticky-note-title {
   font-size: 0.76rem;
+}
+
+.sticky-note-stow-area {
+  width:100px;
 }
 }
 
