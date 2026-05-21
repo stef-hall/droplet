@@ -19,6 +19,11 @@
   --composer-radius: var(--composer-radius-medium);
   --composer-squircle: var(--composer-squircle-medium);
   --content-width: 760px;
+  --sticky-note-default-width: 182px;
+  --sticky-note-stowed-peek-ratio: 0.3;
+  --sticky-note-hover-reveal-ratio: 0.7;
+  --sticky-note-stowed-peek-width: calc(var(--sticky-note-default-width) * var(--sticky-note-stowed-peek-ratio));
+  --sticky-note-hover-shift-distance: calc((var(--sticky-note-default-width) - var(--sticky-note-stowed-peek-width)) * var(--sticky-note-hover-reveal-ratio));
 }
 
 [data-theme="dark"] {
@@ -1217,7 +1222,7 @@ textarea {
   .sticky-note-layer.is-stow-area-active .sticky-note.is-stowed,
   .sticky-note-layer:has(.sticky-note.is-stowed:hover) .sticky-note.is-stowed,
   .sticky-note-layer:has(.sticky-note.is-stowed:focus-within) .sticky-note.is-stowed {
-    transform: translateX(calc(-100% + 55px));
+    transform: translateX(calc(-1 * var(--sticky-note-hover-shift-distance)));
   }
 }
 

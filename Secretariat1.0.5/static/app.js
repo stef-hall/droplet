@@ -36,11 +36,21 @@ const stickyNoteEffectsLayerEl = document.getElementById("sticky-note-effects-la
 const stickyNoteLayerEl = document.getElementById("sticky-note-layer");
 const stickyNoteDockSlotEl = document.getElementById("sticky-note-dock-slot");
 const stickyNoteDeleteTargetEl = document.getElementById("sticky-note-delete-target");
+function getCssRootNumberVar(name, fallback) {
+  const raw = getComputedStyle(document.documentElement).getPropertyValue(name);
+  const parsed = Number.parseFloat(String(raw || "").trim());
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
 const MAX_PROMPT_HEIGHT = 180;
 const STICKY_NOTE_DOCK_THRESHOLD = 110;
 const STICKY_NOTE_DOCK_HYSTERESIS = 24;
-const STICKY_NOTE_DEFAULT_WIDTH = 182;
-const STICKY_NOTE_STOWED_PEEK_WIDTH = Math.round(STICKY_NOTE_DEFAULT_WIDTH * 0.3);
+const STICKY_NOTE_DEFAULT_WIDTH = Math.round(getCssRootNumberVar("--sticky-note-default-width", 182));
+const STICKY_NOTE_STOWED_PEEK_RATIO = getCssRootNumberVar("--sticky-note-stowed-peek-ratio", 0.3);
+const STICKY_NOTE_HOVER_REVEAL_RATIO = getCssRootNumberVar("--sticky-note-hover-reveal-ratio", 0.7);
+const STICKY_NOTE_STOWED_PEEK_WIDTH = Math.round(STICKY_NOTE_DEFAULT_WIDTH * STICKY_NOTE_STOWED_PEEK_RATIO);
+const STICKY_NOTE_HOVER_REVEAL_WIDTH = Math.round(
+  STICKY_NOTE_STOWED_PEEK_WIDTH + ((STICKY_NOTE_DEFAULT_WIDTH - STICKY_NOTE_STOWED_PEEK_WIDTH) * STICKY_NOTE_HOVER_REVEAL_RATIO)
+);
 const MOBILE_STICKY_NOTE_STOWED_PEEK_WIDTH = STICKY_NOTE_STOWED_PEEK_WIDTH;
 const STICKY_NOTE_STOWED_HEIGHT = 35; 
 const STICKY_NOTE_STACK_GAP_PADDING = 7;
@@ -570,7 +580,7 @@ function positionStickyNoteDockSlot(index, draggingNoteEl = null) {
   const slotSize = getStickyNoteDockSlotSize(draggingNoteEl);
   const stackTopStart = getStickyNoteStackTopStart();
   const isExpandedStowArea = !isTouchDevice && stickyNoteLayerEl?.classList.contains("is-stow-area-active");
-  const slotWidth = isExpandedStowArea ? STICKY_NOTE_DEFAULT_WIDTH : slotSize.width;
+  const slotWidth = isExpandedStowArea ? STICKY_NOTE_HOVER_REVEAL_WIDTH : slotSize.width;
   const stowedLeft = isTouchDevice
     ? Math.max(0, window.innerWidth - STICKY_NOTE_DEFAULT_WIDTH + (STICKY_NOTE_DEFAULT_WIDTH - MOBILE_STICKY_NOTE_STOWED_PEEK_WIDTH))
     : Math.max(0, window.innerWidth - slotWidth);
