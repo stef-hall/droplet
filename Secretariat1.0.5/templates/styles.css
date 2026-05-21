@@ -842,6 +842,8 @@ textarea {
 }
 
 .composer {
+  position: relative;
+  z-index: 31;
   display: grid;
   grid-template-columns: auto 1fr auto;
   align-items: center;
@@ -1846,7 +1848,7 @@ textarea {
   .composer {
     position: sticky;
     position: -webkit-sticky;
-    z-index: 5;
+    z-index: 31;
     margin-bottom: 6px;
     padding: 7px 9px 7px 9px;
     touch-action: none;
@@ -1941,6 +1943,10 @@ textarea {
 
 .sticky-note.is-stowed .sticky-note-title {
   font-size: 0.76rem;
+}
+
+.sticky-note-stow-area {
+  width:100px;
 }
 }
 
