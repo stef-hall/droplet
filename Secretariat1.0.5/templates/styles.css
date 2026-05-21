@@ -20,7 +20,7 @@
   --composer-squircle: var(--composer-squircle-medium);
   --content-width: 760px;
   --sticky-note-default-width: 182px;
-  --sticky-note-mobile-rest-peek-ratio: 0.6;
+  --sticky-note-mobile-rest-peek-ratio: 0.2;
   --sticky-note-stowed-peek-ratio: 0.2;
   --sticky-note-hover-reveal-ratio: 0.7;
   --sticky-note-stowed-peek-width: calc(var(--sticky-note-default-width) * var(--sticky-note-stowed-peek-ratio));

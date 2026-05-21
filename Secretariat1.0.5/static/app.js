@@ -46,6 +46,7 @@ const STICKY_NOTE_DOCK_THRESHOLD = 110;
 const STICKY_NOTE_DOCK_HYSTERESIS = 24;
 const STICKY_NOTE_DEFAULT_WIDTH = Math.round(getCssRootNumberVar("--sticky-note-default-width", 182));
 const STICKY_NOTE_MOBILE_REST_PEEK_RATIO = getCssRootNumberVar("--sticky-note-mobile-rest-peek-ratio", 0.2);
+const STICKY_NOTE_MOBILE_ACTIVE_REST_PEEK_RATIO = 0.6;
 const STICKY_NOTE_STOWED_PEEK_RATIO = getCssRootNumberVar("--sticky-note-stowed-peek-ratio", 0.3);
 const STICKY_NOTE_HOVER_REVEAL_RATIO = getCssRootNumberVar("--sticky-note-hover-reveal-ratio", 0.7);
 const STICKY_NOTE_STOWED_PEEK_WIDTH = Math.round(STICKY_NOTE_DEFAULT_WIDTH * STICKY_NOTE_STOWED_PEEK_RATIO);
@@ -53,7 +54,6 @@ const STICKY_NOTE_HOVER_REVEAL_WIDTH = Math.round(
   STICKY_NOTE_STOWED_PEEK_WIDTH + ((STICKY_NOTE_DEFAULT_WIDTH - STICKY_NOTE_STOWED_PEEK_WIDTH) * STICKY_NOTE_HOVER_REVEAL_RATIO)
 );
 const MOBILE_STICKY_NOTE_STOWED_PEEK_WIDTH = STICKY_NOTE_STOWED_PEEK_WIDTH;
-const MOBILE_STICKY_NOTE_REST_PEEK_WIDTH = Math.round(STICKY_NOTE_DEFAULT_WIDTH * STICKY_NOTE_MOBILE_REST_PEEK_RATIO);
 const STICKY_NOTE_STOWED_HEIGHT = 35; 
 const STICKY_NOTE_STACK_GAP_PADDING = 7;
 const STICKY_NOTE_STACK_MIN_GAP = STICKY_NOTE_STOWED_HEIGHT + STICKY_NOTE_STACK_GAP_PADDING;
@@ -446,6 +446,12 @@ function ensureStickyNoteMobileViewport() {
   stickyNoteMobileViewportEl.addEventListener("pointerup", clearViewportTouchScrollState);
   stickyNoteMobileViewportEl.addEventListener("pointercancel", clearViewportTouchScrollState);
   stickyNoteMobileViewportEl.addEventListener("pointerleave", clearViewportTouchScrollState);
+  const collapseMobilePeekOnGlobalPointerEnd = (event) => {
+    if (event.pointerType !== "touch") return;
+    setMobilePeekExpanded(false);
+  };
+  window.addEventListener("pointerup", collapseMobilePeekOnGlobalPointerEnd, { passive: true });
+  window.addEventListener("pointercancel", collapseMobilePeekOnGlobalPointerEnd, { passive: true });
 
   return stickyNoteMobileViewportEl;
 }
@@ -461,17 +467,25 @@ function scheduleStickyNoteMobileLayout() {
 function setMobilePeekExpanded(expanded) {
   if (!(stickyNoteLayerEl instanceof HTMLElement)) return;
   const next = Boolean(expanded);
-  const changed = stickyNoteLayerEl.classList.toggle("is-mobile-peek-expanded", next);
+  const wasExpanded = stickyNoteLayerEl.classList.contains("is-mobile-peek-expanded");
+  stickyNoteLayerEl.classList.toggle("is-mobile-peek-expanded", next);
+  const changed = wasExpanded !== next;
+  document.documentElement.style.setProperty(
+    "--sticky-note-mobile-rest-peek-ratio",
+    next ? String(STICKY_NOTE_MOBILE_ACTIVE_REST_PEEK_RATIO) : String(STICKY_NOTE_MOBILE_REST_PEEK_RATIO)
+  );
   if (changed) {
     scheduleStickyNoteMobileLayout();
   }
 }
 
 function getMobilePeekWidth() {
+  const dynamicRestRatio = getCssRootNumberVar("--sticky-note-mobile-rest-peek-ratio", STICKY_NOTE_MOBILE_REST_PEEK_RATIO);
+  const dynamicRestWidth = Math.round(STICKY_NOTE_DEFAULT_WIDTH * dynamicRestRatio);
   if (stickyNoteLayerEl instanceof HTMLElement && stickyNoteLayerEl.classList.contains("is-mobile-peek-expanded")) {
-    return MOBILE_STICKY_NOTE_STOWED_PEEK_WIDTH;
+    return Math.max(dynamicRestWidth, MOBILE_STICKY_NOTE_STOWED_PEEK_WIDTH);
   }
-  return MOBILE_STICKY_NOTE_REST_PEEK_WIDTH;
+  return dynamicRestWidth;
 }
 
 function setStickyNoteMobileScrollTop(nextScrollTop) {
