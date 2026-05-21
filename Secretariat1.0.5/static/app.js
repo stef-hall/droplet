@@ -45,6 +45,7 @@ const MAX_PROMPT_HEIGHT = 180;
 const STICKY_NOTE_DOCK_THRESHOLD = 110;
 const STICKY_NOTE_DOCK_HYSTERESIS = 24;
 const STICKY_NOTE_DEFAULT_WIDTH = Math.round(getCssRootNumberVar("--sticky-note-default-width", 182));
+const STICKY_NOTE_MOBILE_REST_PEEK_RATIO = getCssRootNumberVar("--sticky-note-mobile-rest-peek-ratio", 0.2);
 const STICKY_NOTE_STOWED_PEEK_RATIO = getCssRootNumberVar("--sticky-note-stowed-peek-ratio", 0.3);
 const STICKY_NOTE_HOVER_REVEAL_RATIO = getCssRootNumberVar("--sticky-note-hover-reveal-ratio", 0.7);
 const STICKY_NOTE_STOWED_PEEK_WIDTH = Math.round(STICKY_NOTE_DEFAULT_WIDTH * STICKY_NOTE_STOWED_PEEK_RATIO);
@@ -52,6 +53,7 @@ const STICKY_NOTE_HOVER_REVEAL_WIDTH = Math.round(
   STICKY_NOTE_STOWED_PEEK_WIDTH + ((STICKY_NOTE_DEFAULT_WIDTH - STICKY_NOTE_STOWED_PEEK_WIDTH) * STICKY_NOTE_HOVER_REVEAL_RATIO)
 );
 const MOBILE_STICKY_NOTE_STOWED_PEEK_WIDTH = STICKY_NOTE_STOWED_PEEK_WIDTH;
+const MOBILE_STICKY_NOTE_REST_PEEK_WIDTH = Math.round(STICKY_NOTE_DEFAULT_WIDTH * STICKY_NOTE_MOBILE_REST_PEEK_RATIO);
 const STICKY_NOTE_STOWED_HEIGHT = 35; 
 const STICKY_NOTE_STACK_GAP_PADDING = 7;
 const STICKY_NOTE_STACK_MIN_GAP = STICKY_NOTE_STOWED_HEIGHT + STICKY_NOTE_STACK_GAP_PADDING;
@@ -414,6 +416,7 @@ function ensureStickyNoteMobileViewport() {
   stickyNoteMobileViewportEl.addEventListener("pointerdown", (event) => {
     if (event.pointerType !== "touch") return;
     if (event.button !== undefined && event.button !== 0) return;
+    setMobilePeekExpanded(true);
     const target = event.target;
     if (target instanceof HTMLElement && target.closest(".sticky-note")) return;
     stickyNoteViewportTouchScrollState = {
@@ -436,11 +439,13 @@ function ensureStickyNoteMobileViewport() {
   });
 
   const clearViewportTouchScrollState = (event) => {
+    setMobilePeekExpanded(false);
     if (!stickyNoteViewportTouchScrollState || stickyNoteViewportTouchScrollState.pointerId !== event.pointerId) return;
     stickyNoteViewportTouchScrollState = null;
   };
   stickyNoteMobileViewportEl.addEventListener("pointerup", clearViewportTouchScrollState);
   stickyNoteMobileViewportEl.addEventListener("pointercancel", clearViewportTouchScrollState);
+  stickyNoteMobileViewportEl.addEventListener("pointerleave", clearViewportTouchScrollState);
 
   return stickyNoteMobileViewportEl;
 }
@@ -451,6 +456,22 @@ function scheduleStickyNoteMobileLayout() {
     stickyNoteMobileLayoutRafId = 0;
     layoutStowedStickyNotes();
   });
+}
+
+function setMobilePeekExpanded(expanded) {
+  if (!(stickyNoteLayerEl instanceof HTMLElement)) return;
+  const next = Boolean(expanded);
+  const changed = stickyNoteLayerEl.classList.toggle("is-mobile-peek-expanded", next);
+  if (changed) {
+    scheduleStickyNoteMobileLayout();
+  }
+}
+
+function getMobilePeekWidth() {
+  if (stickyNoteLayerEl instanceof HTMLElement && stickyNoteLayerEl.classList.contains("is-mobile-peek-expanded")) {
+    return MOBILE_STICKY_NOTE_STOWED_PEEK_WIDTH;
+  }
+  return MOBILE_STICKY_NOTE_REST_PEEK_WIDTH;
 }
 
 function setStickyNoteMobileScrollTop(nextScrollTop) {
@@ -468,6 +489,7 @@ function clearStickyNotes() {
   getStickyNotes().forEach((noteEl) => noteEl.remove());
   stickyNoteMobileScrollTop = 0;
   stickyNoteMobileMaxScrollTop = 0;
+  setMobilePeekExpanded(false);
   if (stickyNoteMobileLayoutRafId) {
     cancelAnimationFrame(stickyNoteMobileLayoutRafId);
     stickyNoteMobileLayoutRafId = 0;
@@ -589,8 +611,9 @@ function positionStickyNoteDockSlot(index, draggingNoteEl = null) {
   const stackTopStart = getStickyNoteStackTopStart();
   const isExpandedStowArea = !isTouchDevice && stickyNoteLayerEl?.classList.contains("is-stow-area-active");
   const slotWidth = isExpandedStowArea ? STICKY_NOTE_HOVER_REVEAL_WIDTH : slotSize.width;
+  const mobilePeekWidth = getMobilePeekWidth();
   const stowedLeft = isTouchDevice
-    ? Math.max(0, window.innerWidth - STICKY_NOTE_DEFAULT_WIDTH + (STICKY_NOTE_DEFAULT_WIDTH - MOBILE_STICKY_NOTE_STOWED_PEEK_WIDTH))
+    ? Math.max(0, window.innerWidth - STICKY_NOTE_DEFAULT_WIDTH + (STICKY_NOTE_DEFAULT_WIDTH - mobilePeekWidth))
     : Math.max(0, window.innerWidth - slotWidth);
   stickyNoteDockSlotEl.style.right = "auto";
   stickyNoteDockSlotEl.style.left = `${Math.round(stowedLeft)}px`;
@@ -639,7 +662,7 @@ function layoutStowedStickyNotes({ draggingNoteEl = null, previewIndex = null } 
       viewportEl.style.width = `${STICKY_NOTE_DEFAULT_WIDTH}px`;
       contentEl.style.transform = `translate3d(0, ${Math.round(-stickyNoteMobileScrollTop)}px, 0)`;
     }
-    const baseStowedLeft = STICKY_NOTE_DEFAULT_WIDTH - MOBILE_STICKY_NOTE_STOWED_PEEK_WIDTH;
+    const baseStowedLeft = STICKY_NOTE_DEFAULT_WIDTH - getMobilePeekWidth();
     stowedNotes.forEach((noteEl, index) => {
       const slotIndex = previewIndex !== null && index >= previewIndex ? index + 1 : index;
       const baseTop = stackTopStart + slotIndex * stackGap;
