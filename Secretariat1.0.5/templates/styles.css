@@ -1030,6 +1030,7 @@ textarea {
   position: relative;
   width: 100%;
   min-height: 100%;
+  will-change: transform;
 }
 
 .sticky-note-layer.is-mobile-scroll-enabled .sticky-note-mobile-viewport {
