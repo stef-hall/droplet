@@ -47,7 +47,7 @@ const STICKY_NOTE_DOCK_THRESHOLD_MOBILE = 50;
 const STICKY_NOTE_DOCK_HYSTERESIS = 24;
 const STICKY_NOTE_DEFAULT_WIDTH = Math.round(getCssRootNumberVar("--sticky-note-default-width", 182));
 const STICKY_NOTE_MOBILE_REST_PEEK_RATIO = getCssRootNumberVar("--sticky-note-mobile-rest-peek-ratio", 0.2);
-const STICKY_NOTE_MOBILE_ACTIVE_REST_PEEK_RATIO = 0.6;
+const STICKY_NOTE_MOBILE_ACTIVE_REST_PEEK_RATIO = 0.8;
 const STICKY_NOTE_STOWED_PEEK_RATIO = getCssRootNumberVar("--sticky-note-stowed-peek-ratio", 0.3);
 const STICKY_NOTE_HOVER_REVEAL_RATIO = getCssRootNumberVar("--sticky-note-hover-reveal-ratio", 0.7);
 const STICKY_NOTE_STOWED_PEEK_WIDTH = Math.round(STICKY_NOTE_DEFAULT_WIDTH * STICKY_NOTE_STOWED_PEEK_RATIO);
@@ -433,6 +433,7 @@ function ensureStickyNoteMobileViewport() {
     const deltaY = event.clientY - stickyNoteViewportTouchScrollState.startY;
     if (!stickyNoteViewportTouchScrollState.scrolling && Math.abs(deltaY) > MOBILE_STICKY_NOTE_DRAG_THRESHOLD) {
       stickyNoteViewportTouchScrollState.scrolling = true;
+      setStickyNoteMobileScrolling(true);
     }
     if (!stickyNoteViewportTouchScrollState.scrolling) return;
     setStickyNoteMobileScrollTop(stickyNoteViewportTouchScrollState.startScrollTop - deltaY);
@@ -441,6 +442,7 @@ function ensureStickyNoteMobileViewport() {
 
   const clearViewportTouchScrollState = (event) => {
     setMobilePeekExpanded(false);
+    setStickyNoteMobileScrolling(false);
     if (!stickyNoteViewportTouchScrollState || stickyNoteViewportTouchScrollState.pointerId !== event.pointerId) return;
     stickyNoteViewportTouchScrollState = null;
   };
@@ -496,6 +498,11 @@ function setStickyNoteMobileScrollTop(nextScrollTop) {
   scheduleStickyNoteMobileLayout();
 }
 
+function setStickyNoteMobileScrolling(active) {
+  if (!(stickyNoteLayerEl instanceof HTMLElement)) return;
+  stickyNoteLayerEl.classList.toggle("is-mobile-scrolling", Boolean(active));
+}
+
 function clearStickyNotes() {
   for (const timerId of stickyNoteSaveTimers.values()) {
     clearTimeout(timerId);
@@ -505,6 +512,7 @@ function clearStickyNotes() {
   stickyNoteMobileScrollTop = 0;
   stickyNoteMobileMaxScrollTop = 0;
   setMobilePeekExpanded(false);
+  setStickyNoteMobileScrolling(false);
   if (stickyNoteMobileLayoutRafId) {
     cancelAnimationFrame(stickyNoteMobileLayoutRafId);
     stickyNoteMobileLayoutRafId = 0;
@@ -943,6 +951,9 @@ function createStickyNote(listEntry, colorClassName) {
     if (touchIntentState.holdTimerId) {
       clearTimeout(touchIntentState.holdTimerId);
     }
+    if (touchIntentState.scrolling) {
+      setStickyNoteMobileScrolling(false);
+    }
     touchIntentState = null;
   }
 
@@ -1027,6 +1038,7 @@ function createStickyNote(listEntry, colorClassName) {
       const deltaY = event.clientY - touchIntentState.startY;
       if (!touchIntentState.scrolling && Math.abs(deltaY) > MOBILE_STICKY_NOTE_DRAG_THRESHOLD && Math.abs(deltaY) > Math.abs(deltaX)) {
         touchIntentState.scrolling = true;
+        setStickyNoteMobileScrolling(true);
       }
       if (touchIntentState.scrolling) {
         setStickyNoteMobileScrollTop(touchIntentState.startScrollTop - deltaY);

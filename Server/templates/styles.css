@@ -1225,6 +1225,14 @@ textarea {
     border-radius 180ms ease;
 }
 
+.sticky-note-layer.is-mobile-scrolling .sticky-note.is-stowed {
+  transition:
+    top 180ms ease,
+    transform 180ms ease,
+    box-shadow 180ms ease,
+    border-radius 180ms ease;
+}
+
 @media (hover: hover) and (pointer: fine) {
   .sticky-note-layer:has(.sticky-note-stow-area:hover) .sticky-note.is-stowed,
   .sticky-note-layer.is-stow-area-active .sticky-note.is-stowed,
