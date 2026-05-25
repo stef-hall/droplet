@@ -56,6 +56,22 @@ def _log_json(label, payload):
     print(f"[{stamp}] [{label}] {pretty}", flush=True)
 
 
+def _extract_model_text(output_items):
+    parts = []
+    for item in output_items or []:
+        if not isinstance(item, dict):
+            continue
+        if item.get("type") != "message":
+            continue
+        for block in item.get("content", []) or []:
+            if not isinstance(block, dict):
+                continue
+            text = block.get("text")
+            if text:
+                parts.append(str(text))
+    return "\n".join(parts).strip()
+
+
 def _tool_name_to_status_label(tool_name: str) -> str:
     raw_name = str(tool_name or "").strip()
     normalized = raw_name.lower().replace(" ", "").replace("_", "")
@@ -2257,14 +2273,7 @@ def run_secretariat(prompt_text, image_data_url=None, previous_response_id=None,
         results = []
         saw_function_call = False
         function_calls = []
-        _log_json(
-            "MODEL_OUTPUT",
-            _alias_model_output_ids(
-                response_data.get("output", []),
-                function_call_id_alias_state,
-                call_id_alias_state,
-            ),
-        )
+        _log("MODEL_OUTPUT", _extract_model_text(response_data.get("output", [])))
         for content in response_data.get("output", []):
             if content.get("type") == "message" and content.get("content"):
                 text_payload = content["content"][0].get("text", "")
@@ -2934,14 +2943,7 @@ def api_secretariat_stream():
                 results = []
                 saw_function_call = False
                 function_calls = []
-                _log_json(
-                    "MODEL_OUTPUT",
-                    _alias_model_output_ids(
-                        response_data.get("output", []),
-                        function_call_id_alias_state,
-                        call_id_alias_state,
-                    ),
-                )
+                _log("MODEL_OUTPUT", _extract_model_text(response_data.get("output", [])))
 
                 for content in response_data.get("output", []):
                     if content.get("type") == "message" and content.get("content"):
