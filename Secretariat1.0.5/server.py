@@ -2805,6 +2805,7 @@ def api_secretariat():
     _log("API_SECRETARIAT", "request_received")
     payload = request.get_json(silent=True) or {}
     prompt_text = str(payload.get("prompt", "")).strip()
+    _log("USER_INPUT", _truncate_text(prompt_text, 1200))
     image_data_url = payload.get("image_data_url")
     session_id = str(payload.get("session_id", "")).strip() or str(uuid.uuid4())
     user_id = int(session["user_id"])
@@ -2876,6 +2877,7 @@ def api_secretariat_stream():
     _log("API_SECRETARIAT_STREAM", "request_received")
     payload = request.get_json(silent=True) or {}
     prompt_text = str(payload.get("prompt", "")).strip()
+    _log("USER_INPUT", _truncate_text(prompt_text, 1200))
     image_data_url = payload.get("image_data_url")
     session_id = str(payload.get("session_id", "")).strip() or str(uuid.uuid4())
     user_id = int(session["user_id"])
