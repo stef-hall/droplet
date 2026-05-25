@@ -49,10 +49,16 @@ ALLOWED_ASSISTANT_MODELS = {"gpt-5.4-mini", "gpt-5.4"}
 class _SkipApiListsAccessLog(logging.Filter):
     def filter(self, record):
         msg = record.getMessage()
-        return 'GET /api/lists HTTP/1.1" 200 -' not in msg
+        if 'GET /api/lists HTTP/1.1" 200 -' in msg:
+            return False
+        if 'POST /api/secretariat/stream HTTP/1.1" 200 -' in msg:
+            return False
+        return True
 
 
-for _handler in logging.getLogger("werkzeug").handlers:
+_werkzeug_logger = logging.getLogger("werkzeug")
+_werkzeug_logger.addFilter(_SkipApiListsAccessLog())
+for _handler in _werkzeug_logger.handlers:
     _handler.addFilter(_SkipApiListsAccessLog())
 
 
@@ -78,7 +84,7 @@ def _extract_model_text(output_items):
             text = block.get("text")
             if text:
                 parts.append(str(text))
-    return "\n".join(parts).strip()
+    return re.sub(r"\s+", " ", "\n".join(parts)).strip()
 
 
 def _tool_name_to_status_label(tool_name: str) -> str:
@@ -2238,7 +2244,7 @@ def run_secretariat(prompt_text, image_data_url=None, previous_response_id=None,
     for turn_idx in range(max_turns):
         if status_callback:
             status_callback("Thinking...")
-        _log("TURN_START", f"{turn_idx + 1}/{max_turns}")
+        _log(f"TURN {turn_idx + 1}/{max_turns}", "")
         user_turn = {"prompt": prompt_text}
         if turn_idx == 0 and image_data_url:
             user_turn["image_data_url"] = image_data_url
@@ -2921,7 +2927,7 @@ def api_secretariat_stream():
             call_id_alias_state = {"counter": 0, "by_value": {}}
 
             for turn_idx in range(max_turns):
-                _log("TURN_START", f"{turn_idx + 1}/{max_turns}")
+                _log(f"TURN {turn_idx + 1}/{max_turns}", "")
                 yield emit({"type": "status", "label": "Thinking..."})
 
                 user_turn = {"prompt": prompt_text}
@@ -3080,4 +3086,3 @@ if __name__ == "__main__":
 Born In '0.5
 CSS! CSS!
 """
-
