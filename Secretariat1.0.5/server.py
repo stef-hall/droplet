@@ -2116,7 +2116,7 @@ def compress_tool_output(tool_output):
 
 
 
-def ask_gpt54(user_input, system_prompt, results, previous_response_id=None, user_timezone=None, location_context=None, user_id=None):
+def ask_gpt54(user_input, system_prompt, results, previous_response_id=None, user_timezone=None, location_context=None, user_id=None, token_totals=None):
     # Build a fresh OpenAI client for each request.
     client = OpenAI(api_key=api_key)
     selected_model = DEFAULT_ASSISTANT_MODEL
@@ -2179,10 +2179,13 @@ def ask_gpt54(user_input, system_prompt, results, previous_response_id=None, use
         input_tokens = usage.input_tokens
         cached_tokens = usage.input_tokens_details.cached_tokens
         uncached_tokens = input_tokens - cached_tokens
-        print("input_tokens:", input_tokens)
-        print("cached_tokens:", cached_tokens)
-        print("uncached_tokens:", uncached_tokens)
-        print("cache_hit_rate:", cached_tokens / input_tokens if input_tokens else 0)
+        if token_totals is not None:
+            token_totals["uncached"] = token_totals.get("uncached", 0) + uncached_tokens
+            token_totals["cached"] = token_totals.get("cached", 0) + cached_tokens
+        print("Input_uncache:", uncached_tokens)
+        print("Input_cached:", cached_tokens)
+        print("Total_uncached:", token_totals.get("uncached", 0) if token_totals is not None else uncached_tokens)
+        print("Total_Cached:", token_totals.get("cached", 0) if token_totals is not None else cached_tokens)
 
 
     else:
@@ -2211,19 +2214,24 @@ def ask_gpt54(user_input, system_prompt, results, previous_response_id=None, use
         input_tokens = usage.input_tokens
         cached_tokens = usage.input_tokens_details.cached_tokens
         uncached_tokens = input_tokens - cached_tokens
-        print("input_tokens:", input_tokens)
-        print("cached_tokens:", cached_tokens)
-        print("uncached_tokens:", uncached_tokens)
-        print("cache_hit_rate:", cached_tokens / input_tokens if input_tokens else 0)
+        if token_totals is not None:
+            token_totals["uncached"] = token_totals.get("uncached", 0) + uncached_tokens
+            token_totals["cached"] = token_totals.get("cached", 0) + cached_tokens
+        print("Input_uncache:", uncached_tokens)
+        print("Input_cached:", cached_tokens)
+        print("Total_uncached:", token_totals.get("uncached", 0) if token_totals is not None else uncached_tokens)
+        print("Total_Cached:", token_totals.get("cached", 0) if token_totals is not None else cached_tokens)
 
     return response
 
 
-def run_secretariat(prompt_text, image_data_url=None, previous_response_id=None, user_timezone=None, location_context=None, max_turns=12, status_callback=None, user_id=None):
+def run_secretariat(prompt_text, image_data_url=None, previous_response_id=None, user_timezone=None, location_context=None, max_turns=12, status_callback=None, user_id=None, token_totals=None):
     results = []
     state = "RUNNING"
     assistant_message = ""
     current_response_id = previous_response_id
+    if not isinstance(token_totals, dict):
+        token_totals = {"uncached": 0, "cached": 0}
     action_counter = {}
     function_call_id_alias_state = {"counter": 0, "by_value": {}}
     call_id_alias_state = {"counter": 0, "by_value": {}}
@@ -2242,6 +2250,7 @@ def run_secretariat(prompt_text, image_data_url=None, previous_response_id=None,
             user_timezone=user_timezone,
             location_context=location_context,
             user_id=user_id,
+            token_totals=token_totals,
         )
         current_response_id = response.id
         response_data = response.model_dump()
@@ -2797,6 +2806,9 @@ def api_secretariat():
     if session_data.get("user_id") not in (None, user_id):
         session_data = {}
     previous_response_id = session_data.get("previous_response_id")
+    token_totals = session_data.get("token_totals")
+    if not isinstance(token_totals, dict):
+        token_totals = {"uncached": 0, "cached": 0}
     payload_timezone = str(payload.get("timezone", "")).strip()
     payload_location = payload.get("location") if isinstance(payload.get("location"), dict) else {}
     payload_latitude = _coerce_float(payload_location.get("latitude"))
@@ -2822,6 +2834,7 @@ def api_secretariat():
             previous_response_id=previous_response_id,
             location_context=weather_location,
             user_id=user_id,
+            token_totals=token_totals,
         )
         with session_store_lock:
             session_store[session_id] = {
@@ -2829,6 +2842,7 @@ def api_secretariat():
                 "previous_response_id": result.get("previous_response_id"),
                 "timezone": user_timezone,
                 "weather_location": weather_location,
+                "token_totals": token_totals,
                 "last_seen_ts": now_ts,
             }
         _log_json("API_SECRETARIAT_RESULT", {"session_id": session_id, **result})
@@ -2863,6 +2877,9 @@ def api_secretariat_stream():
     if session_data.get("user_id") not in (None, user_id):
         session_data = {}
     previous_response_id = session_data.get("previous_response_id")
+    token_totals = session_data.get("token_totals")
+    if not isinstance(token_totals, dict):
+        token_totals = {"uncached": 0, "cached": 0}
     payload_timezone = str(payload.get("timezone", "")).strip()
     payload_location = payload.get("location") if isinstance(payload.get("location"), dict) else {}
     payload_latitude = _coerce_float(payload_location.get("latitude"))
@@ -2910,6 +2927,7 @@ def api_secretariat_stream():
                     user_timezone=user_timezone,
                     location_context=weather_location,
                     user_id=user_id,
+                    token_totals=token_totals,
                 )
                 current_response_id = response.id
                 response_data = response.model_dump()
@@ -2972,6 +2990,7 @@ def api_secretariat_stream():
                     "previous_response_id": result.get("previous_response_id"),
                     "timezone": user_timezone,
                     "weather_location": weather_location,
+                    "token_totals": token_totals,
                     "last_seen_ts": now_ts,
                 }
             yield emit({"type": "final", "ok": True, "session_id": session_id, **result})
@@ -3008,10 +3027,12 @@ def api_session_init():
         _prune_sessions(now_ts)
         session_data = session_store.get(
             session_id,
-            {"user_id": user_id, "previous_response_id": None, "timezone": None, "weather_location": None, "last_seen_ts": now_ts},
+            {"user_id": user_id, "previous_response_id": None, "timezone": None, "weather_location": None, "token_totals": {"uncached": 0, "cached": 0}, "last_seen_ts": now_ts},
         )
         if session_data.get("user_id") not in (None, user_id):
-            session_data = {"user_id": user_id, "previous_response_id": None, "timezone": None, "weather_location": None, "last_seen_ts": now_ts}
+            session_data = {"user_id": user_id, "previous_response_id": None, "timezone": None, "weather_location": None, "token_totals": {"uncached": 0, "cached": 0}, "last_seen_ts": now_ts}
+        if not isinstance(session_data.get("token_totals"), dict):
+            session_data["token_totals"] = {"uncached": 0, "cached": 0}
         if timezone_name:
             session_data["timezone"] = timezone_name
         if latitude is not None and longitude is not None:
