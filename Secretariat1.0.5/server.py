@@ -2189,19 +2189,6 @@ def ask_gpt54(user_input, system_prompt, results, previous_response_id=None, use
             input=input_items,
             parallel_tool_calls=True,
         )
-        usage = response.usage
-        input_tokens = usage.input_tokens
-        cached_tokens = usage.input_tokens_details.cached_tokens
-        uncached_tokens = input_tokens - cached_tokens
-        if token_totals is not None:
-            token_totals["uncached"] = token_totals.get("uncached", 0) + uncached_tokens
-            token_totals["cached"] = token_totals.get("cached", 0) + cached_tokens
-        print(f"[Input_uncache]: {uncached_tokens}")
-        print(f"[Input_cached]: {cached_tokens}")
-        print(f"[Total_uncached]: {token_totals.get('uncached', 0) if token_totals is not None else uncached_tokens}")
-        print(f"[Total_Cached]: {token_totals.get('cached', 0) if token_totals is not None else cached_tokens}")
-
-
     else:
         # Follow-up turns: send function outputs when available, otherwise send the new user turn.
         if results:
@@ -2224,18 +2211,6 @@ def ask_gpt54(user_input, system_prompt, results, previous_response_id=None, use
             input=input_items,
             parallel_tool_calls=True,
         )
-        usage = response.usage
-        input_tokens = usage.input_tokens
-        cached_tokens = usage.input_tokens_details.cached_tokens
-        uncached_tokens = input_tokens - cached_tokens
-        if token_totals is not None:
-            token_totals["uncached"] = token_totals.get("uncached", 0) + uncached_tokens
-            token_totals["cached"] = token_totals.get("cached", 0) + cached_tokens
-        print(f"[Input_uncache]: {uncached_tokens}")
-        print(f"[Input_cached]: {cached_tokens}")
-        print(f"[Total_uncached]: {token_totals.get('uncached', 0) if token_totals is not None else uncached_tokens}")
-        print(f"[Total_Cached]: {token_totals.get('cached', 0) if token_totals is not None else cached_tokens}")
-
     return response
 
 
@@ -2305,6 +2280,17 @@ def run_secretariat(prompt_text, image_data_url=None, previous_response_id=None,
             _accumulate_action_report(action_counter, tool_outputs)
             results.extend(compress_tool_output(tool_outputs))
             continue
+        usage = response.usage
+        input_tokens = usage.input_tokens
+        cached_tokens = usage.input_tokens_details.cached_tokens
+        uncached_tokens = input_tokens - cached_tokens
+        if token_totals is not None:
+            token_totals["uncached"] = token_totals.get("uncached", 0) + uncached_tokens
+            token_totals["cached"] = token_totals.get("cached", 0) + cached_tokens
+        print(f"[Input_uncache]: {uncached_tokens}")
+        print(f"[Input_cached]: {cached_tokens}")
+        print(f"[Total_uncached]: {token_totals.get('uncached', 0) if token_totals is not None else uncached_tokens}")
+        print(f"[Total_Cached]: {token_totals.get('cached', 0) if token_totals is not None else cached_tokens}")
 
         if state in {"WAITING", "DONE"}:
             _log("TURN_END", f"state={state}")
@@ -2977,6 +2963,17 @@ def api_secretariat_stream():
                     _accumulate_action_report(action_counter, tool_outputs)
                     results.extend(compress_tool_output(output) for output in tool_outputs)
                     continue
+                usage = response.usage
+                input_tokens = usage.input_tokens
+                cached_tokens = usage.input_tokens_details.cached_tokens
+                uncached_tokens = input_tokens - cached_tokens
+                if token_totals is not None:
+                    token_totals["uncached"] = token_totals.get("uncached", 0) + uncached_tokens
+                    token_totals["cached"] = token_totals.get("cached", 0) + cached_tokens
+                print(f"[Input_uncache]: {uncached_tokens}")
+                print(f"[Input_cached]: {cached_tokens}")
+                print(f"[Total_uncached]: {token_totals.get('uncached', 0) if token_totals is not None else uncached_tokens}")
+                print(f"[Total_Cached]: {token_totals.get('cached', 0) if token_totals is not None else cached_tokens}")
 
                 if state in {"WAITING", "DONE"}:
                     _log("TURN_END", f"state={state}")
