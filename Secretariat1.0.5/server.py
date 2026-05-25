@@ -46,14 +46,12 @@ ALLOWED_ASSISTANT_MODELS = {"gpt-5.4-mini", "gpt-5.4"}
 
 
 def _log(label, message):
-    stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    print(f"[{stamp}] [{label}] {message}", flush=True)
+    print(f"[{label}] {message}", flush=True)
 
 
 def _log_json(label, payload):
-    stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     pretty = json.dumps(payload, indent=2, ensure_ascii=False, default=str)
-    print(f"[{stamp}] [{label}] {pretty}", flush=True)
+    print(f"[{label}] {pretty}", flush=True)
 
 
 def _extract_model_text(output_items):
@@ -2198,10 +2196,10 @@ def ask_gpt54(user_input, system_prompt, results, previous_response_id=None, use
         if token_totals is not None:
             token_totals["uncached"] = token_totals.get("uncached", 0) + uncached_tokens
             token_totals["cached"] = token_totals.get("cached", 0) + cached_tokens
-        print("Input_uncache:", uncached_tokens)
-        print("Input_cached:", cached_tokens)
-        print("Total_uncached:", token_totals.get("uncached", 0) if token_totals is not None else uncached_tokens)
-        print("Total_Cached:", token_totals.get("cached", 0) if token_totals is not None else cached_tokens)
+        print(f"[Input_uncache]: {uncached_tokens}")
+        print(f"[Input_cached]: {cached_tokens}")
+        print(f"[Total_uncached]: {token_totals.get('uncached', 0) if token_totals is not None else uncached_tokens}")
+        print(f"[Total_Cached]: {token_totals.get('cached', 0) if token_totals is not None else cached_tokens}")
 
 
     else:
@@ -2233,10 +2231,10 @@ def ask_gpt54(user_input, system_prompt, results, previous_response_id=None, use
         if token_totals is not None:
             token_totals["uncached"] = token_totals.get("uncached", 0) + uncached_tokens
             token_totals["cached"] = token_totals.get("cached", 0) + cached_tokens
-        print("Input_uncache:", uncached_tokens)
-        print("Input_cached:", cached_tokens)
-        print("Total_uncached:", token_totals.get("uncached", 0) if token_totals is not None else uncached_tokens)
-        print("Total_Cached:", token_totals.get("cached", 0) if token_totals is not None else cached_tokens)
+        print(f"[Input_uncache]: {uncached_tokens}")
+        print(f"[Input_cached]: {cached_tokens}")
+        print(f"[Total_uncached]: {token_totals.get('uncached', 0) if token_totals is not None else uncached_tokens}")
+        print(f"[Total_Cached]: {token_totals.get('cached', 0) if token_totals is not None else cached_tokens}")
 
     return response
 
@@ -2310,6 +2308,7 @@ def run_secretariat(prompt_text, image_data_url=None, previous_response_id=None,
 
         if state in {"WAITING", "DONE"}:
             _log("TURN_END", f"state={state}")
+            print("")
             assistant_message = (assistant_message or "") + _format_action_report(action_counter)
             return {
                 "state": state,
@@ -2981,6 +2980,7 @@ def api_secretariat_stream():
 
                 if state in {"WAITING", "DONE"}:
                     _log("TURN_END", f"state={state}")
+                    print("")
                     break
 
             result = {
