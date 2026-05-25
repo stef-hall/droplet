@@ -83,7 +83,15 @@ def _extract_model_text(output_items):
                 continue
             text = block.get("text")
             if text:
-                parts.append(str(text))
+                text_str = str(text)
+                try:
+                    parsed = json.loads(text_str)
+                    if isinstance(parsed, dict) and "message" in parsed:
+                        parts.append(str(parsed.get("message", "")))
+                    else:
+                        parts.append(text_str)
+                except Exception:
+                    parts.append(text_str)
     return re.sub(r"\s+", " ", "\n".join(parts)).strip()
 
 
