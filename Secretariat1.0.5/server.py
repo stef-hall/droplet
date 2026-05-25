@@ -70,6 +70,7 @@ def _tool_name_to_status_label(tool_name: str) -> str:
         "gettrellolists": "Getting Lists...",
         "gettrellocards": "Getting Cards...",
         "createtrellocard": "Creating Card...",
+        "createtrellolist": "Creating List...",
         "edittrellocard": "Editing Card...",
         "deletetrellolist": "Deleting List...",
         "deletetrellocard": "Deleting Card...",
@@ -646,6 +647,47 @@ def _create_trello_card_for_user(
     }
 
 
+def _create_trello_list_for_user(user_id: int, board_id: str, name: str) -> dict:
+    row = _get_user_settings(int(user_id))
+    if not row:
+        raise ValueError("Trello settings are missing.")
+    trello_token = str(row["trello_token"] or "").strip()
+    if not trello_token:
+        raise ValueError("Trello token is missing.")
+
+    safe_board_id = str(board_id or "").strip()
+    safe_name = str(name or "").strip()
+    if not safe_board_id:
+        raise ValueError("board_id is required.")
+    if not safe_name:
+        raise ValueError("name is required.")
+
+    params = {
+        "key": "ac891ffdcf2553ac640f08509636d1c6",
+        "token": trello_token,
+        "idBoard": safe_board_id,
+        "name": safe_name,
+    }
+    body = urlencode(params).encode("utf-8")
+    request = Request(
+        url="https://api.trello.com/1/lists",
+        data=body,
+        method="POST",
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+    )
+    with urlopen(request, timeout=12) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("Unexpected Trello response.")
+
+    return {
+        "status": "created",
+        "list_id": str(payload.get("id", "")),
+        "list_name": str(payload.get("name", safe_name)),
+        "board_id": str(payload.get("idBoard", safe_board_id)),
+    }
+
+
 def _utc_now():
     return datetime.now(timezone.utc)
 
@@ -1000,6 +1042,26 @@ tools = [
                 },
             },
             "required": ["list_id", "name"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "type": "function",
+        "name": "CreateTrelloList",
+        "description": "Create a new Trello list in a given board.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "board_id": {
+                    "type": "string",
+                    "description": "Required Trello board ID where the list will be created.",
+                },
+                "name": {
+                    "type": "string",
+                    "description": "Required Trello list name.",
+                },
+            },
+            "required": ["board_id", "name"],
             "additionalProperties": False,
         },
     },
@@ -1713,6 +1775,30 @@ def ToolUse(name, args, user_id=None):
                 "status": "failed",
                 "tool": "CreateTrelloCard",
                 "list_id": list_id,
+                "error": str(e),
+            }
+
+    # Creates a Trello list in a given board
+    if name == "CreateTrelloList":
+        board_id = str(args.get("board_id", "")).strip()
+        name_value = str(args.get("name", "")).strip()
+        try:
+            output = _create_trello_list_for_user(
+                int(user_id),
+                board_id=board_id,
+                name=name_value,
+            )
+            return {
+                "status": "success",
+                "tool": "CreateTrelloList",
+                "board_id": board_id,
+                "result": output,
+            }
+        except Exception as e:
+            return {
+                "status": "failed",
+                "tool": "CreateTrelloList",
+                "board_id": board_id,
                 "error": str(e),
             }
 
