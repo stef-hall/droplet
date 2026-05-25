@@ -16,6 +16,7 @@ from openai import OpenAI # type: ignore
 import vobject # type: ignore
 import json
 import warnings
+import logging
 import base64
 import mimetypes
 import uuid
@@ -43,6 +44,16 @@ LISTS_DIR = Path(__file__).resolve( ).parent / "lists"
 DB_PATH = Path(__file__).resolve().parent / "secretariat.db"
 DEFAULT_ASSISTANT_MODEL = "gpt-5.4"
 ALLOWED_ASSISTANT_MODELS = {"gpt-5.4-mini", "gpt-5.4"}
+
+
+class _SkipApiListsAccessLog(logging.Filter):
+    def filter(self, record):
+        msg = record.getMessage()
+        return 'GET /api/lists HTTP/1.1" 200 -' not in msg
+
+
+for _handler in logging.getLogger("werkzeug").handlers:
+    _handler.addFilter(_SkipApiListsAccessLog())
 
 
 def _log(label, message):
@@ -2195,12 +2206,12 @@ def ask_gpt54(user_input, system_prompt, results, previous_response_id=None, use
             input_items = results
             #instructions = concise_prompt #Disabled Just For Now
             instructions = system_prompt
-            print("[Concise Prompt]")
+            print("[CONCISE PROMPT]")
 
         else:
             input_items = [{"role": "user", "content": user_content}]
             instructions = system_prompt
-            print("[Full System Prompt]")
+            print("[FULL SYSTEM PROMPT]")
 
         # Continue the same model conversation by passing previous_response_id.
         response = client.responses.create(
@@ -2294,7 +2305,8 @@ def run_secretariat(prompt_text, image_data_url=None, previous_response_id=None,
 
         if state in {"WAITING", "DONE"}:
             _log("TURN_END", f"state={state}")
-            print("")
+            if state == "DONE":
+                print("")
             assistant_message = (assistant_message or "") + _format_action_report(action_counter)
             return {
                 "state": state,
@@ -2977,7 +2989,8 @@ def api_secretariat_stream():
 
                 if state in {"WAITING", "DONE"}:
                     _log("TURN_END", f"state={state}")
-                    print("")
+                    if state == "DONE":
+                        print("")
                     break
 
             result = {
