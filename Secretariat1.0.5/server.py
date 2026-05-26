@@ -2310,12 +2310,12 @@ def run_secretariat(prompt_text, image_data_url=None, previous_response_id=None,
         cached_tokens = usage.input_tokens_details.cached_tokens
         uncached_tokens = input_tokens - cached_tokens
         if token_totals is not None:
-            token_totals["uncached"] = token_totals.get("uncached", 0) + uncached_tokens
-            token_totals["cached"] = token_totals.get("cached", 0) + cached_tokens
-        print(f"[Input_uncache]: {uncached_tokens}")
-        print(f"[Input_cached]: {cached_tokens}")
-        print(f"[Total_uncached]: {token_totals.get('uncached', 0) if token_totals is not None else uncached_tokens}")
-        print(f"[Total_Cached]: {token_totals.get('cached', 0) if token_totals is not None else cached_tokens}")
+            token_totals["rolling_uncached"] = token_totals.get("rolling_uncached", 0) + uncached_tokens
+            token_totals["rolling_cached"] = token_totals.get("rolling_cached", 0) + cached_tokens
+            token_totals["uncached"] = token_totals.get("uncached", 0) + token_totals["rolling_uncached"]
+            token_totals["cached"] = token_totals.get("cached", 0) + token_totals["rolling_cached"]
+        print(f"[INPUT UN/C] {uncached_tokens} / {cached_tokens}")
+        print(f"[TOTAL UN/C] {token_totals.get('uncached', 0) if token_totals is not None else uncached_tokens} / {token_totals.get('cached', 0) if token_totals is not None else cached_tokens}")
 
         if state in {"WAITING", "DONE"}:
             _log("TURN_END", f"state={state}")
@@ -2829,7 +2829,9 @@ def api_secretariat():
     previous_response_id = session_data.get("previous_response_id")
     token_totals = session_data.get("token_totals")
     if not isinstance(token_totals, dict):
-        token_totals = {"uncached": 0, "cached": 0}
+        token_totals = {"uncached": 0, "cached": 0, "rolling_uncached": 0, "rolling_cached": 0}
+    token_totals.setdefault("rolling_uncached", 0)
+    token_totals.setdefault("rolling_cached", 0)
     payload_timezone = str(payload.get("timezone", "")).strip()
     payload_location = payload.get("location") if isinstance(payload.get("location"), dict) else {}
     payload_latitude = _coerce_float(payload_location.get("latitude"))
@@ -2901,7 +2903,9 @@ def api_secretariat_stream():
     previous_response_id = session_data.get("previous_response_id")
     token_totals = session_data.get("token_totals")
     if not isinstance(token_totals, dict):
-        token_totals = {"uncached": 0, "cached": 0}
+        token_totals = {"uncached": 0, "cached": 0, "rolling_uncached": 0, "rolling_cached": 0}
+    token_totals.setdefault("rolling_uncached", 0)
+    token_totals.setdefault("rolling_cached", 0)
     payload_timezone = str(payload.get("timezone", "")).strip()
     payload_location = payload.get("location") if isinstance(payload.get("location"), dict) else {}
     payload_latitude = _coerce_float(payload_location.get("latitude"))
@@ -2994,12 +2998,12 @@ def api_secretariat_stream():
                 cached_tokens = usage.input_tokens_details.cached_tokens
                 uncached_tokens = input_tokens - cached_tokens
                 if token_totals is not None:
-                    token_totals["uncached"] = token_totals.get("uncached", 0) + uncached_tokens
-                    token_totals["cached"] = token_totals.get("cached", 0) + cached_tokens
-                print(f"[Input_uncache]: {uncached_tokens}")
-                print(f"[Input_cached]: {cached_tokens}")
-                print(f"[Total_uncached]: {token_totals.get('uncached', 0) if token_totals is not None else uncached_tokens}")
-                print(f"[Total_Cached]: {token_totals.get('cached', 0) if token_totals is not None else cached_tokens}")
+                    token_totals["rolling_uncached"] = token_totals.get("rolling_uncached", 0) + uncached_tokens
+                    token_totals["rolling_cached"] = token_totals.get("rolling_cached", 0) + cached_tokens
+                    token_totals["uncached"] = token_totals.get("uncached", 0) + token_totals["rolling_uncached"]
+                    token_totals["cached"] = token_totals.get("cached", 0) + token_totals["rolling_cached"]
+                print(f"[INPUT UN/C] {uncached_tokens} / {cached_tokens}")
+                print(f"[TOTAL UN/C] {token_totals.get('uncached', 0) if token_totals is not None else uncached_tokens} / {token_totals.get('cached', 0) if token_totals is not None else cached_tokens}")
 
                 if state in {"WAITING", "DONE"}:
                     _log("TURN_END", f"state={state}")
@@ -3058,9 +3062,11 @@ def api_session_init():
             {"user_id": user_id, "previous_response_id": None, "timezone": None, "weather_location": None, "token_totals": {"uncached": 0, "cached": 0}, "last_seen_ts": now_ts},
         )
         if session_data.get("user_id") not in (None, user_id):
-            session_data = {"user_id": user_id, "previous_response_id": None, "timezone": None, "weather_location": None, "token_totals": {"uncached": 0, "cached": 0}, "last_seen_ts": now_ts}
+            session_data = {"user_id": user_id, "previous_response_id": None, "timezone": None, "weather_location": None, "token_totals": {"uncached": 0, "cached": 0, "rolling_uncached": 0, "rolling_cached": 0}, "last_seen_ts": now_ts}
         if not isinstance(session_data.get("token_totals"), dict):
-            session_data["token_totals"] = {"uncached": 0, "cached": 0}
+            session_data["token_totals"] = {"uncached": 0, "cached": 0, "rolling_uncached": 0, "rolling_cached": 0}
+        session_data["token_totals"].setdefault("rolling_uncached", 0)
+        session_data["token_totals"].setdefault("rolling_cached", 0)
         if timezone_name:
             session_data["timezone"] = timezone_name
         if latitude is not None and longitude is not None:
