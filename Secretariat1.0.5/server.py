@@ -2105,6 +2105,31 @@ def compress_deletelist(value):
         "list_name": result.get("list_name") or value.get("list", {}).get("list_name"),
     }
 
+def compress_gettrellocards(value):
+    if not isinstance(value, dict):
+        return value
+
+    cards = value.get("result", []) or []
+    cols = ["card_id", "card_name", "description", "due", "url"]
+    rows = []
+    for card in cards:
+        if not isinstance(card, dict):
+            continue
+        rows.append([
+            card.get("card_id", ""),
+            card.get("card_name", ""),
+            card.get("description", ""),
+            card.get("due", ""),
+            card.get("url", ""),
+        ])
+
+    return {
+        "tool": value.get("tool"),
+        "list_id": value.get("list_id", ""),
+        "cols": cols,
+        "rows": rows,
+    }
+
 def _compact_value(value):
     # Need to add Tool Specific Compression here #snap
     if value['tool'] == 'GetEvents':
@@ -2129,6 +2154,10 @@ def _compact_value(value):
     
     if value['tool'] == 'DeleteList':
         x = compress_deletelist(value)
+        return x
+    
+    if value['tool'] == 'GetTrelloCards':
+        x = compress_gettrellocards(value)
         return x
 
     print("Not Compressed: ", value)
