@@ -36,6 +36,8 @@ app.secret_key = os.environ.get("SECRETARIAT_APP_SECRET", "replace-me-in-product
 api_key = ""
 session_store = {}
 session_store_lock = Lock()
+_trello_id_alias_lock = Lock()
+_trello_id_alias_store: dict[int, dict[str, dict[str, object]]] = {}
 SESSION_TTL_SECONDS = 6 * 60 * 60
 TRUSTED_DEVICE_COOKIE = "secretariat_trusted_device"
 TRUSTED_DEVICE_DAYS = 60
@@ -327,6 +329,79 @@ def _parse_caldav_calendar_names(raw_value: str | None) -> list[str]:
         seen.add(lowered)
         names.append(name)
     return names
+
+
+def _get_trello_alias(user_id: int, entity: str, real_id: str) -> str:
+    safe_id = str(real_id or "").strip()
+    if not safe_id:
+        return safe_id
+    kind = str(entity or "").strip().lower()
+    if kind not in {"board", "list", "card"}:
+        return safe_id
+    prefix = {"board": "b", "list": "l", "card": "c"}[kind]
+    with _trello_id_alias_lock:
+        user_state = _trello_id_alias_store.setdefault(int(user_id), {})
+        kind_state = user_state.setdefault(
+            kind,
+            {"counter": 0, "id_to_alias": {}, "alias_to_id": {}},
+        )
+        id_to_alias = kind_state["id_to_alias"]
+        alias_to_id = kind_state["alias_to_id"]
+        existing = id_to_alias.get(safe_id)
+        if existing:
+            return str(existing)
+        kind_state["counter"] = int(kind_state["counter"]) + 1
+        alias = f"{prefix}{kind_state['counter']}"
+        id_to_alias[safe_id] = alias
+        alias_to_id[alias] = safe_id
+        return alias
+
+
+def _resolve_trello_id_for_user(user_id: int, entity: str, id_or_alias: str) -> str:
+    key = str(id_or_alias or "").strip()
+    if not key:
+        return key
+    kind = str(entity or "").strip().lower()
+    if kind not in {"board", "list", "card"}:
+        return key
+    with _trello_id_alias_lock:
+        user_state = _trello_id_alias_store.get(int(user_id), {})
+        kind_state = user_state.get(kind, {})
+        alias_to_id = kind_state.get("alias_to_id", {})
+        resolved = alias_to_id.get(key, key)
+    return str(resolved)
+
+
+def _alias_trello_list_rows_for_user(user_id: int, rows: list[dict]) -> list[dict]:
+    aliased = []
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        board_real = str(row.get("board_id", "")).strip()
+        list_real = str(row.get("list_id", "")).strip()
+        clone = dict(row)
+        if board_real:
+            clone["board_id"] = _get_trello_alias(int(user_id), "board", board_real)
+        if list_real:
+            clone["list_id"] = _get_trello_alias(int(user_id), "list", list_real)
+        aliased.append(clone)
+    return aliased
+
+
+def _alias_trello_card_rows_for_user(user_id: int, rows: list[dict]) -> list[dict]:
+    aliased = []
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        card_real = str(row.get("card_id", "")).strip()
+        list_real = str(row.get("list_id", "")).strip()
+        clone = dict(row)
+        if card_real:
+            clone["card_id"] = _get_trello_alias(int(user_id), "card", card_real)
+        if list_real:
+            clone["list_id"] = _get_trello_alias(int(user_id), "list", list_real)
+        aliased.append(clone)
+    return aliased
 
 
 def _require_auth():
@@ -922,6 +997,7 @@ Reminders:
 - When a tool creates resources and returns IDs/UIDs, assume those returned IDs will be visible in conversation context after the batched tool results complete. Therefore, batch independent create calls together. Only serialize calls when the next call requires a value produced by a previous call.
 - If given a City to GetWeather for; default to using the Co-Ordinates (Lat/Long) of that City's Center. 
 - apply extra reasoning scrutiny around meridians (AM/PM), especially 12:00 times
+- Don't Return technical ID's to the user, they are aliased and only usable backend
 - "rn" = "Right Now"
 - "tn" = "Tonight"
 
@@ -1664,45 +1740,50 @@ def ToolUse(name, args, user_id=None):
 
     # Returns Trello list names for one board, selected boards, or all accessible boards
     if name == "GetTrelloLists":
-        board_id = str(args.get("board_id", "")).strip() or None
+        board_id_input = str(args.get("board_id", "")).strip() or None
+        board_id = _resolve_trello_id_for_user(int(user_id), "board", board_id_input) if board_id_input else None
         try:
             output = _get_trello_lists_for_user(int(user_id), board_id=board_id)
+            aliased_output = _alias_trello_list_rows_for_user(int(user_id), output)
             return {
                 "status": "success",
                 "tool": "GetTrelloLists",
-                "board_id": board_id,
-                "result": output,
+                "board_id": _get_trello_alias(int(user_id), "board", board_id) if board_id else None,
+                "result": aliased_output,
             }
         except Exception as e:
             return {
                 "status": "failed",
                 "tool": "GetTrelloLists",
-                "board_id": board_id,
+                "board_id": board_id_input,
                 "error": str(e),
             }
 
     # Returns Trello cards for a given list_id
     if name == "GetTrelloCards":
-        list_id = str(args.get("list_id", "")).strip()
+        list_id_input = str(args.get("list_id", "")).strip()
+        list_id = _resolve_trello_id_for_user(int(user_id), "list", list_id_input)
         try:
             output = _get_trello_cards_for_user(int(user_id), list_id=list_id)
+            aliased_output = _alias_trello_card_rows_for_user(int(user_id), output)
             return {
                 "status": "success",
                 "tool": "GetTrelloCards",
-                "list_id": list_id,
-                "result": output,
+                "list_id": _get_trello_alias(int(user_id), "list", list_id),
+                "result": aliased_output,
             }
         except Exception as e:
             return {
                 "status": "failed",
                 "tool": "GetTrelloCards",
-                "list_id": list_id,
+                "list_id": list_id_input,
                 "error": str(e),
             }
 
     # Edits a Trello card by card_id
     if name == "EditTrelloCard":
-        card_id = str(args.get("card_id", "")).strip()
+        card_id_input = str(args.get("card_id", "")).strip()
+        card_id = _resolve_trello_id_for_user(int(user_id), "card", card_id_input)
 
         def valid_string(value):
             if value is None:
@@ -1729,7 +1810,7 @@ def ToolUse(name, args, user_id=None):
             kwargs["due"] = due_value
 
         if list_id_value is not None:
-            kwargs["list_id"] = list_id_value
+            kwargs["list_id"] = _resolve_trello_id_for_user(int(user_id), "list", list_id_value)
 
         try:
             output = _edit_trello_card_for_user(
@@ -1739,59 +1820,71 @@ def ToolUse(name, args, user_id=None):
             return {
                 "status": "success",
                 "tool": "EditTrelloCard",
-                "card_id": card_id,
-                "result": output,
+                "card_id": _get_trello_alias(int(user_id), "card", str(output.get("card_id", card_id))),
+                "result": {
+                    **output,
+                    "card_id": _get_trello_alias(int(user_id), "card", str(output.get("card_id", card_id))),
+                },
             }
             
         except Exception as e:
             return {
                 "status": "failed",
                 "tool": "EditTrelloCard",
-                "card_id": card_id,
+                "card_id": card_id_input,
                 "error": str(e),
             }
 
     # Deletes a Trello card by card_id
     if name == "DeleteTrelloCard":
-        card_id = str(args.get("card_id", "")).strip()
+        card_id_input = str(args.get("card_id", "")).strip()
+        card_id = _resolve_trello_id_for_user(int(user_id), "card", card_id_input)
         try:
             output = _delete_trello_card_for_user(int(user_id), card_id=card_id)
             return {
                 "status": "success",
                 "tool": "DeleteTrelloCard",
-                "card_id": card_id,
-                "result": output,
+                "card_id": _get_trello_alias(int(user_id), "card", card_id),
+                "result": {
+                    **output,
+                    "card_id": _get_trello_alias(int(user_id), "card", str(output.get("card_id", card_id))),
+                },
             }
         except Exception as e:
             return {
                 "status": "failed",
                 "tool": "DeleteTrelloCard",
-                "card_id": card_id,
+                "card_id": card_id_input,
                 "error": str(e),
             }
 
     # Deletes (archives) a Trello list by list_id
     if name == "DeleteTrelloList":
-        list_id = str(args.get("list_id", "")).strip()
+        list_id_input = str(args.get("list_id", "")).strip()
+        list_id = _resolve_trello_id_for_user(int(user_id), "list", list_id_input)
         try:
             output = _delete_trello_list_for_user(int(user_id), list_id=list_id)
             return {
                 "status": "success",
                 "tool": "DeleteTrelloList",
-                "list_id": list_id,
-                "result": output,
+                "list_id": _get_trello_alias(int(user_id), "list", list_id),
+                "result": {
+                    **output,
+                    "list_id": _get_trello_alias(int(user_id), "list", str(output.get("list_id", list_id))),
+                },
             }
         except Exception as e:
             return {
                 "status": "failed",
                 "tool": "DeleteTrelloList",
-                "list_id": list_id,
+                "list_id": list_id_input,
                 "error": str(e),
             }
 
     # Creates a Trello card in a given list
     if name == "CreateTrelloCard":
-        list_id = str(args.get("list_id", "")).strip()
+        list_id_input = str(args.get("list_id", "")).strip()
+        list_id = _resolve_trello_id_for_user(int(user_id), "list", list_id_input)
         name_value = str(args.get("name", "")).strip()
         description_value = args["description"] if "description" in args else None
         due_value = args["due"] if "due" in args else None
@@ -1806,20 +1899,25 @@ def ToolUse(name, args, user_id=None):
             return {
                 "status": "success",
                 "tool": "CreateTrelloCard",
-                "list_id": list_id,
-                "result": output,
+                "list_id": _get_trello_alias(int(user_id), "list", list_id),
+                "result": {
+                    **output,
+                    "card_id": _get_trello_alias(int(user_id), "card", str(output.get("card_id", ""))),
+                    "list_id": _get_trello_alias(int(user_id), "list", str(output.get("list_id", list_id))),
+                },
             }
         except Exception as e:
             return {
                 "status": "failed",
                 "tool": "CreateTrelloCard",
-                "list_id": list_id,
+                "list_id": list_id_input,
                 "error": str(e),
             }
 
     # Creates a Trello list in a given board
     if name == "CreateTrelloList":
-        board_id = str(args.get("board_id", "")).strip()
+        board_id_input = str(args.get("board_id", "")).strip()
+        board_id = _resolve_trello_id_for_user(int(user_id), "board", board_id_input)
         name_value = str(args.get("name", "")).strip()
         try:
             output = _create_trello_list_for_user(
@@ -1830,14 +1928,18 @@ def ToolUse(name, args, user_id=None):
             return {
                 "status": "success",
                 "tool": "CreateTrelloList",
-                "board_id": board_id,
-                "result": output,
+                "board_id": _get_trello_alias(int(user_id), "board", board_id),
+                "result": {
+                    **output,
+                    "list_id": _get_trello_alias(int(user_id), "list", str(output.get("list_id", ""))),
+                    "board_id": _get_trello_alias(int(user_id), "board", str(output.get("board_id", board_id))),
+                },
             }
         except Exception as e:
             return {
                 "status": "failed",
                 "tool": "CreateTrelloList",
-                "board_id": board_id,
+                "board_id": board_id_input,
                 "error": str(e),
             }
 
