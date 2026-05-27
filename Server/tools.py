@@ -639,7 +639,6 @@ if __name__ == "__main__":
     response = GetEvents(3,
     times = ["20260601T000000+12:00","20260608T000000+12:00"]
     )
-    response = compress(response)
     print(response)
     quit()
     
@@ -657,13 +656,6 @@ if __name__ == "__main__":
     
 
     print(x)
-    quit()
-
-
-    response = GetEvents(3,
-    times=["20260507T000000+12:00", "20260608T000000+12:00"]
-    )
-    print(response)
     quit()
 
     response = EditEvent(3,

@@ -66,6 +66,22 @@
             </label>
 
             <label class="settings-field">
+              <span>
+                Trello Token
+                <a href="https://trello.com/1/authorize?expiration=never&name=MyApp&scope=read,write&response_type=token&key=ac891ffdcf2553ac640f08509636d1c6" target="_blank" rel="noopener noreferrer" aria-label="Open Trello token authorization">+</a>
+              </span>
+              <input id="trello-token" name="trello_token" type="text" placeholder="Paste your Trello token">
+            </label>
+
+            <label id="trello-boards-field" class="settings-field hidden">
+              <span>Trello Boards</span>
+              <div id="trello-board-dropdown" class="settings-multi-select">
+                <button id="trello-board-summary" type="button" class="settings-multi-select-trigger">No boards selected</button>
+                <div id="trello-board-options" class="settings-multi-select-options hidden"></div>
+              </div>
+            </label>
+
+            <label class="settings-field">
               <span>Model</span>
               <select id="assistant-model" name="assistant_model">
                 <option value="gpt-5.4-mini" selected>gpt-5.4-mini</option>

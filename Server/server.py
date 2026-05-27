@@ -16,6 +16,7 @@ from openai import OpenAI # type: ignore
 import vobject # type: ignore
 import json
 import warnings
+import logging
 import base64
 import mimetypes
 import uuid
@@ -23,7 +24,7 @@ import traceback
 import secrets
 import hashlib
 from urllib.parse import urlencode, unquote
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
 from pathlib import Path
 from werkzeug.security import check_password_hash, generate_password_hash # type: ignore
 from tools import AddEvent, GetEvents, GetCalendarNames, DeleteEvent, ReadList, EditList, DeleteList, EditEvent, GetWeather, _REMINDER_UNCHANGED, configure_tools
@@ -35,6 +36,8 @@ app.secret_key = os.environ.get("SECRETARIAT_APP_SECRET", "replace-me-in-product
 api_key = ""
 session_store = {}
 session_store_lock = Lock()
+_trello_id_alias_lock = Lock()
+_trello_id_alias_store: dict[int, dict[str, dict[str, object]]] = {}
 SESSION_TTL_SECONDS = 6 * 60 * 60
 TRUSTED_DEVICE_COOKIE = "secretariat_trusted_device"
 TRUSTED_DEVICE_DAYS = 60
@@ -45,15 +48,53 @@ DEFAULT_ASSISTANT_MODEL = "gpt-5.4"
 ALLOWED_ASSISTANT_MODELS = {"gpt-5.4-mini", "gpt-5.4"}
 
 
+class _SkipApiListsAccessLog(logging.Filter):
+    def filter(self, record):
+        msg = record.getMessage()
+        if 'GET /api/lists HTTP/1.1" 200 -' in msg:
+            return False
+        if 'POST /api/secretariat/stream HTTP/1.1" 200 -' in msg:
+            return False
+        return True
+
+
+_werkzeug_logger = logging.getLogger("werkzeug")
+_werkzeug_logger.addFilter(_SkipApiListsAccessLog())
+for _handler in _werkzeug_logger.handlers:
+    _handler.addFilter(_SkipApiListsAccessLog())
+
+
 def _log(label, message):
-    stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    print(f"[{stamp}] [{label}] {message}", flush=True)
+    print(f"[{label}] {message}", flush=True)
 
 
 def _log_json(label, payload):
-    stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     pretty = json.dumps(payload, indent=2, ensure_ascii=False, default=str)
-    print(f"[{stamp}] [{label}] {pretty}", flush=True)
+    print(f"[{label}] {pretty}", flush=True)
+
+
+def _extract_model_text(output_items):
+    parts = []
+    for item in output_items or []:
+        if not isinstance(item, dict):
+            continue
+        if item.get("type") != "message":
+            continue
+        for block in item.get("content", []) or []:
+            if not isinstance(block, dict):
+                continue
+            text = block.get("text")
+            if text:
+                text_str = str(text)
+                try:
+                    parsed = json.loads(text_str)
+                    if isinstance(parsed, dict) and "message" in parsed:
+                        parts.append(str(parsed.get("message", "")))
+                    else:
+                        parts.append(text_str)
+                except Exception:
+                    parts.append(text_str)
+    return re.sub(r"\s+", " ", "\n".join(parts)).strip()
 
 
 def _tool_name_to_status_label(tool_name: str) -> str:
@@ -67,6 +108,13 @@ def _tool_name_to_status_label(tool_name: str) -> str:
         "readlist": "Reading List...",
         "editlist": "Updating List...",
         "deletelist": "Deleting List...",
+        "gettrellolists": "Getting Lists...",
+        "gettrellocards": "Getting Cards...",
+        "createtrellocard": "Creating Card...",
+        "createtrellolist": "Creating List...",
+        "edittrellocard": "Editing Card...",
+        "deletetrellolist": "Deleting List...",
+        "deletetrellocard": "Deleting Card...",
         "getweather": "Getting Weather...",
         "getcalendarnames": "Getting Calendar Names...",
     }
@@ -212,6 +260,8 @@ def _init_db():
                 caldav_username TEXT,
                 caldav_password TEXT,
                 caldav_calendar TEXT,
+                trello_token TEXT,
+                trello_boards TEXT,
                 assistant_model TEXT,
                 updated_at TEXT NOT NULL,
                 FOREIGN KEY (user_id) REFERENCES users (id)
@@ -222,6 +272,12 @@ def _init_db():
         existing_column_names = {str(row["name"]) for row in columns}
         if "assistant_model" not in existing_column_names:
             conn.execute("ALTER TABLE user_settings ADD COLUMN assistant_model TEXT")
+        if "trello_token" not in existing_column_names:
+            conn.execute("ALTER TABLE user_settings ADD COLUMN trello_token TEXT")
+        if "trello_boards" not in existing_column_names:
+            conn.execute("ALTER TABLE user_settings ADD COLUMN trello_boards TEXT")
+        if "trello_board_ids" not in existing_column_names:
+            conn.execute("ALTER TABLE user_settings ADD COLUMN trello_board_ids TEXT")
         conn.commit()
 
 
@@ -275,6 +331,79 @@ def _parse_caldav_calendar_names(raw_value: str | None) -> list[str]:
     return names
 
 
+def _get_trello_alias(user_id: int, entity: str, real_id: str) -> str:
+    safe_id = str(real_id or "").strip()
+    if not safe_id:
+        return safe_id
+    kind = str(entity or "").strip().lower()
+    if kind not in {"board", "list", "card"}:
+        return safe_id
+    prefix = {"board": "b", "list": "l", "card": "c"}[kind]
+    with _trello_id_alias_lock:
+        user_state = _trello_id_alias_store.setdefault(int(user_id), {})
+        kind_state = user_state.setdefault(
+            kind,
+            {"counter": 0, "id_to_alias": {}, "alias_to_id": {}},
+        )
+        id_to_alias = kind_state["id_to_alias"]
+        alias_to_id = kind_state["alias_to_id"]
+        existing = id_to_alias.get(safe_id)
+        if existing:
+            return str(existing)
+        kind_state["counter"] = int(kind_state["counter"]) + 1
+        alias = f"{prefix}{kind_state['counter']}"
+        id_to_alias[safe_id] = alias
+        alias_to_id[alias] = safe_id
+        return alias
+
+
+def _resolve_trello_id_for_user(user_id: int, entity: str, id_or_alias: str) -> str:
+    key = str(id_or_alias or "").strip()
+    if not key:
+        return key
+    kind = str(entity or "").strip().lower()
+    if kind not in {"board", "list", "card"}:
+        return key
+    with _trello_id_alias_lock:
+        user_state = _trello_id_alias_store.get(int(user_id), {})
+        kind_state = user_state.get(kind, {})
+        alias_to_id = kind_state.get("alias_to_id", {})
+        resolved = alias_to_id.get(key, key)
+    return str(resolved)
+
+
+def _alias_trello_list_rows_for_user(user_id: int, rows: list[dict]) -> list[dict]:
+    aliased = []
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        board_real = str(row.get("board_id", "")).strip()
+        list_real = str(row.get("list_id", "")).strip()
+        clone = dict(row)
+        if board_real:
+            clone["board_id"] = _get_trello_alias(int(user_id), "board", board_real)
+        if list_real:
+            clone["list_id"] = _get_trello_alias(int(user_id), "list", list_real)
+        aliased.append(clone)
+    return aliased
+
+
+def _alias_trello_card_rows_for_user(user_id: int, rows: list[dict]) -> list[dict]:
+    aliased = []
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        card_real = str(row.get("card_id", "")).strip()
+        list_real = str(row.get("list_id", "")).strip()
+        clone = dict(row)
+        if card_real:
+            clone["card_id"] = _get_trello_alias(int(user_id), "card", card_real)
+        if list_real:
+            clone["list_id"] = _get_trello_alias(int(user_id), "list", list_real)
+        aliased.append(clone)
+    return aliased
+
+
 def _require_auth():
     _restore_auth_from_trusted_device()
     user_id = session.get("user_id")
@@ -287,7 +416,7 @@ def _get_user_settings(user_id: int):
     with _db_conn() as conn:
         return conn.execute(
             """
-            SELECT user_id, caldav_url, caldav_username, caldav_password, caldav_calendar, assistant_model, updated_at
+            SELECT user_id, caldav_url, caldav_username, caldav_password, caldav_calendar, trello_token, trello_boards, trello_board_ids, assistant_model, updated_at
             FROM user_settings
             WHERE user_id = ?
             """,
@@ -348,6 +477,329 @@ def _get_user_caldav_calendars(user_id: int):
         return matching
 
     return calendars
+
+
+def _get_trello_boards_for_user(user_id: int) -> list[dict]:
+    row = _get_user_settings(int(user_id))
+    if not row:
+        raise ValueError("Trello settings are missing.")
+    trello_token = str(row["trello_token"] or "").strip()
+    if not trello_token:
+        raise ValueError("Trello token is missing.")
+
+    query = urlencode({"fields": "name", "key": "ac891ffdcf2553ac640f08509636d1c6", "token": trello_token})
+    url = f"https://api.trello.com/1/members/me/boards?{query}"
+    with urlopen(url, timeout=12) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+    if not isinstance(payload, list):
+        raise ValueError("Unexpected Trello response.")
+
+    boards = []
+    for board in payload:
+        if not isinstance(board, dict):
+            continue
+        board_id = str(board.get("id", "")).strip()
+        board_name = str(board.get("name", "")).strip()
+        if not board_id or not board_name:
+            continue
+        boards.append({"id": board_id, "name": board_name})
+    return boards
+
+
+def _get_trello_lists_for_user(user_id: int, board_id: str | None = None) -> list[dict]:
+    row = _get_user_settings(int(user_id))
+    if not row:
+        raise ValueError("Trello settings are missing.")
+    trello_token = str(row["trello_token"] or "").strip()
+    if not trello_token:
+        raise ValueError("Trello token is missing.")
+
+    selected_board_ids = _parse_caldav_calendar_names(str(row["trello_board_ids"] or ""))
+    boards = _get_trello_boards_for_user(int(user_id))
+    board_lookup = {str(board["id"]): str(board["name"]) for board in boards}
+
+    if board_id:
+        target_ids = [str(board_id).strip()]
+    elif selected_board_ids:
+        target_ids = [bid for bid in selected_board_ids if bid in board_lookup]
+    else:
+        target_ids = list(board_lookup.keys())
+
+    output = []
+    for bid in target_ids:
+        if not bid:
+            continue
+        query = urlencode({"fields": "name", "key": "ac891ffdcf2553ac640f08509636d1c6", "token": trello_token})
+        url = f"https://api.trello.com/1/boards/{bid}/lists?{query}"
+        with urlopen(url, timeout=12) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        if not isinstance(payload, list):
+            continue
+        for item in payload:
+            if not isinstance(item, dict):
+                continue
+            list_name = str(item.get("name", "")).strip()
+            list_id = str(item.get("id", "")).strip()
+            if not list_name or not list_id:
+                continue
+            output.append(
+                {
+                    "board_id": bid,
+                    "board_name": board_lookup.get(bid, ""),
+                    "list_id": list_id,
+                    "list_name": list_name,
+                }
+            )
+    return output
+
+
+def _get_trello_cards_for_user(user_id: int, list_id: str) -> list[dict]:
+    row = _get_user_settings(int(user_id))
+    if not row:
+        raise ValueError("Trello settings are missing.")
+    trello_token = str(row["trello_token"] or "").strip()
+    if not trello_token:
+        raise ValueError("Trello token is missing.")
+
+    safe_list_id = str(list_id or "").strip()
+    if not safe_list_id:
+        raise ValueError("list_id is required.")
+
+    query = urlencode(
+        {
+            "fields": "name,desc,due,url,idList",
+            "key": "ac891ffdcf2553ac640f08509636d1c6",
+            "token": trello_token,
+        }
+    )
+    url = f"https://api.trello.com/1/lists/{safe_list_id}/cards?{query}"
+    with urlopen(url, timeout=12) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+    if not isinstance(payload, list):
+        raise ValueError("Unexpected Trello response.")
+
+    cards = []
+    for item in payload:
+        if not isinstance(item, dict):
+            continue
+        card_id = str(item.get("id", "")).strip()
+        card_name = str(item.get("name", "")).strip()
+        if not card_id or not card_name:
+            continue
+        cards.append(
+            {
+                "card_id": card_id,
+                "card_name": card_name,
+                "description": str(item.get("desc", "") or ""),
+                "due": item.get("due"),
+                "url": str(item.get("url", "") or ""),
+                "list_id": str(item.get("idList", "") or safe_list_id),
+            }
+        )
+    return cards
+
+
+def _edit_trello_card_for_user(
+    user_id: int,
+    card_id: str,
+    name: str | None = None,
+    description: str | None = None,
+    due: str | None = None,
+    list_id: str | None = None,
+) -> dict:
+    row = _get_user_settings(int(user_id))
+    if not row:
+        raise ValueError("Trello settings are missing.")
+    trello_token = str(row["trello_token"] or "").strip()
+    if not trello_token:
+        raise ValueError("Trello token is missing.")
+
+    safe_card_id = str(card_id or "").strip()
+    if not safe_card_id:
+        raise ValueError("card_id is required.")
+
+    params: dict[str, str] = {
+        "key": "ac891ffdcf2553ac640f08509636d1c6",
+        "token": trello_token,
+    }
+    updated_fields: dict[str, bool] = {
+        "name": False,
+        "description": False,
+        "due": False,
+        "list_id": False,
+    }
+
+    if name is not None:
+        params["name"] = str(name)
+        updated_fields["name"] = True
+    if description is not None:
+        params["desc"] = str(description)
+        updated_fields["description"] = True
+    if due is not None:
+        params["due"] = str(due)
+        updated_fields["due"] = True
+    if list_id is not None:
+        params["idList"] = str(list_id)
+        updated_fields["list_id"] = True
+
+    if not any(updated_fields.values()):
+        raise ValueError("At least one editable field is required.")
+
+    body = urlencode(params).encode("utf-8")
+    request = Request(
+        url=f"https://api.trello.com/1/cards/{safe_card_id}",
+        data=body,
+        method="PUT",
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+    )
+    with urlopen(request, timeout=12) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("Unexpected Trello response.")
+
+    return {
+        "status": "edited",
+        "card_id": str(payload.get("id", safe_card_id)),
+        "updated_fields": updated_fields,
+    }
+
+
+def _delete_trello_card_for_user(user_id: int, card_id: str) -> dict:
+    row = _get_user_settings(int(user_id))
+    if not row:
+        raise ValueError("Trello settings are missing.")
+    trello_token = str(row["trello_token"] or "").strip()
+    if not trello_token:
+        raise ValueError("Trello token is missing.")
+
+    safe_card_id = str(card_id or "").strip()
+    if not safe_card_id:
+        raise ValueError("card_id is required.")
+
+    params = urlencode({"key": "ac891ffdcf2553ac640f08509636d1c6", "token": trello_token})
+    request = Request(
+        url=f"https://api.trello.com/1/cards/{safe_card_id}?{params}",
+        method="DELETE",
+    )
+    with urlopen(request, timeout=12):
+        pass
+    return {"status": "deleted", "card_id": safe_card_id}
+
+
+def _delete_trello_list_for_user(user_id: int, list_id: str) -> dict:
+    row = _get_user_settings(int(user_id))
+    if not row:
+        raise ValueError("Trello settings are missing.")
+    trello_token = str(row["trello_token"] or "").strip()
+    if not trello_token:
+        raise ValueError("Trello token is missing.")
+
+    safe_list_id = str(list_id or "").strip()
+    if not safe_list_id:
+        raise ValueError("list_id is required.")
+
+    params = urlencode({"key": "ac891ffdcf2553ac640f08509636d1c6", "token": trello_token, "value": "true"})
+    request = Request(
+        url=f"https://api.trello.com/1/lists/{safe_list_id}/closed?{params}",
+        method="PUT",
+    )
+    with urlopen(request, timeout=12):
+        pass
+    return {"status": "deleted", "list_id": safe_list_id}
+
+
+def _create_trello_card_for_user(
+    user_id: int,
+    list_id: str,
+    name: str,
+    description: str | None = None,
+    due: str | None = None,
+) -> dict:
+    row = _get_user_settings(int(user_id))
+    if not row:
+        raise ValueError("Trello settings are missing.")
+    trello_token = str(row["trello_token"] or "").strip()
+    if not trello_token:
+        raise ValueError("Trello token is missing.")
+
+    safe_list_id = str(list_id or "").strip()
+    safe_name = str(name or "").strip()
+    if not safe_list_id:
+        raise ValueError("list_id is required.")
+    if not safe_name:
+        raise ValueError("name is required.")
+
+    params: dict[str, str] = {
+        "key": "ac891ffdcf2553ac640f08509636d1c6",
+        "token": trello_token,
+        "idList": safe_list_id,
+        "name": safe_name,
+    }
+    if description is not None:
+        params["desc"] = str(description)
+    if due is not None:
+        params["due"] = str(due)
+
+    body = urlencode(params).encode("utf-8")
+    request = Request(
+        url="https://api.trello.com/1/cards",
+        data=body,
+        method="POST",
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+    )
+    with urlopen(request, timeout=12) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("Unexpected Trello response.")
+
+    return {
+        "status": "created",
+        "card_id": str(payload.get("id", "")),
+        "card_name": str(payload.get("name", safe_name)),
+        "list_id": str(payload.get("idList", safe_list_id)),
+        "url": str(payload.get("url", "")),
+    }
+
+
+def _create_trello_list_for_user(user_id: int, board_id: str, name: str) -> dict:
+    row = _get_user_settings(int(user_id))
+    if not row:
+        raise ValueError("Trello settings are missing.")
+    trello_token = str(row["trello_token"] or "").strip()
+    if not trello_token:
+        raise ValueError("Trello token is missing.")
+
+    safe_board_id = str(board_id or "").strip()
+    safe_name = str(name or "").strip()
+    if not safe_board_id:
+        raise ValueError("board_id is required.")
+    if not safe_name:
+        raise ValueError("name is required.")
+
+    params = {
+        "key": "ac891ffdcf2553ac640f08509636d1c6",
+        "token": trello_token,
+        "idBoard": safe_board_id,
+        "name": safe_name,
+    }
+    body = urlencode(params).encode("utf-8")
+    request = Request(
+        url="https://api.trello.com/1/lists",
+        data=body,
+        method="POST",
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+    )
+    with urlopen(request, timeout=12) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("Unexpected Trello response.")
+
+    return {
+        "status": "created",
+        "list_id": str(payload.get("id", "")),
+        "list_name": str(payload.get("name", safe_name)),
+        "board_id": str(payload.get("idBoard", safe_board_id)),
+    }
 
 
 def _utc_now():
@@ -526,6 +978,12 @@ Rules:
 - If a requested time could be interpreted as AM or PM, do not guess; ask a clarifying question before calling tools
 - Display multipile events in a markdown time table 
 - If someone calls you 'bud' you have to call them 'bud' back
+- When Getting a time range:
+  - this week → now to end of Sunday
+  - next week → next Monday 00:00 to next Sunday 23:59
+  - vague search → now to +14 days
+  - broad search → now to +30 days max
+  - Confirm (with a reason) before searching >30 days
 - Always return a state:
   - RUNNING = Operating Tools/Thinking
   - WAITING = Waiting for User Input
@@ -545,6 +1003,7 @@ Reminders:
 - When a tool creates resources and returns IDs/UIDs, assume those returned IDs will be visible in conversation context after the batched tool results complete. Therefore, batch independent create calls together. Only serialize calls when the next call requires a value produced by a previous call.
 - If given a City to GetWeather for; default to using the Co-Ordinates (Lat/Long) of that City's Center. 
 - apply extra reasoning scrutiny around meridians (AM/PM), especially 12:00 times
+- Don't Return technical ID's to the user, they are aliased and only usable backend
 - "rn" = "Right Now"
 - "tn" = "Tonight"
 
@@ -554,7 +1013,7 @@ Tone:
 - When asking for follow up details, be direct with the user. Ask simply for the information required don't explain why you need it.
 
 For ambiguous delete/remove/edit requests:
-- NEVER ask the user a follow up without first checking existing context. GetEvents and GetLists are BOTH REQUIRED.
+- NEVER ask the user a follow up for more information, without FIRST consulting the chat history context window, and if no answer is found; The respective Get... Tools.
 - After checking context:
   - If exactly one matching event/list/item exists, act on it.
   - If multiple matches exist, ask which one.
@@ -565,7 +1024,7 @@ FastReplies rules:
 - Visible text must fit naturally in the assistant message.
 - Hidden text must be the user’s intended reply.
 - Any suggested actions, or solutions contained in a clarification questions MUST have FastReplies options.
-- Any “I can…”, “tell me…”, “if you meant…”, or “do you want…” suggestion needs a FastReply.
+- Any “I can…”, “if you meant…”, or “do you want…” should be a FastReply.
 - e.g. "I couldn’t find a list called that. If you [[send: meant an event|Yes, I meant an event]], tell me which to remove."
 - soft max of 3 FastReplies per message
 
@@ -579,10 +1038,153 @@ STRICT VALID RESPONSE FORMAT:
     "state": "RUNNING|WAITING|DONE",
     "message": "..."
 }
-
 """
 
 tools = [
+    {
+        "type": "function",
+        "name": "GetTrelloLists",
+        "description": "Get Trello list names. Optionally provide board_id to scope to one board; otherwise returns lists from selected boards or all accessible boards.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "board_id": {
+                    "type": "string",
+                    "description": "Optional Trello board ID (for example: 68a4ff7e11673166fa68cbfa).",
+                }
+            },
+            "required": [],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "type": "function",
+        "name": "GetTrelloCards",
+        "description": "Get all cards contained in a Trello list by list_id.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "list_id": {
+                    "type": "string",
+                    "description": "Required Trello list ID (for example: 68a50bb5ad3235302b006a5c).",
+                }
+            },
+            "required": ["list_id"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "type": "function",
+        "name": "EditTrelloCard",
+        "description": "Edit a Trello card by card_id. Provide one or more fields to update.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "card_id": {
+                    "type": "string",
+                    "description": "Required Trello card ID.",
+                },
+                "name": {
+                    "type": "string",
+                    "description": "Optional new card title.",
+                },
+                "description": {
+                    "type": "string",
+                    "description": "Optional new card description.",
+                },
+                "due": {
+                    "type": "string",
+                    "description": "Optional due datetime in ISO-8601 (or null-like empty string to clear).",
+                },
+                "list_id": {
+                    "type": "string",
+                    "description": "Optional destination Trello list ID (moves the card).",
+                },
+            },
+            "required": ["card_id"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "type": "function",
+        "name": "DeleteTrelloCard",
+        "description": "Delete a Trello card by card_id.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "card_id": {
+                    "type": "string",
+                    "description": "Required Trello card ID.",
+                }
+            },
+            "required": ["card_id"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "type": "function",
+        "name": "DeleteTrelloList",
+        "description": "Delete (archive) a Trello list by list_id.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "list_id": {
+                    "type": "string",
+                    "description": "Required Trello list ID.",
+                }
+            },
+            "required": ["list_id"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "type": "function",
+        "name": "CreateTrelloCard",
+        "description": "Create a new Trello card in a given list.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "list_id": {
+                    "type": "string",
+                    "description": "Required Trello list ID where the card will be created.",
+                },
+                "name": {
+                    "type": "string",
+                    "description": "Required card title.",
+                },
+                "description": {
+                    "type": "string",
+                    "description": "Optional card description.",
+                },
+                "due": {
+                    "type": "string",
+                    "description": "Optional due datetime in ISO-8601.",
+                },
+            },
+            "required": ["list_id", "name"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "type": "function",
+        "name": "CreateTrelloList",
+        "description": "Create a new Trello list in a given board.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "board_id": {
+                    "type": "string",
+                    "description": "Required Trello board ID where the list will be created.",
+                },
+                "name": {
+                    "type": "string",
+                    "description": "Required Trello list name.",
+                },
+            },
+            "required": ["board_id", "name"],
+            "additionalProperties": False,
+        },
+    },
     {
         "type": "function",
         "name": "AddEvent",
@@ -1141,6 +1743,211 @@ def ToolUse(name, args, user_id=None):
                 "error": str(e),
             }
 
+    # Returns Trello list names for one board, selected boards, or all accessible boards
+    if name == "GetTrelloLists":
+        board_id_input = str(args.get("board_id", "")).strip() or None
+        board_id = _resolve_trello_id_for_user(int(user_id), "board", board_id_input) if board_id_input else None
+        try:
+            output = _get_trello_lists_for_user(int(user_id), board_id=board_id)
+            aliased_output = _alias_trello_list_rows_for_user(int(user_id), output)
+            return {
+                "status": "success",
+                "tool": "GetTrelloLists",
+                "board_id": _get_trello_alias(int(user_id), "board", board_id) if board_id else None,
+                "result": aliased_output,
+            }
+        except Exception as e:
+            return {
+                "status": "failed",
+                "tool": "GetTrelloLists",
+                "board_id": board_id_input,
+                "error": str(e),
+            }
+
+    # Returns Trello cards for a given list_id
+    if name == "GetTrelloCards":
+        list_id_input = str(args.get("list_id", "")).strip()
+        list_id = _resolve_trello_id_for_user(int(user_id), "list", list_id_input)
+        try:
+            output = _get_trello_cards_for_user(int(user_id), list_id=list_id)
+            aliased_output = _alias_trello_card_rows_for_user(int(user_id), output)
+            return {
+                "status": "success",
+                "tool": "GetTrelloCards",
+                "list_id": _get_trello_alias(int(user_id), "list", list_id),
+                "result": aliased_output,
+            }
+        except Exception as e:
+            return {
+                "status": "failed",
+                "tool": "GetTrelloCards",
+                "list_id": list_id_input,
+                "error": str(e),
+            }
+
+    # Edits a Trello card by card_id
+    if name == "EditTrelloCard":
+        card_id_input = str(args.get("card_id", "")).strip()
+        card_id = _resolve_trello_id_for_user(int(user_id), "card", card_id_input)
+
+        def valid_string(value):
+            if value is None:
+                return None
+            value = str(value).strip()
+            return value if value else None
+
+        kwargs = {
+            "card_id": card_id,
+        }
+
+        name_value = valid_string(args.get("name"))
+        description_value = args.get("description") if "description" in args else None
+        due_value = valid_string(args.get("due"))
+        list_id_value = valid_string(args.get("list_id"))
+
+        if name_value is not None:
+            kwargs["name"] = name_value
+
+        if description_value is not None:
+            kwargs["description"] = str(description_value)
+
+        if due_value is not None:
+            kwargs["due"] = due_value
+
+        if list_id_value is not None:
+            kwargs["list_id"] = _resolve_trello_id_for_user(int(user_id), "list", list_id_value)
+
+        try:
+            output = _edit_trello_card_for_user(
+                int(user_id),
+                **kwargs,
+            )
+            return {
+                "status": "success",
+                "tool": "EditTrelloCard",
+                "card_id": _get_trello_alias(int(user_id), "card", str(output.get("card_id", card_id))),
+                "result": {
+                    **output,
+                    "card_id": _get_trello_alias(int(user_id), "card", str(output.get("card_id", card_id))),
+                },
+            }
+            
+        except Exception as e:
+            return {
+                "status": "failed",
+                "tool": "EditTrelloCard",
+                "card_id": card_id_input,
+                "error": str(e),
+            }
+
+    # Deletes a Trello card by card_id
+    if name == "DeleteTrelloCard":
+        card_id_input = str(args.get("card_id", "")).strip()
+        card_id = _resolve_trello_id_for_user(int(user_id), "card", card_id_input)
+        try:
+            output = _delete_trello_card_for_user(int(user_id), card_id=card_id)
+            return {
+                "status": "success",
+                "tool": "DeleteTrelloCard",
+                "card_id": _get_trello_alias(int(user_id), "card", card_id),
+                "result": {
+                    **output,
+                    "card_id": _get_trello_alias(int(user_id), "card", str(output.get("card_id", card_id))),
+                },
+            }
+        except Exception as e:
+            return {
+                "status": "failed",
+                "tool": "DeleteTrelloCard",
+                "card_id": card_id_input,
+                "error": str(e),
+            }
+
+    # Deletes (archives) a Trello list by list_id
+    if name == "DeleteTrelloList":
+        list_id_input = str(args.get("list_id", "")).strip()
+        list_id = _resolve_trello_id_for_user(int(user_id), "list", list_id_input)
+        try:
+            output = _delete_trello_list_for_user(int(user_id), list_id=list_id)
+            return {
+                "status": "success",
+                "tool": "DeleteTrelloList",
+                "list_id": _get_trello_alias(int(user_id), "list", list_id),
+                "result": {
+                    **output,
+                    "list_id": _get_trello_alias(int(user_id), "list", str(output.get("list_id", list_id))),
+                },
+            }
+        except Exception as e:
+            return {
+                "status": "failed",
+                "tool": "DeleteTrelloList",
+                "list_id": list_id_input,
+                "error": str(e),
+            }
+
+    # Creates a Trello card in a given list
+    if name == "CreateTrelloCard":
+        list_id_input = str(args.get("list_id", "")).strip()
+        list_id = _resolve_trello_id_for_user(int(user_id), "list", list_id_input)
+        name_value = str(args.get("name", "")).strip()
+        description_value = args["description"] if "description" in args else None
+        due_value = args["due"] if "due" in args else None
+        try:
+            output = _create_trello_card_for_user(
+                int(user_id),
+                list_id=list_id,
+                name=name_value,
+                description=description_value,
+                due=due_value,
+            )
+            return {
+                "status": "success",
+                "tool": "CreateTrelloCard",
+                "list_id": _get_trello_alias(int(user_id), "list", list_id),
+                "result": {
+                    **output,
+                    "card_id": _get_trello_alias(int(user_id), "card", str(output.get("card_id", ""))),
+                    "list_id": _get_trello_alias(int(user_id), "list", str(output.get("list_id", list_id))),
+                },
+            }
+        except Exception as e:
+            return {
+                "status": "failed",
+                "tool": "CreateTrelloCard",
+                "list_id": list_id_input,
+                "error": str(e),
+            }
+
+    # Creates a Trello list in a given board
+    if name == "CreateTrelloList":
+        board_id_input = str(args.get("board_id", "")).strip()
+        board_id = _resolve_trello_id_for_user(int(user_id), "board", board_id_input)
+        name_value = str(args.get("name", "")).strip()
+        try:
+            output = _create_trello_list_for_user(
+                int(user_id),
+                board_id=board_id,
+                name=name_value,
+            )
+            return {
+                "status": "success",
+                "tool": "CreateTrelloList",
+                "board_id": _get_trello_alias(int(user_id), "board", board_id),
+                "result": {
+                    **output,
+                    "list_id": _get_trello_alias(int(user_id), "list", str(output.get("list_id", ""))),
+                    "board_id": _get_trello_alias(int(user_id), "board", str(output.get("board_id", board_id))),
+                },
+            }
+        except Exception as e:
+            return {
+                "status": "failed",
+                "tool": "CreateTrelloList",
+                "board_id": board_id_input,
+                "error": str(e),
+            }
+
     return {
         "status": "failed",
         "tool": name,
@@ -1405,6 +2212,31 @@ def compress_deletelist(value):
         "list_name": result.get("list_name") or value.get("list", {}).get("list_name"),
     }
 
+def compress_gettrellocards(value):
+    if not isinstance(value, dict):
+        return value
+
+    cards = value.get("result", []) or []
+    cols = ["card_id", "card_name", "description", "due", "url"]
+    rows = []
+    for card in cards:
+        if not isinstance(card, dict):
+            continue
+        rows.append([
+            card.get("card_id", ""),
+            card.get("card_name", ""),
+            card.get("description", ""),
+            card.get("due", ""),
+            card.get("url", ""),
+        ])
+
+    return {
+        "tool": value.get("tool"),
+        "list_id": value.get("list_id", ""),
+        "cols": cols,
+        "rows": rows,
+    }
+
 def _compact_value(value):
     # Need to add Tool Specific Compression here #snap
     if value['tool'] == 'GetEvents':
@@ -1429,6 +2261,10 @@ def _compact_value(value):
     
     if value['tool'] == 'DeleteList':
         x = compress_deletelist(value)
+        return x
+    
+    if value['tool'] == 'GetTrelloCards':
+        x = compress_gettrellocards(value)
         return x
 
     print("Not Compressed: ", value)
@@ -1455,7 +2291,7 @@ def compress_tool_output(tool_output):
 
 
 
-def ask_gpt54(user_input, system_prompt, results, previous_response_id=None, user_timezone=None, location_context=None, user_id=None):
+def ask_gpt54(user_input, system_prompt, results, previous_response_id=None, user_timezone=None, location_context=None, user_id=None, token_totals=None):
     # Build a fresh OpenAI client for each request.
     client = OpenAI(api_key=api_key)
     selected_model = DEFAULT_ASSISTANT_MODEL
@@ -1491,7 +2327,7 @@ def ask_gpt54(user_input, system_prompt, results, previous_response_id=None, use
     formatted_request = (
         f"Request: {raw_prompt}\n"
         "##############################\n"
-        f"Current Local time: {now_local.strftime('%Y%m%dT%H%M%S%z')}\n"
+        f"Current Local time: {now_local.strftime('%Y%m%dT%H%M%S%z, %a')}\n"
         f"{_format_location_for_prompt(location_context)}\n"
         f"Available lists: {lists_line}\n"
     )
@@ -1514,28 +2350,18 @@ def ask_gpt54(user_input, system_prompt, results, previous_response_id=None, use
             input=input_items,
             parallel_tool_calls=True,
         )
-        usage = response.usage
-        input_tokens = usage.input_tokens
-        cached_tokens = usage.input_tokens_details.cached_tokens
-        uncached_tokens = input_tokens - cached_tokens
-        print("input_tokens:", input_tokens)
-        print("cached_tokens:", cached_tokens)
-        print("uncached_tokens:", uncached_tokens)
-        print("cache_hit_rate:", cached_tokens / input_tokens if input_tokens else 0)
-
-
     else:
         # Follow-up turns: send function outputs when available, otherwise send the new user turn.
         if results:
             input_items = results
             #instructions = concise_prompt #Disabled Just For Now
             instructions = system_prompt
-            print("[Concise Prompt]")
+            print("[CONCISE PROMPT]")
 
         else:
             input_items = [{"role": "user", "content": user_content}]
             instructions = system_prompt
-            print("[Full System Prompt]")
+            print("[FULL SYSTEM PROMPT]")
 
         # Continue the same model conversation by passing previous_response_id.
         response = client.responses.create(
@@ -1546,33 +2372,51 @@ def ask_gpt54(user_input, system_prompt, results, previous_response_id=None, use
             input=input_items,
             parallel_tool_calls=True,
         )
-        usage = response.usage
-        input_tokens = usage.input_tokens
-        cached_tokens = usage.input_tokens_details.cached_tokens
-        uncached_tokens = input_tokens - cached_tokens
-        print("input_tokens:", input_tokens)
-        print("cached_tokens:", cached_tokens)
-        print("uncached_tokens:", uncached_tokens)
-        print("cache_hit_rate:", cached_tokens / input_tokens if input_tokens else 0)
-
     return response
 
 
-def run_secretariat(prompt_text, image_data_url=None, previous_response_id=None, user_timezone=None, location_context=None, max_turns=12, status_callback=None, user_id=None):
+def run_secretariat(*args, status_callback=None, **kwargs):
+    final = None
+
+    for event in run_secretariat_core(*args, **kwargs):
+        if event["type"] == "status" and status_callback:
+            status_callback(event["label"])
+
+        if event["type"] == "final":
+            final = event
+
+    return {
+        "state": final["state"],
+        "message": final["message"],
+        "previous_response_id": final["previous_response_id"],
+    }
+
+def run_secretariat_core(
+    prompt_text,image_data_url=None,previous_response_id=None,user_timezone=None,
+    location_context=None,max_turns=12,user_id=None,token_totals=None,):
     results = []
     state = "RUNNING"
     assistant_message = ""
     current_response_id = previous_response_id
     action_counter = {}
-    function_call_id_alias_state = {"counter": 0, "by_value": {}}
-    call_id_alias_state = {"counter": 0, "by_value": {}}
+    if not isinstance(token_totals, dict):
+        token_totals = {
+            "uncached": 0,
+            "cached": 0,
+            "rolling_uncached": 0,
+            "rolling_cached": 0,
+        }
+    token_totals.setdefault("uncached", 0)
+    token_totals.setdefault("cached", 0)
+    token_totals.setdefault("rolling_uncached", 0)
+    token_totals.setdefault("rolling_cached", 0)
     for turn_idx in range(max_turns):
-        if status_callback:
-            status_callback("Thinking...")
-        _log("TURN_START", f"{turn_idx + 1}/{max_turns}")
+        yield {"type": "status", "label": "Thinking..."}
+        _log(f"TURN {turn_idx + 1}/{max_turns}", "")
         user_turn = {"prompt": prompt_text}
         if turn_idx == 0 and image_data_url:
             user_turn["image_data_url"] = image_data_url
+
         response = ask_gpt54(
             user_turn,
             system_prompt,
@@ -1581,20 +2425,14 @@ def run_secretariat(prompt_text, image_data_url=None, previous_response_id=None,
             user_timezone=user_timezone,
             location_context=location_context,
             user_id=user_id,
+            token_totals=token_totals,
         )
         current_response_id = response.id
         response_data = response.model_dump()
+        _log("MODEL_OUTPUT", _extract_model_text(response_data.get("output", [])))
         results = []
         saw_function_call = False
         function_calls = []
-        _log_json(
-            "MODEL_OUTPUT",
-            _alias_model_output_ids(
-                response_data.get("output", []),
-                function_call_id_alias_state,
-                call_id_alias_state,
-            ),
-        )
         for content in response_data.get("output", []):
             if content.get("type") == "message" and content.get("content"):
                 text_payload = content["content"][0].get("text", "")
@@ -1602,11 +2440,9 @@ def run_secretariat(prompt_text, image_data_url=None, previous_response_id=None,
                     parsed = json.loads(text_payload)
                     state = parsed.get("state", "RUNNING")
                     assistant_message = parsed.get("message", "")
-
                 except Exception:
                     state = "RUNNING"
                     assistant_message = text_payload
-
             if content.get("type") == "function_call":
                 saw_function_call = True
                 function_calls.append({
@@ -1615,40 +2451,58 @@ def run_secretariat(prompt_text, image_data_url=None, previous_response_id=None,
                     "call_id": content["call_id"],
                 })
 
-        # If the model returned only a user-facing message and no tool calls,
-        # treat that turn as complete instead of spinning another model turn.
         if not saw_function_call and assistant_message and state == "RUNNING":
             state = "DONE"
-
         if saw_function_call:
             _log("TOOL_BATCH", f"Executing {len(function_calls)} tool call(s)")
-            if status_callback:
-                status_callback(_batch_status_label(function_calls))
-            tool_outputs = _execute_function_calls_parallel(function_calls, user_id=user_id)
+            yield {"type": "status", "label": _batch_status_label(function_calls),}
+            tool_outputs = _execute_function_calls_parallel(function_calls,user_id=user_id)
             _accumulate_action_report(action_counter, tool_outputs)
             results.extend(compress_tool_output(tool_outputs))
             continue
 
+        usage = response.usage
+        input_tokens = usage.input_tokens
+        cached_tokens = usage.input_tokens_details.cached_tokens
+        uncached_tokens = input_tokens - cached_tokens
+        token_totals["rolling_uncached"] = (token_totals.get("rolling_uncached", 0) + uncached_tokens)
+        token_totals["rolling_cached"] = (token_totals.get("rolling_cached", 0) + cached_tokens)
+        token_totals["uncached"] = (token_totals.get("uncached", 0) + uncached_tokens)
+        token_totals["cached"] = (token_totals.get("cached", 0) + cached_tokens)
+        print(f"[INPUT UN/C] {uncached_tokens} / {cached_tokens}")
+        print(f"[TOTAL UN/C] {token_totals.get('uncached', 0)} / {token_totals.get('cached', 0)}")
+        yield {
+            "type": "token_usage",
+            "input_uncached": uncached_tokens,
+            "input_cached": cached_tokens,
+            "rolling_uncached": token_totals.get("rolling_uncached", 0),
+            "rolling_cached": token_totals.get("rolling_cached", 0),
+            "total_uncached": token_totals.get("uncached", 0),
+            "total_cached": token_totals.get("cached", 0),
+        }
         if state in {"WAITING", "DONE"}:
             _log("TURN_END", f"state={state}")
-            assistant_message = (assistant_message or "") + _format_action_report(action_counter)
-            return {
+            yield {
+                "type": "final",
                 "state": state,
-                "message": assistant_message,
+                "message": (assistant_message or "") + _format_action_report(action_counter),
                 "previous_response_id": current_response_id,
+                "token_totals": token_totals,
             }
+            print("")
+            return
 
-    return {
+    yield {
+        "type": "final",
         "state": state,
         "message": (assistant_message or "Request timed out.") + _format_action_report(action_counter),
         "previous_response_id": current_response_id,
+        "token_totals": token_totals,
     }
-
 
 @app.get("/")
 def home():
     return render_template("Secretariat.html")
-
 
 @app.get("/settings")
 def settings_page():
@@ -1858,6 +2712,37 @@ def api_settings_caldav_save():
     else:
         caldav_calendar = str(payload.get("caldav_calendar", "")).strip()
     assistant_model = _normalize_assistant_model(payload.get("assistant_model"))
+    trello_token = str(payload.get("trello_token", "")).strip()
+    trello_boards_payload = payload.get("trello_boards")
+    if isinstance(trello_boards_payload, list):
+        trello_boards = ", ".join(
+            name
+            for name in [str(item).strip() for item in trello_boards_payload]
+            if name
+        )
+    else:
+        trello_boards = str(payload.get("trello_board", "")).strip()
+    trello_board_ids_payload = payload.get("trello_board_ids")
+    if isinstance(trello_board_ids_payload, list):
+        trello_board_ids = ", ".join(
+            board_id
+            for board_id in [str(item).strip() for item in trello_board_ids_payload]
+            if board_id
+        )
+    else:
+        trello_board_ids = str(payload.get("trello_board_ids", "")).strip()
+    if trello_token and trello_board_ids:
+        try:
+            board_ids_set = {value.lower() for value in _parse_caldav_calendar_names(trello_board_ids)}
+            board_names = [
+                str(board.get("name", "")).strip()
+                for board in _get_trello_boards_for_user(user_id)
+                if str(board.get("id", "")).strip().lower() in board_ids_set
+            ]
+            if board_names:
+                trello_boards = ", ".join(board_names)
+        except Exception:
+            pass
     caldav_password_incoming = payload.get("caldav_password")
     caldav_password_incoming = "" if caldav_password_incoming is None else str(caldav_password_incoming)
     updated_at = _utc_now().isoformat()
@@ -1870,18 +2755,18 @@ def api_settings_caldav_save():
             conn.execute(
                 """
                 UPDATE user_settings
-                SET caldav_url = ?, caldav_username = ?, caldav_password = ?, caldav_calendar = ?, assistant_model = ?, updated_at = ?
+                SET caldav_url = ?, caldav_username = ?, caldav_password = ?, caldav_calendar = ?, trello_token = ?, trello_boards = ?, trello_board_ids = ?, assistant_model = ?, updated_at = ?
                 WHERE user_id = ?
                 """,
-                (caldav_url, caldav_username, caldav_password, caldav_calendar, assistant_model, updated_at, user_id),
+                (caldav_url, caldav_username, caldav_password, caldav_calendar, trello_token, trello_boards, trello_board_ids, assistant_model, updated_at, user_id),
             )
         else:
             conn.execute(
                 """
-                INSERT INTO user_settings (user_id, caldav_url, caldav_username, caldav_password, caldav_calendar, assistant_model, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO user_settings (user_id, caldav_url, caldav_username, caldav_password, caldav_calendar, trello_token, trello_boards, trello_board_ids, assistant_model, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (user_id, caldav_url, caldav_username, caldav_password, caldav_calendar, assistant_model, updated_at),
+                (user_id, caldav_url, caldav_username, caldav_password, caldav_calendar, trello_token, trello_boards, trello_board_ids, assistant_model, updated_at),
             )
         conn.commit()
 
@@ -1892,10 +2777,96 @@ def api_settings_caldav_save():
             "caldav_username": caldav_username,
             "caldav_calendar": caldav_calendar,
             "caldav_calendars": _parse_caldav_calendar_names(caldav_calendar),
+            "trello_token": trello_token,
+            "trello_boards": _parse_caldav_calendar_names(trello_boards),
+            "trello_board_ids": _parse_caldav_calendar_names(trello_board_ids),
             "assistant_model": assistant_model,
             "has_password": bool(caldav_password),
         },
     })
+
+
+@app.get("/api/settings/caldav/full")
+def api_settings_caldav_get_full():
+    auth_error = _require_auth()
+    if auth_error:
+        return auth_error
+
+    user_id = int(session["user_id"])
+    row = _get_user_settings(user_id)
+    if not row:
+        return jsonify(
+            {
+                "ok": True,
+                "settings": {
+                    "caldav_url": "",
+                    "caldav_username": "",
+                    "caldav_calendar": "",
+                    "caldav_calendars": [],
+                    "trello_token": "",
+                    "trello_board": "",
+                    "trello_boards": [],
+                    "trello_board_ids": [],
+                    "assistant_model": DEFAULT_ASSISTANT_MODEL,
+                    "has_password": False,
+                },
+            }
+        )
+
+    caldav_calendar = str(row["caldav_calendar"] or "")
+    trello_boards = str(row["trello_boards"] or "")
+    trello_board_ids = str(row["trello_board_ids"] or "")
+    assistant_model = _normalize_assistant_model(row["assistant_model"])
+    return jsonify(
+        {
+            "ok": True,
+            "settings": {
+                "caldav_url": str(row["caldav_url"] or ""),
+                "caldav_username": str(row["caldav_username"] or ""),
+                "caldav_calendar": caldav_calendar,
+                "caldav_calendars": _parse_caldav_calendar_names(caldav_calendar),
+                "trello_token": str(row["trello_token"] or ""),
+                "trello_board": trello_boards,
+                "trello_boards": _parse_caldav_calendar_names(trello_boards),
+                "trello_board_ids": _parse_caldav_calendar_names(trello_board_ids),
+                "assistant_model": assistant_model,
+                "has_password": bool(row["caldav_password"]),
+            },
+        }
+    )
+
+
+@app.get("/api/settings/trello/boards")
+def api_settings_trello_boards():
+    auth_error = _require_auth()
+    if auth_error:
+        return auth_error
+
+    user_id = int(session["user_id"])
+    row = _get_user_settings(user_id)
+    if not row:
+        return jsonify({"ok": False, "error": "Save settings with a Trello token first."}), 400
+
+    trello_token = str(row["trello_token"] or "").strip()
+    if not trello_token:
+        return jsonify({"ok": False, "error": "Save settings with a Trello token first."}), 400
+
+    try:
+        boards = _get_trello_boards_for_user(user_id)
+    except Exception:
+        return jsonify({"ok": False, "error": "Unable to connect to Trello with the saved token."}), 400
+
+    selected_ids = _parse_caldav_calendar_names(str(row["trello_board_ids"] or ""))
+    if not selected_ids:
+        selected_names = {name.lower() for name in _parse_caldav_calendar_names(str(row["trello_boards"] or ""))}
+        if selected_names:
+            selected_ids = [
+                str(board.get("id", "")).strip()
+                for board in boards
+                if str(board.get("name", "")).strip().lower() in selected_names
+            ]
+    boards_sorted = sorted(boards, key=lambda item: str(item.get("name", "")).lower())
+    return jsonify({"ok": True, "boards": boards_sorted, "selected": selected_ids})
 
 
 @app.post("/api/account/delete")
@@ -2009,6 +2980,7 @@ def api_secretariat():
     _log("API_SECRETARIAT", "request_received")
     payload = request.get_json(silent=True) or {}
     prompt_text = str(payload.get("prompt", "")).strip()
+    _log("USER_INPUT", _truncate_text(prompt_text, 1200))
     image_data_url = payload.get("image_data_url")
     session_id = str(payload.get("session_id", "")).strip() or str(uuid.uuid4())
     user_id = int(session["user_id"])
@@ -2019,6 +2991,11 @@ def api_secretariat():
     if session_data.get("user_id") not in (None, user_id):
         session_data = {}
     previous_response_id = session_data.get("previous_response_id")
+    token_totals = session_data.get("token_totals")
+    if not isinstance(token_totals, dict):
+        token_totals = {"uncached": 0, "cached": 0, "rolling_uncached": 0, "rolling_cached": 0}
+    token_totals.setdefault("rolling_uncached", 0)
+    token_totals.setdefault("rolling_cached", 0)
     payload_timezone = str(payload.get("timezone", "")).strip()
     payload_location = payload.get("location") if isinstance(payload.get("location"), dict) else {}
     payload_latitude = _coerce_float(payload_location.get("latitude"))
@@ -2044,6 +3021,7 @@ def api_secretariat():
             previous_response_id=previous_response_id,
             location_context=weather_location,
             user_id=user_id,
+            token_totals=token_totals,
         )
         with session_store_lock:
             session_store[session_id] = {
@@ -2051,6 +3029,7 @@ def api_secretariat():
                 "previous_response_id": result.get("previous_response_id"),
                 "timezone": user_timezone,
                 "weather_location": weather_location,
+                "token_totals": token_totals,
                 "last_seen_ts": now_ts,
             }
         _log_json("API_SECRETARIAT_RESULT", {"session_id": session_id, **result})
@@ -2067,32 +3046,56 @@ def api_secretariat():
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
-@app.post("/api/secretariat/stream")
+@app.post("/api/secretariat/stream")  # snap
 def api_secretariat_stream():
     auth_error = _require_auth()
     if auth_error:
         return auth_error
+
     _log("API_SECRETARIAT_STREAM", "request_received")
+
     payload = request.get_json(silent=True) or {}
     prompt_text = str(payload.get("prompt", "")).strip()
+    _log("USER_INPUT", _truncate_text(prompt_text, 1200))
+
     image_data_url = payload.get("image_data_url")
     session_id = str(payload.get("session_id", "")).strip() or str(uuid.uuid4())
     user_id = int(session["user_id"])
     now_ts = datetime.now(timezone.utc).timestamp()
+
     with session_store_lock:
         _prune_sessions(now_ts)
         session_data = session_store.get(session_id, {})
+
     if session_data.get("user_id") not in (None, user_id):
         session_data = {}
+
     previous_response_id = session_data.get("previous_response_id")
+    token_totals = session_data.get("token_totals")
+
+    if not isinstance(token_totals, dict):
+        token_totals = {
+            "uncached": 0,
+            "cached": 0,
+            "rolling_uncached": 0,
+            "rolling_cached": 0,
+        }
+
+    token_totals.setdefault("uncached", 0)
+    token_totals.setdefault("cached", 0)
+    token_totals.setdefault("rolling_uncached", 0)
+    token_totals.setdefault("rolling_cached", 0)
+
     payload_timezone = str(payload.get("timezone", "")).strip()
     payload_location = payload.get("location") if isinstance(payload.get("location"), dict) else {}
+
     payload_latitude = _coerce_float(payload_location.get("latitude"))
     payload_longitude = _coerce_float(payload_location.get("longitude"))
     payload_accuracy = _coerce_float(payload_location.get("accuracy_m"))
 
     user_timezone = payload_timezone or session_data.get("timezone")
     weather_location = session_data.get("weather_location")
+
     if payload_latitude is not None and payload_longitude is not None:
         weather_location = {
             "latitude": payload_latitude,
@@ -2104,99 +3107,51 @@ def api_secretariat_stream():
         return jsonify({"ok": False, "error": "Prompt is required."}), 400
 
     def stream():
+        final = None
+
         try:
             def emit(payload_obj):
                 return json.dumps(payload_obj, ensure_ascii=False) + "\n"
 
-            results = []
-            state = "RUNNING"
-            assistant_message = ""
-            current_response_id = previous_response_id
-            max_turns = 12
-            action_counter = {}
-            function_call_id_alias_state = {"counter": 0, "by_value": {}}
-            call_id_alias_state = {"counter": 0, "by_value": {}}
+            for event in run_secretariat_core(
+                prompt_text,
+                image_data_url=image_data_url,
+                previous_response_id=previous_response_id,
+                user_timezone=user_timezone,
+                location_context=weather_location,
+                user_id=user_id,
+                token_totals=token_totals,
+            ):
+                if event.get("type") == "final":
+                    final = event
 
-            for turn_idx in range(max_turns):
-                _log("TURN_START", f"{turn_idx + 1}/{max_turns}")
-                yield emit({"type": "status", "label": "Thinking..."})
+                    yield emit({
+                        "type": "final",
+                        "ok": True,
+                        "session_id": session_id,
+                        "state": event.get("state"),
+                        "message": event.get("message", ""),
+                        "previous_response_id": event.get("previous_response_id"),
+                    })
+                else:
+                    yield emit(event)
 
-                user_turn = {"prompt": prompt_text}
-                if turn_idx == 0 and image_data_url:
-                    user_turn["image_data_url"] = image_data_url
-                response = ask_gpt54(
-                    user_turn,
-                    system_prompt,
-                    results,
-                    current_response_id,
-                    user_timezone=user_timezone,
-                    location_context=weather_location,
-                    user_id=user_id,
-                )
-                current_response_id = response.id
-                response_data = response.model_dump()
-                results = []
-                saw_function_call = False
-                function_calls = []
-                _log_json(
-                    "MODEL_OUTPUT",
-                    _alias_model_output_ids(
-                        response_data.get("output", []),
-                        function_call_id_alias_state,
-                        call_id_alias_state,
-                    ),
-                )
+            if final is None:
+                final = {
+                    "previous_response_id": previous_response_id,
+                    "token_totals": token_totals,
+                }
 
-                for content in response_data.get("output", []):
-                    if content.get("type") == "message" and content.get("content"):
-                        text_payload = content["content"][0].get("text", "")
-                        try:
-                            parsed = json.loads(text_payload)
-                            state = parsed.get("state", "RUNNING")
-                            assistant_message = parsed.get("message", "")
-                        except Exception:
-                            state = "RUNNING"
-                            assistant_message = text_payload
-
-                    if content.get("type") == "function_call":
-                        saw_function_call = True
-                        function_calls.append({
-                            "name": content["name"],
-                            "args": json.loads(content["arguments"]),
-                            "call_id": content["call_id"],
-                        })
-
-                # If the model returned only a user-facing message and no tool calls,
-                # treat that turn as complete instead of spinning another model turn.
-                if not saw_function_call and assistant_message and state == "RUNNING":
-                    state = "DONE"
-
-                if saw_function_call:
-                    _log("TOOL_BATCH", f"Executing {len(function_calls)} tool call(s)")
-                    yield emit({"type": "status", "label": _batch_status_label(function_calls)})
-                    tool_outputs = _execute_function_calls_parallel(function_calls, user_id=user_id)
-                    _accumulate_action_report(action_counter, tool_outputs)
-                    results.extend(compress_tool_output(output) for output in tool_outputs)
-                    continue
-
-                if state in {"WAITING", "DONE"}:
-                    _log("TURN_END", f"state={state}")
-                    break
-
-            result = {
-                "state": state,
-                "message": (assistant_message or "Request timed out.") + _format_action_report(action_counter),
-                "previous_response_id": current_response_id,
-            }
             with session_store_lock:
                 session_store[session_id] = {
                     "user_id": user_id,
-                    "previous_response_id": result.get("previous_response_id"),
+                    "previous_response_id": final.get("previous_response_id"),
                     "timezone": user_timezone,
                     "weather_location": weather_location,
-                    "last_seen_ts": now_ts,
+                    "token_totals": final.get("token_totals", token_totals),
+                    "last_seen_ts": datetime.now(timezone.utc).timestamp(),
                 }
-            yield emit({"type": "final", "ok": True, "session_id": session_id, **result})
+
         except Exception as e:
             _log_json(
                 "API_SECRETARIAT_STREAM_ERROR",
@@ -2206,10 +3161,17 @@ def api_secretariat_stream():
                     "traceback": traceback.format_exc(),
                 },
             )
-            yield json.dumps({"type": "final", "ok": False, "error": str(e)}, ensure_ascii=False) + "\n"
 
-    return Response(stream_with_context(stream()), mimetype="application/x-ndjson")
+            yield json.dumps({
+                "type": "final",
+                "ok": False,
+                "error": str(e),
+            }, ensure_ascii=False) + "\n"
 
+    return Response(
+        stream_with_context(stream()),
+        mimetype="application/x-ndjson",
+    )
 
 @app.post("/api/session/init")
 def api_session_init():
@@ -2230,10 +3192,14 @@ def api_session_init():
         _prune_sessions(now_ts)
         session_data = session_store.get(
             session_id,
-            {"user_id": user_id, "previous_response_id": None, "timezone": None, "weather_location": None, "last_seen_ts": now_ts},
+            {"user_id": user_id, "previous_response_id": None, "timezone": None, "weather_location": None, "token_totals": {"uncached": 0, "cached": 0}, "last_seen_ts": now_ts},
         )
         if session_data.get("user_id") not in (None, user_id):
-            session_data = {"user_id": user_id, "previous_response_id": None, "timezone": None, "weather_location": None, "last_seen_ts": now_ts}
+            session_data = {"user_id": user_id, "previous_response_id": None, "timezone": None, "weather_location": None, "token_totals": {"uncached": 0, "cached": 0, "rolling_uncached": 0, "rolling_cached": 0}, "last_seen_ts": now_ts}
+        if not isinstance(session_data.get("token_totals"), dict):
+            session_data["token_totals"] = {"uncached": 0, "cached": 0, "rolling_uncached": 0, "rolling_cached": 0}
+        session_data["token_totals"].setdefault("rolling_uncached", 0)
+        session_data["token_totals"].setdefault("rolling_cached", 0)
         if timezone_name:
             session_data["timezone"] = timezone_name
         if latitude is not None and longitude is not None:
@@ -2265,6 +3231,5 @@ if __name__ == "__main__":
 
 """
 Born In '0.5
-CSS! CSS!
+R u faster.. maybeee
 """
-

@@ -7,9 +7,14 @@ const caldavSettingsFormEl = document.getElementById("caldav-settings-form");
 const caldavProviderEl = document.getElementById("caldav-provider");
 const caldavUsernameEl = document.getElementById("caldav-username");
 const caldavPasswordEl = document.getElementById("caldav-password");
+const trelloTokenEl = document.getElementById("trello-token");
+const trelloBoardsFieldEl = document.getElementById("trello-boards-field");
 const caldavCalendarDropdownEl = document.getElementById("caldav-calendar-dropdown");
 const caldavCalendarSummaryEl = document.getElementById("caldav-calendar-summary");
 const caldavCalendarOptionsEl = document.getElementById("caldav-calendar-options");
+const trelloBoardDropdownEl = document.getElementById("trello-board-dropdown");
+const trelloBoardSummaryEl = document.getElementById("trello-board-summary");
+const trelloBoardOptionsEl = document.getElementById("trello-board-options");
 const assistantModelEl = document.getElementById("assistant-model");
 const settingsStatusEl = document.getElementById("settings-status");
 const deleteUserFormEl = document.getElementById("delete-user-form");
@@ -20,6 +25,10 @@ let currentUser = null;
 let selectedCalendars = [];
 let availableCalendars = [];
 let calendarsDropdownOpen = false;
+let selectedTrelloBoardIds = [];
+let selectedTrelloBoardNames = [];
+let availableTrelloBoards = [];
+let trelloBoardsDropdownOpen = false;
 const CALDAV_PROVIDER_URLS = {
   icloud: "https://caldav.icloud.com",
   google: "https://www.google.com/calendar/dav/",
@@ -151,6 +160,64 @@ function splitCalendarNames(raw) {
   return normalizeCalendarNames(text.split(","));
 }
 
+function updateTrelloBoardSummary() {
+  if (!trelloBoardSummaryEl) return;
+  if (!selectedTrelloBoardIds.length) {
+    trelloBoardSummaryEl.textContent = "No boards selected";
+    return;
+  }
+  const idSet = new Set(selectedTrelloBoardIds.map((value) => String(value || "").trim().toLowerCase()));
+  const selectedNames = availableTrelloBoards
+    .filter((board) => idSet.has(String(board.id || "").trim().toLowerCase()))
+    .map((board) => String(board.name || "").trim())
+    .filter(Boolean);
+  const namesToShow = selectedNames.length ? selectedNames : normalizeCalendarNames(selectedTrelloBoardNames);
+  trelloBoardSummaryEl.textContent = namesToShow.length ? namesToShow.join(", ") : "No boards selected";
+}
+
+function renderTrelloBoardOptions() {
+  if (!trelloBoardOptionsEl) return;
+  trelloBoardOptionsEl.innerHTML = "";
+
+  if (!availableTrelloBoards.length) {
+    const emptyEl = document.createElement("p");
+    emptyEl.textContent = "No boards found.";
+    trelloBoardOptionsEl.appendChild(emptyEl);
+    updateTrelloBoardSummary();
+    return;
+  }
+
+  for (const board of availableTrelloBoards) {
+    const boardId = String(board.id || "").trim();
+    const boardName = String(board.name || "").trim();
+    if (!boardId || !boardName) continue;
+
+    const labelEl = document.createElement("label");
+    labelEl.className = "settings-multi-select-option";
+
+    const inputEl = document.createElement("input");
+    inputEl.type = "checkbox";
+    inputEl.value = boardId;
+    inputEl.checked = selectedTrelloBoardIds.some((id) => id.toLowerCase() === boardId.toLowerCase());
+    inputEl.addEventListener("change", () => {
+      if (inputEl.checked) {
+        selectedTrelloBoardIds = normalizeCalendarNames([...selectedTrelloBoardIds, boardId]);
+      } else {
+        selectedTrelloBoardIds = selectedTrelloBoardIds.filter((id) => id.toLowerCase() !== boardId.toLowerCase());
+      }
+      updateTrelloBoardSummary();
+    });
+
+    const textEl = document.createElement("span");
+    textEl.textContent = boardName;
+    labelEl.appendChild(textEl);
+    labelEl.appendChild(inputEl);
+    trelloBoardOptionsEl.appendChild(labelEl);
+  }
+
+  updateTrelloBoardSummary();
+}
+
 function updateCalendarSummary() {
   if (!caldavCalendarSummaryEl) return;
   if (!selectedCalendars.length) {
@@ -207,6 +274,14 @@ function setCalendarsDropdownOpen(open) {
   caldavCalendarSummaryEl.setAttribute("aria-expanded", calendarsDropdownOpen ? "true" : "false");
 }
 
+function setTrelloBoardsDropdownOpen(open) {
+  trelloBoardsDropdownOpen = Boolean(open);
+  if (!trelloBoardOptionsEl || !trelloBoardSummaryEl || !trelloBoardDropdownEl) return;
+  trelloBoardOptionsEl.classList.toggle("hidden", !trelloBoardsDropdownOpen);
+  trelloBoardDropdownEl.classList.toggle("is-open", trelloBoardsDropdownOpen);
+  trelloBoardSummaryEl.setAttribute("aria-expanded", trelloBoardsDropdownOpen ? "true" : "false");
+}
+
 async function fetchCalendarNames() {
   try {
     const response = await fetch("/api/settings/caldav/calendars");
@@ -228,6 +303,55 @@ async function fetchCalendarNames() {
   }
 }
 
+async function fetchTrelloBoards() {
+  const token = trelloTokenEl ? trelloTokenEl.value.trim() : "";
+  if (!token) {
+    availableTrelloBoards = [];
+    selectedTrelloBoards = [];
+    renderTrelloBoardOptions();
+    if (trelloBoardsFieldEl) {
+      trelloBoardsFieldEl.classList.add("hidden");
+    }
+    return;
+  }
+
+  try {
+    const response = await fetch("/api/settings/trello/boards");
+    const data = await response.json();
+    if (!response.ok || !data.ok) {
+      throw new Error(data.error || "Unable to fetch Trello boards.");
+    }
+
+    const rawBoards = Array.isArray(data.boards) ? data.boards : [];
+    availableTrelloBoards = rawBoards
+      .map((board) => ({
+        id: String((board && board.id) || "").trim(),
+        name: String((board && board.name) || "").trim(),
+      }))
+      .filter((board) => board.id && board.name);
+    const selectedFromServer = normalizeCalendarNames(data.selected || []);
+    const availableSet = new Set(availableTrelloBoards.map((board) => String(board.id || "").toLowerCase()));
+    const localSelected = normalizeCalendarNames(selectedTrelloBoardIds).filter((id) => availableSet.has(id.toLowerCase()));
+    const serverSelected = selectedFromServer.filter((id) => availableSet.has(id.toLowerCase()));
+    selectedTrelloBoardIds = normalizeCalendarNames([...serverSelected, ...localSelected]);
+    selectedTrelloBoardNames = availableTrelloBoards
+      .filter((board) => selectedTrelloBoardIds.some((id) => id.toLowerCase() === String(board.id || "").toLowerCase()))
+      .map((board) => String(board.name || "").trim())
+      .filter(Boolean);
+    renderTrelloBoardOptions();
+    if (trelloBoardsFieldEl) {
+      trelloBoardsFieldEl.classList.remove("hidden");
+    }
+  } catch (error) {
+    availableTrelloBoards = [];
+    renderTrelloBoardOptions();
+    if (trelloBoardsFieldEl) {
+      trelloBoardsFieldEl.classList.toggle("hidden", !selectedTrelloBoardIds.length);
+    }
+    throw error;
+  }
+}
+
 async function requireAuth() {
   const response = await fetch("/api/auth/me");
   const data = await response.json();
@@ -245,7 +369,7 @@ async function requireAuth() {
 async function loadSettings() {
   setSettingsStatus("Loading...");
   try {
-    const response = await fetch("/api/settings/caldav");
+    const response = await fetch("/api/settings/caldav/full");
     const data = await response.json();
     if (!response.ok || !data.ok) {
       throw new Error(data.error || "Unable to load settings.");
@@ -257,6 +381,19 @@ async function loadSettings() {
     selectedCalendars = normalizeCalendarNames((settings.caldav_calendars && settings.caldav_calendars.length)
       ? settings.caldav_calendars
       : splitCalendarNames(settings.caldav_calendar || ""));
+    if (trelloTokenEl) {
+      trelloTokenEl.value = settings.trello_token || "";
+    }
+    selectedTrelloBoardNames = normalizeCalendarNames((settings.trello_boards && settings.trello_boards.length)
+      ? settings.trello_boards
+      : splitCalendarNames(settings.trello_board || ""));
+    selectedTrelloBoardIds = normalizeCalendarNames((settings.trello_board_ids && settings.trello_board_ids.length)
+      ? settings.trello_board_ids
+      : splitCalendarNames(settings.trello_board_ids || ""));
+    renderTrelloBoardOptions();
+    if (trelloBoardsFieldEl) {
+      trelloBoardsFieldEl.classList.toggle("hidden", !selectedTrelloBoardIds.length);
+    }
     renderCalendarOptions();
     if (assistantModelEl) {
       assistantModelEl.value = settings.assistant_model || "gpt-5.4";
@@ -267,6 +404,11 @@ async function loadSettings() {
       await fetchCalendarNames();
     } catch (error) {
       setSettingsStatus(error.message || "Unable to fetch calendar names.", true);
+    }
+    try {
+      await fetchTrelloBoards();
+    } catch (error) {
+      // Token may be missing/invalid; keep this silent unless user saves.
     }
   } catch (error) {
     setSettingsStatus(error.message || "Unable to load settings.", true);
@@ -313,16 +455,27 @@ document.addEventListener("click", (event) => {
   chatMenuEl.classList.add("hidden");
   chatMenuTriggerEl.setAttribute("aria-expanded", "false");
 
-  if (!caldavCalendarDropdownEl || !caldavCalendarOptionsEl || !calendarsDropdownOpen) return;
   const dropdownTarget = event.target;
   if (!(dropdownTarget instanceof Node)) return;
-  if (caldavCalendarDropdownEl.contains(dropdownTarget)) return;
-  setCalendarsDropdownOpen(false);
+
+  if (caldavCalendarDropdownEl && caldavCalendarOptionsEl && calendarsDropdownOpen && !caldavCalendarDropdownEl.contains(dropdownTarget)) {
+    setCalendarsDropdownOpen(false);
+  }
+
+  if (trelloBoardDropdownEl && trelloBoardOptionsEl && trelloBoardsDropdownOpen && !trelloBoardDropdownEl.contains(dropdownTarget)) {
+    setTrelloBoardsDropdownOpen(false);
+  }
 });
 
 if (caldavCalendarSummaryEl) {
   caldavCalendarSummaryEl.addEventListener("click", () => {
     setCalendarsDropdownOpen(!calendarsDropdownOpen);
+  });
+}
+
+if (trelloBoardSummaryEl) {
+  trelloBoardSummaryEl.addEventListener("click", () => {
+    setTrelloBoardsDropdownOpen(!trelloBoardsDropdownOpen);
   });
 }
 
@@ -338,6 +491,8 @@ if (caldavSettingsFormEl) {
           caldav_url: CALDAV_PROVIDER_URLS[caldavProviderEl.value] || CALDAV_PROVIDER_URLS.icloud,
           caldav_username: caldavUsernameEl.value.trim(),
           caldav_password: caldavPasswordEl.value,
+          trello_token: trelloTokenEl ? trelloTokenEl.value.trim() : "",
+          trello_board_ids: selectedTrelloBoardIds,
           caldav_calendars: selectedCalendars,
           assistant_model: assistantModelEl ? assistantModelEl.value : "gpt-5.4",
         }),
