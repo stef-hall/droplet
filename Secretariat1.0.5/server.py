@@ -978,6 +978,12 @@ Rules:
 - If a requested time could be interpreted as AM or PM, do not guess; ask a clarifying question before calling tools
 - Display multipile events in a markdown time table 
 - If someone calls you 'bud' you have to call them 'bud' back
+- When Getting a time range:
+  - this week → now to end of Sunday
+  - next week → next Monday 00:00 to next Sunday 23:59
+  - vague search → now to +14 days
+  - broad search → now to +30 days max
+  - Confirm (with a reason) before searching >30 days
 - Always return a state:
   - RUNNING = Operating Tools/Thinking
   - WAITING = Waiting for User Input
@@ -1018,7 +1024,7 @@ FastReplies rules:
 - Visible text must fit naturally in the assistant message.
 - Hidden text must be the user’s intended reply.
 - Any suggested actions, or solutions contained in a clarification questions MUST have FastReplies options.
-- Any “I can…”, “tell me…”, “if you meant…”, or “do you want…” suggestion needs a FastReply.
+- Any “I can…”, “if you meant…”, or “do you want…” should be a FastReply.
 - e.g. "I couldn’t find a list called that. If you [[send: meant an event|Yes, I meant an event]], tell me which to remove."
 - soft max of 3 FastReplies per message
 
@@ -1032,7 +1038,6 @@ STRICT VALID RESPONSE FORMAT:
     "state": "RUNNING|WAITING|DONE",
     "message": "..."
 }
-
 """
 
 tools = [
@@ -2322,7 +2327,7 @@ def ask_gpt54(user_input, system_prompt, results, previous_response_id=None, use
     formatted_request = (
         f"Request: {raw_prompt}\n"
         "##############################\n"
-        f"Current Local time: {now_local.strftime('%Y%m%dT%H%M%S%z')}\n"
+        f"Current Local time: {now_local.strftime('%Y%m%dT%H%M%S%z, %a')}\n"
         f"{_format_location_for_prompt(location_context)}\n"
         f"Available lists: {lists_line}\n"
     )
