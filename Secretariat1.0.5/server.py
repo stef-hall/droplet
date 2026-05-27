@@ -3127,7 +3127,7 @@ def api_secretariat_stream():
                     yield emit({"type": "status", "label": _batch_status_label(function_calls)})
                     tool_outputs = _execute_function_calls_parallel(function_calls, user_id=user_id)
                     _accumulate_action_report(action_counter, tool_outputs)
-                    results.extend(compress_tool_output(output) for output in tool_outputs)
+                    results.extend(compress_tool_output(tool_outputs))
                     continue
                 usage = response.usage
                 input_tokens = usage.input_tokens

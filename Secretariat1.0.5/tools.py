@@ -632,6 +632,7 @@ def GetWeather(latitude, longitude, times=None, field_names=None):
 
 if __name__ == "__main__":
     from server import LISTS_DIR, _get_user_caldav_calendars
+    from server import compress_tool_output as compress
 
     configure_tools(_get_user_caldav_calendars, LISTS_DIR)
     
