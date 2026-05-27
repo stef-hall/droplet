@@ -2375,23 +2375,48 @@ def ask_gpt54(user_input, system_prompt, results, previous_response_id=None, use
     return response
 
 
-def run_secretariat(prompt_text, image_data_url=None, previous_response_id=None, user_timezone=None, location_context=None, max_turns=12, status_callback=None, user_id=None, token_totals=None):
+def run_secretariat(*args, status_callback=None, **kwargs):
+    final = None
+
+    for event in run_secretariat_core(*args, **kwargs):
+        if event["type"] == "status" and status_callback:
+            status_callback(event["label"])
+
+        if event["type"] == "final":
+            final = event
+
+    return {
+        "state": final["state"],
+        "message": final["message"],
+        "previous_response_id": final["previous_response_id"],
+    }
+
+def run_secretariat_core(
+    prompt_text,image_data_url=None,previous_response_id=None,user_timezone=None,
+    location_context=None,max_turns=12,user_id=None,token_totals=None,):
     results = []
     state = "RUNNING"
     assistant_message = ""
     current_response_id = previous_response_id
-    if not isinstance(token_totals, dict):
-        token_totals = {"uncached": 0, "cached": 0}
     action_counter = {}
-    function_call_id_alias_state = {"counter": 0, "by_value": {}}
-    call_id_alias_state = {"counter": 0, "by_value": {}}
+    if not isinstance(token_totals, dict):
+        token_totals = {
+            "uncached": 0,
+            "cached": 0,
+            "rolling_uncached": 0,
+            "rolling_cached": 0,
+        }
+    token_totals.setdefault("uncached", 0)
+    token_totals.setdefault("cached", 0)
+    token_totals.setdefault("rolling_uncached", 0)
+    token_totals.setdefault("rolling_cached", 0)
     for turn_idx in range(max_turns):
-        if status_callback:
-            status_callback("Thinking...")
+        yield {"type": "status", "label": "Thinking..."}
         _log(f"TURN {turn_idx + 1}/{max_turns}", "")
         user_turn = {"prompt": prompt_text}
         if turn_idx == 0 and image_data_url:
             user_turn["image_data_url"] = image_data_url
+
         response = ask_gpt54(
             user_turn,
             system_prompt,
@@ -2404,10 +2429,10 @@ def run_secretariat(prompt_text, image_data_url=None, previous_response_id=None,
         )
         current_response_id = response.id
         response_data = response.model_dump()
+        _log("MODEL_OUTPUT", _extract_model_text(response_data.get("output", [])))
         results = []
         saw_function_call = False
         function_calls = []
-        _log("MODEL_OUTPUT", _extract_model_text(response_data.get("output", [])))
         for content in response_data.get("output", []):
             if content.get("type") == "message" and content.get("content"):
                 text_payload = content["content"][0].get("text", "")
@@ -2415,11 +2440,9 @@ def run_secretariat(prompt_text, image_data_url=None, previous_response_id=None,
                     parsed = json.loads(text_payload)
                     state = parsed.get("state", "RUNNING")
                     assistant_message = parsed.get("message", "")
-
                 except Exception:
                     state = "RUNNING"
                     assistant_message = text_payload
-
             if content.get("type") == "function_call":
                 saw_function_call = True
                 function_calls.append({
@@ -2428,53 +2451,58 @@ def run_secretariat(prompt_text, image_data_url=None, previous_response_id=None,
                     "call_id": content["call_id"],
                 })
 
-        # If the model returned only a user-facing message and no tool calls,
-        # treat that turn as complete instead of spinning another model turn.
         if not saw_function_call and assistant_message and state == "RUNNING":
             state = "DONE"
-
         if saw_function_call:
             _log("TOOL_BATCH", f"Executing {len(function_calls)} tool call(s)")
-            if status_callback:
-                status_callback(_batch_status_label(function_calls))
-            tool_outputs = _execute_function_calls_parallel(function_calls, user_id=user_id)
+            yield {"type": "status", "label": _batch_status_label(function_calls),}
+            tool_outputs = _execute_function_calls_parallel(function_calls,user_id=user_id)
             _accumulate_action_report(action_counter, tool_outputs)
             results.extend(compress_tool_output(tool_outputs))
             continue
+
         usage = response.usage
         input_tokens = usage.input_tokens
         cached_tokens = usage.input_tokens_details.cached_tokens
         uncached_tokens = input_tokens - cached_tokens
-        if token_totals is not None:
-            token_totals["rolling_uncached"] = token_totals.get("rolling_uncached", 0) + uncached_tokens
-            token_totals["rolling_cached"] = token_totals.get("rolling_cached", 0) + cached_tokens
-            token_totals["uncached"] = token_totals.get("uncached", 0) + token_totals["rolling_uncached"]
-            token_totals["cached"] = token_totals.get("cached", 0) + token_totals["rolling_cached"]
+        token_totals["rolling_uncached"] = (token_totals.get("rolling_uncached", 0) + uncached_tokens)
+        token_totals["rolling_cached"] = (token_totals.get("rolling_cached", 0) + cached_tokens)
+        token_totals["uncached"] = (token_totals.get("uncached", 0) + uncached_tokens)
+        token_totals["cached"] = (token_totals.get("cached", 0) + cached_tokens)
         print(f"[INPUT UN/C] {uncached_tokens} / {cached_tokens}")
-        print(f"[TOTAL UN/C] {token_totals.get('uncached', 0) if token_totals is not None else uncached_tokens} / {token_totals.get('cached', 0) if token_totals is not None else cached_tokens}")
-
+        print(f"[TOTAL UN/C] {token_totals.get('uncached', 0)} / {token_totals.get('cached', 0)}")
+        yield {
+            "type": "token_usage",
+            "input_uncached": uncached_tokens,
+            "input_cached": cached_tokens,
+            "rolling_uncached": token_totals.get("rolling_uncached", 0),
+            "rolling_cached": token_totals.get("rolling_cached", 0),
+            "total_uncached": token_totals.get("uncached", 0),
+            "total_cached": token_totals.get("cached", 0),
+        }
         if state in {"WAITING", "DONE"}:
             _log("TURN_END", f"state={state}")
-            if state == "DONE":
-                print("")
-            assistant_message = (assistant_message or "") + _format_action_report(action_counter)
-            return {
+            yield {
+                "type": "final",
                 "state": state,
-                "message": assistant_message,
+                "message": (assistant_message or "") + _format_action_report(action_counter),
                 "previous_response_id": current_response_id,
+                "token_totals": token_totals,
             }
+            print("")
+            return
 
-    return {
+    yield {
+        "type": "final",
         "state": state,
         "message": (assistant_message or "Request timed out.") + _format_action_report(action_counter),
         "previous_response_id": current_response_id,
+        "token_totals": token_totals,
     }
-
 
 @app.get("/")
 def home():
     return render_template("Secretariat.html")
-
 
 @app.get("/settings")
 def settings_page():
@@ -3018,38 +3046,56 @@ def api_secretariat():
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
-@app.post("/api/secretariat/stream")
+@app.post("/api/secretariat/stream")  # snap
 def api_secretariat_stream():
     auth_error = _require_auth()
     if auth_error:
         return auth_error
+
     _log("API_SECRETARIAT_STREAM", "request_received")
+
     payload = request.get_json(silent=True) or {}
     prompt_text = str(payload.get("prompt", "")).strip()
     _log("USER_INPUT", _truncate_text(prompt_text, 1200))
+
     image_data_url = payload.get("image_data_url")
     session_id = str(payload.get("session_id", "")).strip() or str(uuid.uuid4())
     user_id = int(session["user_id"])
     now_ts = datetime.now(timezone.utc).timestamp()
+
     with session_store_lock:
         _prune_sessions(now_ts)
         session_data = session_store.get(session_id, {})
+
     if session_data.get("user_id") not in (None, user_id):
         session_data = {}
+
     previous_response_id = session_data.get("previous_response_id")
     token_totals = session_data.get("token_totals")
+
     if not isinstance(token_totals, dict):
-        token_totals = {"uncached": 0, "cached": 0, "rolling_uncached": 0, "rolling_cached": 0}
+        token_totals = {
+            "uncached": 0,
+            "cached": 0,
+            "rolling_uncached": 0,
+            "rolling_cached": 0,
+        }
+
+    token_totals.setdefault("uncached", 0)
+    token_totals.setdefault("cached", 0)
     token_totals.setdefault("rolling_uncached", 0)
     token_totals.setdefault("rolling_cached", 0)
+
     payload_timezone = str(payload.get("timezone", "")).strip()
     payload_location = payload.get("location") if isinstance(payload.get("location"), dict) else {}
+
     payload_latitude = _coerce_float(payload_location.get("latitude"))
     payload_longitude = _coerce_float(payload_location.get("longitude"))
     payload_accuracy = _coerce_float(payload_location.get("accuracy_m"))
 
     user_timezone = payload_timezone or session_data.get("timezone")
     weather_location = session_data.get("weather_location")
+
     if payload_latitude is not None and payload_longitude is not None:
         weather_location = {
             "latitude": payload_latitude,
@@ -3061,107 +3107,51 @@ def api_secretariat_stream():
         return jsonify({"ok": False, "error": "Prompt is required."}), 400
 
     def stream():
+        final = None
+
         try:
             def emit(payload_obj):
                 return json.dumps(payload_obj, ensure_ascii=False) + "\n"
 
-            results = []
-            state = "RUNNING"
-            assistant_message = ""
-            current_response_id = previous_response_id
-            max_turns = 12
-            action_counter = {}
-            function_call_id_alias_state = {"counter": 0, "by_value": {}}
-            call_id_alias_state = {"counter": 0, "by_value": {}}
+            for event in run_secretariat_core(
+                prompt_text,
+                image_data_url=image_data_url,
+                previous_response_id=previous_response_id,
+                user_timezone=user_timezone,
+                location_context=weather_location,
+                user_id=user_id,
+                token_totals=token_totals,
+            ):
+                if event.get("type") == "final":
+                    final = event
 
-            for turn_idx in range(max_turns):
-                _log(f"TURN {turn_idx + 1}/{max_turns}", "")
-                yield emit({"type": "status", "label": "Thinking..."})
+                    yield emit({
+                        "type": "final",
+                        "ok": True,
+                        "session_id": session_id,
+                        "state": event.get("state"),
+                        "message": event.get("message", ""),
+                        "previous_response_id": event.get("previous_response_id"),
+                    })
+                else:
+                    yield emit(event)
 
-                user_turn = {"prompt": prompt_text}
-                if turn_idx == 0 and image_data_url:
-                    user_turn["image_data_url"] = image_data_url
-                response = ask_gpt54(
-                    user_turn,
-                    system_prompt,
-                    results,
-                    current_response_id,
-                    user_timezone=user_timezone,
-                    location_context=weather_location,
-                    user_id=user_id,
-                    token_totals=token_totals,
-                )
-                current_response_id = response.id
-                response_data = response.model_dump()
-                results = []
-                saw_function_call = False
-                function_calls = []
-                _log("MODEL_OUTPUT", _extract_model_text(response_data.get("output", [])))
+            if final is None:
+                final = {
+                    "previous_response_id": previous_response_id,
+                    "token_totals": token_totals,
+                }
 
-                for content in response_data.get("output", []):
-                    if content.get("type") == "message" and content.get("content"):
-                        text_payload = content["content"][0].get("text", "")
-                        try:
-                            parsed = json.loads(text_payload)
-                            state = parsed.get("state", "RUNNING")
-                            assistant_message = parsed.get("message", "")
-                        except Exception:
-                            state = "RUNNING"
-                            assistant_message = text_payload
-
-                    if content.get("type") == "function_call":
-                        saw_function_call = True
-                        function_calls.append({
-                            "name": content["name"],
-                            "args": json.loads(content["arguments"]),
-                            "call_id": content["call_id"],
-                        })
-
-                # If the model returned only a user-facing message and no tool calls,
-                # treat that turn as complete instead of spinning another model turn.
-                if not saw_function_call and assistant_message and state == "RUNNING":
-                    state = "DONE"
-
-                if saw_function_call:
-                    _log("TOOL_BATCH", f"Executing {len(function_calls)} tool call(s)")
-                    yield emit({"type": "status", "label": _batch_status_label(function_calls)})
-                    tool_outputs = _execute_function_calls_parallel(function_calls, user_id=user_id)
-                    _accumulate_action_report(action_counter, tool_outputs)
-                    results.extend(compress_tool_output(tool_outputs))
-                    continue
-                usage = response.usage
-                input_tokens = usage.input_tokens
-                cached_tokens = usage.input_tokens_details.cached_tokens
-                uncached_tokens = input_tokens - cached_tokens
-                if token_totals is not None:
-                    token_totals["rolling_uncached"] = token_totals.get("rolling_uncached", 0) + uncached_tokens
-                    token_totals["rolling_cached"] = token_totals.get("rolling_cached", 0) + cached_tokens
-                    token_totals["uncached"] = token_totals.get("uncached", 0) + token_totals["rolling_uncached"]
-                    token_totals["cached"] = token_totals.get("cached", 0) + token_totals["rolling_cached"]
-                print(f"[INPUT UN/C] {uncached_tokens} / {cached_tokens}")
-                print(f"[TOTAL UN/C] {token_totals.get('uncached', 0) if token_totals is not None else uncached_tokens} / {token_totals.get('cached', 0) if token_totals is not None else cached_tokens}")
-
-                if state in {"WAITING", "DONE"}:
-                    _log("TURN_END", f"state={state}")
-                    if state == "DONE":
-                        print("")
-                    break
-
-            result = {
-                "state": state,
-                "message": (assistant_message or "Request timed out.") + _format_action_report(action_counter),
-                "previous_response_id": current_response_id,
-            }
             with session_store_lock:
                 session_store[session_id] = {
                     "user_id": user_id,
-                    "previous_response_id": result.get("previous_response_id"),
+                    "previous_response_id": final.get("previous_response_id"),
                     "timezone": user_timezone,
                     "weather_location": weather_location,
-                    "token_totals": token_totals,
-                    "last_seen_ts": now_ts,
+                    "token_totals": final.get("token_totals", token_totals),
+                    "last_seen_ts": datetime.now(timezone.utc).timestamp(),
                 }
-            yield emit({"type": "final", "ok": True, "session_id": session_id, **result})
+
         except Exception as e:
             _log_json(
                 "API_SECRETARIAT_STREAM_ERROR",
@@ -3171,10 +3161,17 @@ def api_secretariat_stream():
                     "traceback": traceback.format_exc(),
                 },
             )
-            yield json.dumps({"type": "final", "ok": False, "error": str(e)}, ensure_ascii=False) + "\n"
 
-    return Response(stream_with_context(stream()), mimetype="application/x-ndjson")
+            yield json.dumps({
+                "type": "final",
+                "ok": False,
+                "error": str(e),
+            }, ensure_ascii=False) + "\n"
 
+    return Response(
+        stream_with_context(stream()),
+        mimetype="application/x-ndjson",
+    )
 
 @app.post("/api/session/init")
 def api_session_init():
