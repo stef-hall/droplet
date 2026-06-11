@@ -2,3 +2,5 @@ Flask
 caldav
 openai
 vobject
+chromadb
+sentence-transformers

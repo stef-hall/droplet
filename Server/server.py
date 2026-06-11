@@ -2484,11 +2484,14 @@ def compress_addmemory(value):
     result = value.get("result", {}) if isinstance(value.get("result", {}), dict) else {}
     memory = result.get("memory", {}) if isinstance(result.get("memory", {}), dict) else value.get("memory", {})
 
-    return {
+    compacted = {
         "tool": value.get("tool"),
         "id": memory.get("id"),
         "status": value.get("status"),
     }
+    if value.get("status") == "failed":
+        compacted["error"] = value.get("error")
+    return compacted
 
 def compress_searchmemory(value):
     if not isinstance(value, dict):
@@ -2523,11 +2526,14 @@ def compress_editmemory(value):
     result = value.get("result", {}) if isinstance(value.get("result", {}), dict) else {}
     memory = result.get("memory", {}) if isinstance(result.get("memory", {}), dict) else value.get("memory", {})
 
-    return {
+    compacted = {
         "tool": value.get("tool"),
         "id": memory.get("id"),
         "status": value.get("status"),
     }
+    if value.get("status") == "failed":
+        compacted["error"] = value.get("error")
+    return compacted
 
 
 def compress_deletememory(value):
@@ -2537,11 +2543,14 @@ def compress_deletememory(value):
     result = value.get("result", {}) if isinstance(value.get("result", {}), dict) else {}
     memory_id = result.get("id") or value.get("memory", {}).get("id")
 
-    return {
+    compacted = {
         "tool": value.get("tool"),
         "id": memory_id,
         "status": value.get("status"),
     }
+    if value.get("status") == "failed":
+        compacted["error"] = value.get("error")
+    return compacted
 
 def _compact_value(value):
     # Need to add Tool Specific Compression here #snap
