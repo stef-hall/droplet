@@ -38,6 +38,8 @@ session_store = {}
 session_store_lock = Lock()
 _trello_id_alias_lock = Lock()
 _trello_id_alias_store: dict[int, dict[str, dict[str, object]]] = {}
+_memory_id_alias_lock = Lock()
+_memory_id_alias_store: dict[int, dict[str, object]] = {}
 SESSION_TTL_SECONDS = 6 * 60 * 60
 TRUSTED_DEVICE_COOKIE = "secretariat_trusted_device"
 TRUSTED_DEVICE_DAYS = 60
@@ -453,6 +455,51 @@ def _alias_trello_card_rows_for_user(user_id: int, rows: list[dict]) -> list[dic
             clone["card_id"] = _get_trello_alias(int(user_id), "card", card_real)
         if list_real:
             clone["list_id"] = _get_trello_alias(int(user_id), "list", list_real)
+        aliased.append(clone)
+    return aliased
+
+
+def _get_memory_alias(user_id: int, real_id: str) -> str:
+    safe_id = str(real_id or "").strip()
+    if not safe_id:
+        return safe_id
+    with _memory_id_alias_lock:
+        user_state = _memory_id_alias_store.setdefault(
+            int(user_id),
+            {"counter": 0, "id_to_alias": {}, "alias_to_id": {}},
+        )
+        id_to_alias = user_state["id_to_alias"]
+        alias_to_id = user_state["alias_to_id"]
+        existing = id_to_alias.get(safe_id)
+        if existing:
+            return str(existing)
+        user_state["counter"] = int(user_state["counter"]) + 1
+        alias = f"m{user_state['counter']}"
+        id_to_alias[safe_id] = alias
+        alias_to_id[alias] = safe_id
+        return alias
+
+
+def _resolve_memory_id_for_user(user_id: int, id_or_alias: str) -> str:
+    key = str(id_or_alias or "").strip()
+    if not key:
+        return key
+    with _memory_id_alias_lock:
+        user_state = _memory_id_alias_store.get(int(user_id), {})
+        alias_to_id = user_state.get("alias_to_id", {})
+        resolved = alias_to_id.get(key, key)
+    return str(resolved)
+
+
+def _alias_memory_rows_for_user(user_id: int, rows: list[dict]) -> list[dict]:
+    aliased = []
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        clone = dict(row)
+        real_id = str(clone.get("id", "")).strip()
+        if real_id:
+            clone["id"] = _get_memory_alias(int(user_id), real_id)
         aliased.append(clone)
     return aliased
 
@@ -1101,15 +1148,13 @@ Reminders:
 - If given a City to ReadWeather for; default to using the Co-Ordinates (Lat/Long) of that City's Center. 
 - apply extra reasoning scrutiny around meridians (AM/PM), especially 12:00 times
 - Don't Return technical ID's to the user, they are aliased and only usable backend
-- "rn" = "Right Now"
-- "tn" = "Tonight"
 - Use AddMemory when the user explicitly asks you to remember something, or when a durable preference/fact about the user is worth retaining for future conversations.
 - Use SearchMemory, EditMemory, and DeleteMemory when the user asks to inspect, update, or remove stored memories.
 
 Memory:
 - Use SearchMemory if you do not yet have the appropriate ID's to manipulate something
 - The User has a superior memory device called a brain. They remeber alll the facts and preferences that you know, and a lot more. if a request is in objection to one of these memories, the User is aware of this, and has overriden this, complete the action and finish with a helpful reminder.
-- Once you've notified a user of a Reminder, edit the metadata to Reminded. If a Reminded memory appears in your memory, don't mention it and Delete it.
+- Once you've notified a user of a Reminder, edit the metadata to Reminded. Later if a Reminded memory appears later in your memory don't mention it and Delete it.
 
 Tone:
 - Keep responses concise. Prefer plain phrasing over long explanations
@@ -1927,11 +1972,18 @@ def ToolUse(name, args, user_id=None):
                 expires_at=args.get("expires_at"),
                 source=args.get("source", "assistant_inferred"),
             )
+            result_memory = output.get("memory", {}) if isinstance(output, dict) and isinstance(output.get("memory", {}), dict) else {}
+            real_id = str(result_memory.get("id", "")).strip()
+            alias_id = _get_memory_alias(int(user_id), real_id) if real_id else None
+            if alias_id and isinstance(output, dict):
+                output = dict(output)
+                output["memory"] = dict(result_memory)
+                output["memory"]["id"] = alias_id
             return {
                 "status": "success",
                 "tool": "AddMemory",
                 "memory": {
-                    "id": output.get("memory", {}).get("id") if isinstance(output, dict) else None,
+                    "id": alias_id,
                     "text": args.get("text"),
                 },
                 "result": output,
@@ -1952,11 +2004,12 @@ def ToolUse(name, args, user_id=None):
                 query=args.get("query"),
                 top_k=args.get("top_k", 5),
             )
+            aliased_output = _alias_memory_rows_for_user(int(user_id), output)
             return {
                 "status": "success",
                 "tool": "SearchMemory",
                 "query": args.get("query"),
-                "result": output,
+                "result": aliased_output,
             }
         except Exception as e:
             return {
@@ -1968,7 +2021,8 @@ def ToolUse(name, args, user_id=None):
 
     # Edits this user's durable memory by mem_ID
     if name == "EditMemory":
-        memory_id = args.get("memory_id")
+        memory_id_input = str(args.get("memory_id", "")).strip()
+        memory_id = _resolve_memory_id_for_user(int(user_id), memory_id_input)
         try:
             output = EditMemory(
                 user_id=user_id,
@@ -1984,30 +2038,44 @@ def ToolUse(name, args, user_id=None):
             )
             status = output.get("status") if isinstance(output, dict) else None
             if status == "not_found":
-                return {"status": "failed", "tool": "EditMemory", "memory": {"id": memory_id}, "error": "Memory not found", "result": output}
-            return {"status": "success", "tool": "EditMemory", "memory": {"id": memory_id}, "result": output}
+                return {"status": "failed", "tool": "EditMemory", "memory": {"id": memory_id_input}, "error": "Memory not found", "result": output}
+            result_memory = output.get("memory", {}) if isinstance(output, dict) and isinstance(output.get("memory", {}), dict) else {}
+            real_id = str(result_memory.get("id", memory_id)).strip()
+            alias_id = _get_memory_alias(int(user_id), real_id) if real_id else memory_id_input
+            if isinstance(output, dict):
+                output = dict(output)
+                if isinstance(result_memory, dict):
+                    output["memory"] = dict(result_memory)
+                    output["memory"]["id"] = alias_id
+            return {"status": "success", "tool": "EditMemory", "memory": {"id": alias_id}, "result": output}
         except Exception as e:
             return {
                 "status": "failed",
                 "tool": "EditMemory",
-                "memory": {"id": memory_id},
+                "memory": {"id": memory_id_input},
                 "error": str(e),
             }
 
     # Deletes this user's durable memory by mem_ID
     if name == "DeleteMemory":
-        memory_id = args.get("memory_id")
+        memory_id_input = str(args.get("memory_id", "")).strip()
+        memory_id = _resolve_memory_id_for_user(int(user_id), memory_id_input)
         try:
             output = DeleteMemory(user_id=user_id, memory_id=memory_id)
             status = output.get("status") if isinstance(output, dict) else None
             if status == "not_found":
-                return {"status": "failed", "tool": "DeleteMemory", "memory": {"id": memory_id}, "error": "Memory not found", "result": output}
-            return {"status": "success", "tool": "DeleteMemory", "memory": {"id": memory_id}, "result": output}
+                return {"status": "failed", "tool": "DeleteMemory", "memory": {"id": memory_id_input}, "error": "Memory not found", "result": output}
+            real_id = str(output.get("id", memory_id)).strip() if isinstance(output, dict) else memory_id
+            alias_id = _get_memory_alias(int(user_id), real_id) if real_id else memory_id_input
+            if isinstance(output, dict):
+                output = dict(output)
+                output["id"] = alias_id
+            return {"status": "success", "tool": "DeleteMemory", "memory": {"id": alias_id}, "result": output}
         except Exception as e:
             return {
                 "status": "failed",
                 "tool": "DeleteMemory",
-                "memory": {"id": memory_id},
+                "memory": {"id": memory_id_input},
                 "error": str(e),
             }
 
@@ -2668,7 +2736,11 @@ def _retrieve_memory_context(user_id, query, top_k=5):
         if not text:
             continue
 
+        memory_id = str(memory.get("id", "")).strip()
+        alias_id = _get_memory_alias(int(user_id), memory_id) if memory_id else ""
+
         rows.append([
+            alias_id,
             memory.get("type", ""),
             memory.get("tags") if isinstance(memory.get("tags"), list) else [],
             memory.get("entities") if isinstance(memory.get("entities"), list) else [],
@@ -2684,6 +2756,7 @@ def _retrieve_memory_context(user_id, query, top_k=5):
         "format": "json_table",
         "title": "Retrieved memories for this turn",
         "columns": [
+            "id",
             "type",
             "tags",
             "entities",
