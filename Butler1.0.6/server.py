@@ -216,6 +216,20 @@ def _accumulate_action_report(counter: dict[str, int], tool_outputs: list[dict])
                 list_deleted = str(result.get("status", "")).strip().lower() == "deleted"
             if list_deleted:
                 counter["lists_deleted"] = counter.get("lists_deleted", 0) + 1
+        elif operation == "AddMemory":
+            counter["memories_added"] = counter.get("memories_added", 0) + 1
+        elif operation == "EditMemory":
+            memory_edited = True
+            if isinstance(result, dict):
+                memory_edited = str(result.get("status", "")).strip().lower() == "edited"
+            if memory_edited:
+                counter["memories_edited"] = counter.get("memories_edited", 0) + 1
+        elif operation == "DeleteMemory":
+            memory_deleted = True
+            if isinstance(result, dict):
+                memory_deleted = str(result.get("status", "")).strip().lower() == "deleted"
+            if memory_deleted:
+                counter["memories_deleted"] = counter.get("memories_deleted", 0) + 1
 
 
 def _format_action_report(counter: dict[str, int]) -> str:
@@ -232,6 +246,12 @@ def _format_action_report(counter: dict[str, int]) -> str:
         lines.append(f"List edited {counter['lists_edited']}")
     if counter.get("lists_deleted", 0):
         lines.append(f"List deleted -{counter['lists_deleted']}")
+    if counter.get("memories_added", 0):
+        lines.append(f"Memory added +{counter['memories_added']}")
+    if counter.get("memories_edited", 0):
+        lines.append(f"Memory edited {counter['memories_edited']}")
+    if counter.get("memories_deleted", 0):
+        lines.append(f"Memory deleted -{counter['memories_deleted']}")
     if not lines:
         return ""
     return "\n\n```summary\n" + "\n".join(lines) + "\n```"
