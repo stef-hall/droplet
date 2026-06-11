@@ -35,6 +35,10 @@ Cached tokens: 25728
 Uncached tokens: 4096
 Cache hit rate: 100.00%
 
+1.0.6
+[INPUT UN/C] 343 / 5888
+[TOTAL UN/C] 1075 / 12800
+
 
 
 GE, Jam, Undo, Budx6
