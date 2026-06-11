@@ -219,6 +219,27 @@ def _normalize_memory_score(value, field_name):
     return score
 
 
+_ALLOWED_MEMORY_TYPES = {
+    "fact",
+    "preference",
+    "reminder",
+    "task",
+    "trigger_rule",
+    "correction",
+    "note",
+    "relationship",
+    "project",
+}
+
+
+def _normalize_memory_type(value):
+    normalized = str(value or "note").strip().lower() or "note"
+    if normalized not in _ALLOWED_MEMORY_TYPES:
+        allowed = ", ".join(sorted(_ALLOWED_MEMORY_TYPES))
+        raise ValueError(f"type must be one of: {allowed}.")
+    return normalized
+
+
 def AddMemory(
     user_id,
     memory_type,
@@ -239,7 +260,7 @@ def AddMemory(
     memory = {
         "id": f"mem_{uuid.uuid4().hex}",
         "user_id": safe_user_id,
-        "type": str(memory_type or "note").strip() or "note",
+        "type": _normalize_memory_type(memory_type),
         "text": text,
         "entities": _normalize_memory_list(entities, "entities"),
         "tags": _normalize_memory_list(tags, "tags"),
@@ -394,7 +415,7 @@ def EditMemory(
             return {"status": "not_found", "id": memory_id}
 
         if memory_type is not None:
-            memory["type"] = str(memory_type or "note").strip() or "note"
+            memory["type"] = _normalize_memory_type(memory_type)
         if text is not None:
             new_text = str(text or "").strip()
             if not new_text:
