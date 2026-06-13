@@ -1499,6 +1499,48 @@ function renderMarkdownTable(tableLines) {
   return `<div class="md-table-wrap"><table><thead><tr>${headerHtml}</tr></thead><tbody>${bodyHtml}</tbody></table></div>`;
 }
 
+function getSummaryLineCount(lineText) {
+  const value = String(lineText || "");
+  const signedMatch = value.match(/[+-]\s*(\d+)/);
+  if (signedMatch) return Number(signedMatch[1]) || 0;
+  const numberMatch = value.match(/\b(\d+)\b/);
+  return numberMatch ? Number(numberMatch[1]) || 0 : 0;
+}
+
+function renderSummaryHeader(codeLines) {
+  const totals = {
+    added: 0,
+    deleted: 0,
+    edited: 0
+  };
+
+  codeLines.forEach((raw) => {
+    const lineText = String(raw || "");
+    const lowered = lineText.toLowerCase();
+    const count = getSummaryLineCount(lineText);
+    if (!count) return;
+
+    if (/\b(deleted|delete|removed|remove)\b/.test(lowered) || /-\s*\d+/.test(lineText)) {
+      totals.deleted += count;
+      return;
+    }
+    if (/\b(edited|edit|updated|update|changed|change)\b/.test(lowered)) {
+      totals.edited += count;
+      return;
+    }
+    if (/\b(added|add|created|create)\b/.test(lowered) || /\+\s*\d+/.test(lineText)) {
+      totals.added += count;
+    }
+  });
+
+  const counters = [];
+  if (totals.added) counters.push(`<span class="md-summary-count report-pos">+${totals.added}</span>`);
+  if (totals.deleted) counters.push(`<span class="md-summary-count report-neg">-${totals.deleted}</span>`);
+  if (totals.edited) counters.push(`<span class="md-summary-count report-neutral">+${totals.edited}</span>`);
+
+  return `<div class="md-summary-head"><span class="md-summary-title">Summary</span>${counters.join("")}</div>`;
+}
+
 function renderMarkdown(text) {
   const source = String(text ?? "").replace(/\r\n/g, "\n");
   const lines = source.split("\n");
@@ -1548,7 +1590,7 @@ function renderMarkdown(text) {
         })
         .join("\n");
       if (fenceType === "summary") {
-        chunks.push(`<section class="md-summary"><pre><code><span class="md-summary-title">Summary</span>\n${renderedCode}</code></pre></section>`);
+        chunks.push(`<section class="md-summary" tabindex="0">${renderSummaryHeader(codeLines)}<pre><code>${renderedCode}</code></pre></section>`);
       } else {
         chunks.push(`<pre><code>${renderedCode}</code></pre>`);
       }

@@ -723,7 +723,45 @@ textarea {
 }
 
 .bubble.md .md-summary {
+  display: inline-block;
+  width: fit-content;
+  max-width: 100%;
   margin-top: 1em;
+  text-shadow: none;
+  background: rgba(0, 0, 0, 0.06);
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 10px;
+  padding: 3px 10px;
+  overflow: hidden;
+  vertical-align: top;
+  transition:
+    border-color 160ms ease,
+    background-color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.bubble.md .md-summary:hover,
+.bubble.md .md-summary:focus-within,
+.bubble.md .md-summary:focus {
+  background: rgba(0, 0, 0, 0.07);
+  border-color: rgba(0, 0, 0, 0.16);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08);
+  outline: none;
+}
+
+.bubble.md .md-summary-head {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  min-height: 1.45em;
+  line-height: 1.45;
+  white-space: nowrap;
+}
+
+.bubble.md .md-summary-count {
+  font-family: "Consolas", "SFMono-Regular", Menlo, monospace;
+  font-size: 0.88em;
+  font-weight: 700;
 }
 
 .bubble.md .md-summary-title {
@@ -735,6 +773,24 @@ textarea {
 
 .bubble.md .md-summary pre {
   margin-top: 0;
+  max-height: 0;
+  opacity: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  overflow: hidden;
+  transition:
+    max-height 180ms ease,
+    opacity 140ms ease,
+    margin-top 180ms ease;
+}
+
+.bubble.md .md-summary:hover pre,
+.bubble.md .md-summary:focus-within pre,
+.bubble.md .md-summary:focus pre {
+  max-height: 220px;
+  opacity: 1;
+  margin-top: 3px;
 }
 
 .bubble.md .md-table-wrap {
