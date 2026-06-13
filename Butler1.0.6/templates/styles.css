@@ -707,24 +707,29 @@ textarea {
   font-size: 0.9em;
 }
 
-.bubble.md pre code .report-pos {
+.bubble.md pre code .report-pos,
+.bubble.md .md-summary-head .report-pos {
   font-weight: 600;
   color: #05b605;
 }
 
-.bubble.md pre code .report-neg {
+.bubble.md pre code .report-neg,
+.bubble.md .md-summary-head .report-neg {
   font-weight: 600;
   color: #df2517;
 }
 
-.bubble.md pre code .report-neutral {
+.bubble.md pre code .report-neutral,
+.bubble.md .md-summary-head .report-neutral {
   font-weight: 600;
   color: #005eff;
 }
 
 .bubble.md .md-summary {
   display: inline-block;
+  position: relative;
   width: fit-content;
+  min-width: 132px;
   max-width: 100%;
   margin-top: 1em;
   text-shadow: none;
@@ -732,7 +737,7 @@ textarea {
   border: 1px solid rgba(0, 0, 0, 0.12);
   border-radius: 10px;
   padding: 3px 10px;
-  overflow: hidden;
+  overflow: visible;
   vertical-align: top;
   transition:
     border-color 160ms ease,
@@ -750,12 +755,20 @@ textarea {
 }
 
 .bubble.md .md-summary-head {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto 1fr;
   align-items: baseline;
   gap: 7px;
   min-height: 1.45em;
   line-height: 1.45;
   white-space: nowrap;
+}
+
+.bubble.md .md-summary-counts {
+  display: inline-flex;
+  justify-content: flex-end;
+  gap: 7px;
+  min-width: 46px;
 }
 
 .bubble.md .md-summary-count {
@@ -772,25 +785,28 @@ textarea {
 }
 
 .bubble.md .md-summary pre {
+  position: absolute;
+  top: calc(100% + 3px);
+  left: 0;
+  z-index: 4;
+  min-width: 100%;
   margin-top: 0;
-  max-height: 0;
   opacity: 0;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  overflow: hidden;
+  pointer-events: none;
+  background: rgba(244, 244, 244, 0.98);
+  box-shadow: 0 7px 20px rgba(0, 0, 0, 0.12);
+  transform: translateY(-3px);
   transition:
-    max-height 180ms ease,
     opacity 140ms ease,
-    margin-top 180ms ease;
+    transform 180ms ease;
 }
 
 .bubble.md .md-summary:hover pre,
 .bubble.md .md-summary:focus-within pre,
 .bubble.md .md-summary:focus pre {
-  max-height: 220px;
   opacity: 1;
-  margin-top: 3px;
+  pointer-events: auto;
+  transform: translateY(0);
 }
 
 .bubble.md .md-table-wrap {

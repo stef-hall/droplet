@@ -2396,7 +2396,11 @@ def compact_getevents(output: dict) -> dict:
     def compact_time(v):
         if not v:
             return ""
-        return datetime.strptime(v[:15], "%Y%m%dT%H%M%S").strftime("%H%M").lstrip("0") or "0"
+
+        # Keeps date + time so the LLM can tell which day the event is on.
+        # Example: 20260613T170000+12:00 -> 0613T1700
+        dt = datetime.strptime(v[:15], "%Y%m%dT%H%M%S")
+        return dt.strftime("%m%dT%H%M")
 
     events = []
     for row in rows:

@@ -1538,7 +1538,7 @@ function renderSummaryHeader(codeLines) {
   if (totals.deleted) counters.push(`<span class="md-summary-count report-neg">-${totals.deleted}</span>`);
   if (totals.edited) counters.push(`<span class="md-summary-count report-neutral">+${totals.edited}</span>`);
 
-  return `<div class="md-summary-head"><span class="md-summary-title">Summary</span>${counters.join("")}</div>`;
+  return `<div class="md-summary-head"><span class="md-summary-title">Summary</span><span class="md-summary-counts">${counters.join("")}</span></div>`;
 }
 
 function renderMarkdown(text) {
