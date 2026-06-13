@@ -9,19 +9,12 @@ from urllib.request import urlopen
 import uuid
 import re
 from threading import Lock
-import sqlite3
 
 
 _get_user_caldav_calendars_fn = None
 _lists_dir = Path(__file__).resolve().parent / "lists"
 _uid_alias_store: dict[int, dict[str, object]] = {}
 _uid_alias_lock = Lock()
-_memory_lock = Lock()
-_memory_model = None
-_memory_collection = None
-_memory_db_path = Path(__file__).resolve().parent / "vector_db"
-_memory_metadata_db_path = _memory_db_path / "metadata.db"
-_memory_collection_name = "memories"
 
 
 def _get_uid_alias(user_id: int, uid: str) -> str:
@@ -165,302 +158,6 @@ def configure_tools(get_user_caldav_calendars, lists_dir: Path | None = None):
     _get_user_caldav_calendars_fn = get_user_caldav_calendars
     if lists_dir is not None:
         _lists_dir = Path(lists_dir)
-
-
-def _get_memory_collection():
-    global _memory_model, _memory_collection
-    if _memory_model is None or _memory_collection is None:
-        import chromadb
-        from sentence_transformers import SentenceTransformer
-
-        _memory_db_path.mkdir(parents=True, exist_ok=True)
-        _memory_model = SentenceTransformer("all-MiniLM-L6-v2")
-        client = chromadb.PersistentClient(path=str(_memory_db_path))
-        _memory_collection = client.get_or_create_collection(
-            name=_memory_collection_name,
-            metadata={"hnsw:space": "cosine"},
-        )
-    return _memory_model, _memory_collection
-
-
-def _memory_metadata_connection():
-    _memory_db_path.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(_memory_metadata_db_path)
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS metadata (
-            id TEXT PRIMARY KEY,
-            json TEXT NOT NULL
-        )
-        """
-    )
-    columns = {
-        row[1]
-        for row in conn.execute("PRAGMA table_info(metadata)").fetchall()
-    }
-    if "user_id" not in columns:
-        conn.execute("ALTER TABLE metadata ADD COLUMN user_id INTEGER")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_metadata_user_id ON metadata(user_id)")
-    return conn
-
-
-def _normalize_memory_list(value, field_name):
-    if value is None:
-        return []
-    if not isinstance(value, list):
-        raise ValueError(f"{field_name} must be an array of strings.")
-    return [str(item).strip() for item in value if str(item).strip()]
-
-
-def _normalize_memory_score(value, field_name):
-    score = float(value)
-    if score < 0 or score > 1:
-        raise ValueError(f"{field_name} must be between 0 and 1.")
-    return score
-
-
-_ALLOWED_MEMORY_TYPES = {
-    "fact",
-    "preference",
-    "reminder",
-    "task",
-    "trigger_rule",
-    "correction",
-    "note",
-    "relationship",
-    "project",
-}
-
-
-def _normalize_memory_type(value):
-    normalized = str(value or "note").strip().lower() or "note"
-    if normalized not in _ALLOWED_MEMORY_TYPES:
-        allowed = ", ".join(sorted(_ALLOWED_MEMORY_TYPES))
-        raise ValueError(f"type must be one of: {allowed}.")
-    return normalized
-
-
-def AddMemory(
-    user_id,
-    memory_type,
-    text,
-    entities,
-    tags,
-    importance,
-    confidence,
-    expires_at=None,
-    source="assistant_inferred",
-):
-    text = str(text or "").strip()
-    if not text:
-        raise ValueError("text is required.")
-
-    safe_user_id = int(user_id)
-    now = datetime.now().astimezone().isoformat(timespec="seconds")
-    memory = {
-        "id": f"mem_{uuid.uuid4().hex}",
-        "user_id": safe_user_id,
-        "type": _normalize_memory_type(memory_type),
-        "text": text,
-        "entities": _normalize_memory_list(entities, "entities"),
-        "tags": _normalize_memory_list(tags, "tags"),
-        "created_at": now,
-        "updated_at": now,
-        "importance": _normalize_memory_score(importance, "importance"),
-        "confidence": _normalize_memory_score(confidence, "confidence"),
-        "expires_at": expires_at if expires_at not in ("", None) else None,
-        "source": str(source or "assistant_inferred").strip() or "assistant_inferred",
-    }
-
-    with _memory_lock:
-        model, collection = _get_memory_collection()
-        with _memory_metadata_connection() as conn:
-            conn.execute(
-                """
-                INSERT INTO metadata (id, user_id, json)
-                VALUES (?, ?, ?)
-                ON CONFLICT(id) DO UPDATE SET
-                    user_id = excluded.user_id,
-                    json = excluded.json
-                """,
-                (
-                    memory["id"],
-                    safe_user_id,
-                    json.dumps(memory, ensure_ascii=False, sort_keys=True),
-                ),
-            )
-
-        collection.upsert(
-            ids=[memory["id"]],
-            documents=[memory["text"]],
-            embeddings=[model.encode(memory["text"]).tolist()],
-            metadatas=[{"user_id": safe_user_id}],
-        )
-
-    return {"status": "stored", "memory": memory}
-
-
-def _memory_metadata_search(item_id, user_id=None):
-    with _memory_metadata_connection() as conn:
-        if user_id is None:
-            row = conn.execute(
-                "SELECT json FROM metadata WHERE id = ?",
-                (item_id,),
-            ).fetchone()
-        else:
-            row = conn.execute(
-                "SELECT json FROM metadata WHERE id = ? AND user_id = ?",
-                (item_id, int(user_id)),
-            ).fetchone()
-
-    if row is None:
-        return None
-
-    memory = json.loads(row[0])
-    if user_id is not None and int(memory.get("user_id", -1)) != int(user_id):
-        return None
-    return memory
-
-
-def _memory_is_expired(memory):
-    expires_at = memory.get("expires_at") if isinstance(memory, dict) else None
-    if not expires_at:
-        return False
-    try:
-        expires_dt = datetime.fromisoformat(str(expires_at).replace("Z", "+00:00"))
-    except ValueError:
-        return False
-    if expires_dt.tzinfo is None:
-        expires_dt = expires_dt.astimezone()
-    return expires_dt <= datetime.now().astimezone()
-
-
-def SearchMemories(user_id, query, top_k=5):
-    query = str(query or "").strip()
-    if not query:
-        return []
-
-    safe_user_id = int(user_id)
-    limit = max(1, min(int(top_k), 20))
-    with _memory_lock:
-        model, collection = _get_memory_collection()
-        results = collection.query(
-            query_embeddings=[model.encode(query).tolist()],
-            n_results=limit,
-            where={"user_id": safe_user_id},
-        )
-
-        output = []
-        ids = (results.get("ids") or [[]])[0]
-        documents = (results.get("documents") or [[]])[0]
-        distances = (results.get("distances") or [[]])[0]
-        for idx, item_id in enumerate(ids):
-            memory = _memory_metadata_search(item_id, user_id=safe_user_id)
-            if memory is None:
-                continue
-            if _memory_is_expired(memory):
-                continue
-            memory["score"] = distances[idx] if idx < len(distances) else None
-            output.append(memory)
-
-    return output
-
-
-def SearchMemory(user_id, query, top_k=5):
-    return SearchMemories(user_id=user_id, query=query, top_k=top_k)
-
-
-def DeleteMemory(user_id, memory_id):
-    safe_user_id = int(user_id)
-    memory_id = str(memory_id or "").strip()
-    if not memory_id:
-        raise ValueError("memory_id is required.")
-
-    with _memory_lock:
-        existing = _memory_metadata_search(memory_id, user_id=safe_user_id)
-        if existing is None:
-            return {"status": "not_found", "id": memory_id}
-
-        _, collection = _get_memory_collection()
-        collection.delete(ids=[memory_id])
-        with _memory_metadata_connection() as conn:
-            conn.execute(
-                "DELETE FROM metadata WHERE id = ? AND user_id = ?",
-                (memory_id, safe_user_id),
-            )
-
-    return {"status": "deleted", "id": memory_id}
-
-
-def EditMemory(
-    user_id,
-    memory_id,
-    memory_type=None,
-    text=None,
-    entities=None,
-    tags=None,
-    importance=None,
-    confidence=None,
-    expires_at=None,
-    source=None,
-):
-    safe_user_id = int(user_id)
-    memory_id = str(memory_id or "").strip()
-    if not memory_id:
-        raise ValueError("memory_id is required.")
-
-    with _memory_lock:
-        memory = _memory_metadata_search(memory_id, user_id=safe_user_id)
-        if memory is None:
-            return {"status": "not_found", "id": memory_id}
-
-        if memory_type is not None:
-            memory["type"] = _normalize_memory_type(memory_type)
-        if text is not None:
-            new_text = str(text or "").strip()
-            if not new_text:
-                raise ValueError("text cannot be empty.")
-            memory["text"] = new_text
-        if entities is not None:
-            memory["entities"] = _normalize_memory_list(entities, "entities")
-        if tags is not None:
-            memory["tags"] = _normalize_memory_list(tags, "tags")
-        if importance is not None:
-            memory["importance"] = _normalize_memory_score(importance, "importance")
-        if confidence is not None:
-            memory["confidence"] = _normalize_memory_score(confidence, "confidence")
-        if expires_at is not None:
-            memory["expires_at"] = expires_at if expires_at != "" else None
-        if source is not None:
-            memory["source"] = str(source or "assistant_inferred").strip() or "assistant_inferred"
-
-        memory["user_id"] = safe_user_id
-        memory["updated_at"] = datetime.now().astimezone().isoformat(timespec="seconds")
-
-        model, collection = _get_memory_collection()
-        with _memory_metadata_connection() as conn:
-            conn.execute(
-                """
-                UPDATE metadata
-                SET user_id = ?, json = ?
-                WHERE id = ? AND user_id = ?
-                """,
-                (
-                    safe_user_id,
-                    json.dumps(memory, ensure_ascii=False, sort_keys=True),
-                    memory_id,
-                    safe_user_id,
-                ),
-            )
-
-        collection.upsert(
-            ids=[memory["id"]],
-            documents=[memory["text"]],
-            embeddings=[model.encode(memory["text"]).tolist()],
-            metadatas=[{"user_id": safe_user_id}],
-        )
-
-    return {"status": "edited", "memory": memory}
 
 
 def _get_user_caldav_calendars(user_id: int):
@@ -647,15 +344,6 @@ def DeleteEvent(user_id, uid):
     return {"status": "not_found"}
 
 
-def ReadCalendar(user_id, action, times=None):
-    action = str(action or "").strip().lower()
-    if action == "get_events":
-        return GetEvents(user_id=user_id, times=times)
-    if action == "get_calendar_names":
-        return GetCalendarNames(user_id=user_id)
-    raise ValueError(f"Unknown ReadCalendar action: {action}")
-
-
 def ReadList(user_id, list_name):
     safe_name = str(list_name).strip()
     if not safe_name:
@@ -690,15 +378,6 @@ def DeleteList(user_id, list_name):
         return {"status": "not_found", "list_name": safe_name}
     list_path.unlink()
     return {"status": "deleted", "list_name": safe_name}
-
-
-def WriteList(user_id, action, list_name, content=None):
-    action = str(action or "").strip().lower()
-    if action == "edit":
-        return EditList(user_id=user_id, list_name=list_name, content=content)
-    if action == "delete":
-        return DeleteList(user_id=user_id, list_name=list_name)
-    raise ValueError(f"Unknown WriteList action: {action}")
 
 
 def _to_utc_ics(value):
@@ -840,44 +519,6 @@ def EditEvent(user_id, uid, title=None, times=None, location=None, description=N
     return {"status": "not_found"}
 
 
-def WriteCalendar(
-    user_id,
-    action,
-    uid=None,
-    title=None,
-    times=None,
-    location=None,
-    description=None,
-    rrule=None,
-    reminder_minutes_before=_REMINDER_UNCHANGED,
-):
-    action = str(action or "").strip().lower()
-    if action == "add_event":
-        return AddEvent(
-            user_id=user_id,
-            title=title,
-            times=times,
-            location="" if location is None else location,
-            description="" if description is None else description,
-            rrule="" if rrule is None else rrule,
-            reminder_minutes_before=None if reminder_minutes_before is _REMINDER_UNCHANGED else reminder_minutes_before,
-        )
-    if action == "edit_event":
-        return EditEvent(
-            user_id=user_id,
-            uid=uid,
-            title=title,
-            times=times,
-            location=location,
-            description=description,
-            rrule=rrule,
-            reminder_minutes_before=reminder_minutes_before,
-        )
-    if action == "delete_event":
-        return DeleteEvent(user_id=user_id, uid=uid)
-    raise ValueError(f"Unknown WriteCalendar action: {action}")
-
-
 def GetWeather(latitude, longitude, times=None, field_names=None):
     def _parse_weather_dt(value):
         if value is None:
@@ -988,24 +629,12 @@ def GetWeather(latitude, longitude, times=None, field_names=None):
     return response
 
 
-def ReadWeather(latitude, longitude, times=None, field_names=None):
-    return GetWeather(
-        latitude=latitude,
-        longitude=longitude,
-        times=times,
-        field_names=field_names,
-    )
-
-
 
 if __name__ == "__main__":
     from server import LISTS_DIR, _get_user_caldav_calendars
     from server import compress_tool_output as compress
-    configure_tools(_get_user_caldav_calendars, LISTS_DIR)
 
-    response = SearchMemories(3, "whats my name?")
-    print(response)
-    quit()
+    configure_tools(_get_user_caldav_calendars, LISTS_DIR)
     
     response = GetEvents(3,
     times = ["20260601T000000+12:00","20260608T000000+12:00"]

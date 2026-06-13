@@ -27,7 +27,7 @@ from urllib.parse import urlencode, unquote
 from urllib.request import Request, urlopen
 from pathlib import Path
 from werkzeug.security import check_password_hash, generate_password_hash # type: ignore
-from tools import AddEvent, GetEvents, GetCalendarNames, DeleteEvent, ReadList, EditList, DeleteList, EditEvent, GetWeather, AddMemory, SearchMemories, EditMemory, DeleteMemory, _REMINDER_UNCHANGED, configure_tools
+from tools import AddEvent, GetEvents, GetCalendarNames, DeleteEvent, ReadList, EditList, DeleteList, EditEvent, GetWeather, _REMINDER_UNCHANGED, configure_tools
 
 global api_key
 warnings.simplefilter("ignore", DeprecationWarning)
@@ -38,8 +38,6 @@ session_store = {}
 session_store_lock = Lock()
 _trello_id_alias_lock = Lock()
 _trello_id_alias_store: dict[int, dict[str, dict[str, object]]] = {}
-_memory_id_alias_lock = Lock()
-_memory_id_alias_store: dict[int, dict[str, object]] = {}
 SESSION_TTL_SECONDS = 6 * 60 * 60
 TRUSTED_DEVICE_COOKIE = "secretariat_trusted_device"
 TRUSTED_DEVICE_DAYS = 60
@@ -48,28 +46,6 @@ LISTS_DIR = Path(__file__).resolve( ).parent / "lists"
 DB_PATH = Path(__file__).resolve().parent / "secretariat.db"
 DEFAULT_ASSISTANT_MODEL = "gpt-5.4"
 ALLOWED_ASSISTANT_MODELS = {"gpt-5.4-mini", "gpt-5.4"}
-COMMUNICATION_PROFILE_TYPE = "communication_profile"
-DEFAULT_COMMUNICATION_PROFILE = {
-    "type": COMMUNICATION_PROFILE_TYPE,
-    "verbosity": "concise",
-    "tone": "casual_direct",
-    "format": "short paragraphs",
-    "teaching_style": "analogies_then_examples",
-    "challenge_level": "medium",
-    "correction_style": "direct",
-    "emotional_support": "practical",
-    "decision_support": "recommendation",
-}
-COMMUNICATION_PROFILE_ALLOWED_VALUES = {
-    "verbosity": {"concise", "balanced", "detailed"},
-    "tone": {"casual_direct", "professional", "blunt", "warm", "energetic"},
-    "format": {"short paragraphs", "bullet points", "tables", "examples"},
-    "teaching_style": {"analogies", "examples", "definitions", "step_by_step_logic", "analogies_then_examples"},
-    "challenge_level": {"agreeable", "medium", "confrontational"},
-    "correction_style": {"gentle", "direct", "only_if_important"},
-    "emotional_support": {"practical", "reassuring", "motivating", "leave_emotion_out"},
-    "decision_support": {"pros_cons", "recommendation", "just_facts"},
-}
 
 
 class _SkipApiListsAccessLog(logging.Filter):
@@ -125,12 +101,6 @@ def _tool_name_to_status_label(tool_name: str) -> str:
     raw_name = str(tool_name or "").strip()
     normalized = raw_name.lower().replace(" ", "").replace("_", "")
     label_map = {
-        "readtrello": "Reading Trello...",
-        "writetrello": "Updating Trello...",
-        "readcalendar": "Reading Calendar...",
-        "writecalendar": "Updating Calendar...",
-        "writelist": "Updating List...",
-        "readweather": "Getting Weather...",
         "addevent": "Adding Event...",
         "getevents": "Getting Events...",
         "deleteevent": "Deleting...",
@@ -185,23 +155,21 @@ def _accumulate_action_report(counter: dict[str, int], tool_outputs: list[dict])
         tool = str(payload.get("tool", "")).strip()
         result = payload.get("result")
 
-        operation = str(payload.get("operation") or tool).strip()
-
-        if operation == "AddEvent":
+        if tool == "AddEvent":
             counter["events_added"] = counter.get("events_added", 0) + 1
-        elif operation == "DeleteEvent":
+        elif tool == "DeleteEvent":
             deleted = True
             if isinstance(result, dict):
                 deleted = str(result.get("status", "")).strip().lower() == "deleted"
             if deleted:
                 counter["events_deleted"] = counter.get("events_deleted", 0) + 1
-        elif operation == "EditEvent":
+        elif tool == "EditEvent":
             edited = True
             if isinstance(result, dict):
                 edited = str(result.get("status", "")).strip().lower() == "edited"
             if edited:
                 counter["events_edited"] = counter.get("events_edited", 0) + 1
-        elif operation == "EditList":
+        elif tool == "EditList":
             list_changed = True
             list_created = False
             if isinstance(result, dict):
@@ -212,26 +180,12 @@ def _accumulate_action_report(counter: dict[str, int], tool_outputs: list[dict])
                     counter["lists_added"] = counter.get("lists_added", 0) + 1
                 else:
                     counter["lists_edited"] = counter.get("lists_edited", 0) + 1
-        elif operation == "DeleteList":
+        elif tool == "DeleteList":
             list_deleted = True
             if isinstance(result, dict):
                 list_deleted = str(result.get("status", "")).strip().lower() == "deleted"
             if list_deleted:
                 counter["lists_deleted"] = counter.get("lists_deleted", 0) + 1
-        elif operation == "AddMemory":
-            counter["memories_added"] = counter.get("memories_added", 0) + 1
-        elif operation == "EditMemory":
-            memory_edited = True
-            if isinstance(result, dict):
-                memory_edited = str(result.get("status", "")).strip().lower() == "edited"
-            if memory_edited:
-                counter["memories_edited"] = counter.get("memories_edited", 0) + 1
-        elif operation == "DeleteMemory":
-            memory_deleted = True
-            if isinstance(result, dict):
-                memory_deleted = str(result.get("status", "")).strip().lower() == "deleted"
-            if memory_deleted:
-                counter["memories_deleted"] = counter.get("memories_deleted", 0) + 1
 
 
 def _format_action_report(counter: dict[str, int]) -> str:
@@ -248,12 +202,6 @@ def _format_action_report(counter: dict[str, int]) -> str:
         lines.append(f"List edited {counter['lists_edited']}")
     if counter.get("lists_deleted", 0):
         lines.append(f"List deleted -{counter['lists_deleted']}")
-    if counter.get("memories_added", 0):
-        lines.append(f"Memory added +{counter['memories_added']}")
-    if counter.get("memories_edited", 0):
-        lines.append(f"Memory edited {counter['memories_edited']}")
-    if counter.get("memories_deleted", 0):
-        lines.append(f"Memory deleted -{counter['memories_deleted']}")
     if not lines:
         return ""
     return "\n\n```summary\n" + "\n".join(lines) + "\n```"
@@ -315,7 +263,6 @@ def _init_db():
                 trello_token TEXT,
                 trello_boards TEXT,
                 assistant_model TEXT,
-                communication_profile TEXT,
                 updated_at TEXT NOT NULL,
                 FOREIGN KEY (user_id) REFERENCES users (id)
             )
@@ -331,8 +278,6 @@ def _init_db():
             conn.execute("ALTER TABLE user_settings ADD COLUMN trello_boards TEXT")
         if "trello_board_ids" not in existing_column_names:
             conn.execute("ALTER TABLE user_settings ADD COLUMN trello_board_ids TEXT")
-        if "communication_profile" not in existing_column_names:
-            conn.execute("ALTER TABLE user_settings ADD COLUMN communication_profile TEXT")
         conn.commit()
 
 
@@ -459,51 +404,6 @@ def _alias_trello_card_rows_for_user(user_id: int, rows: list[dict]) -> list[dic
     return aliased
 
 
-def _get_memory_alias(user_id: int, real_id: str) -> str:
-    safe_id = str(real_id or "").strip()
-    if not safe_id:
-        return safe_id
-    with _memory_id_alias_lock:
-        user_state = _memory_id_alias_store.setdefault(
-            int(user_id),
-            {"counter": 0, "id_to_alias": {}, "alias_to_id": {}},
-        )
-        id_to_alias = user_state["id_to_alias"]
-        alias_to_id = user_state["alias_to_id"]
-        existing = id_to_alias.get(safe_id)
-        if existing:
-            return str(existing)
-        user_state["counter"] = int(user_state["counter"]) + 1
-        alias = f"m{user_state['counter']}"
-        id_to_alias[safe_id] = alias
-        alias_to_id[alias] = safe_id
-        return alias
-
-
-def _resolve_memory_id_for_user(user_id: int, id_or_alias: str) -> str:
-    key = str(id_or_alias or "").strip()
-    if not key:
-        return key
-    with _memory_id_alias_lock:
-        user_state = _memory_id_alias_store.get(int(user_id), {})
-        alias_to_id = user_state.get("alias_to_id", {})
-        resolved = alias_to_id.get(key, key)
-    return str(resolved)
-
-
-def _alias_memory_rows_for_user(user_id: int, rows: list[dict]) -> list[dict]:
-    aliased = []
-    for row in rows or []:
-        if not isinstance(row, dict):
-            continue
-        clone = dict(row)
-        real_id = str(clone.get("id", "")).strip()
-        if real_id:
-            clone["id"] = _get_memory_alias(int(user_id), real_id)
-        aliased.append(clone)
-    return aliased
-
-
 def _require_auth():
     _restore_auth_from_trusted_device()
     user_id = session.get("user_id")
@@ -516,7 +416,7 @@ def _get_user_settings(user_id: int):
     with _db_conn() as conn:
         return conn.execute(
             """
-            SELECT user_id, caldav_url, caldav_username, caldav_password, caldav_calendar, trello_token, trello_boards, trello_board_ids, assistant_model, communication_profile, updated_at
+            SELECT user_id, caldav_url, caldav_username, caldav_password, caldav_calendar, trello_token, trello_boards, trello_board_ids, assistant_model, updated_at
             FROM user_settings
             WHERE user_id = ?
             """,
@@ -550,47 +450,6 @@ def _normalize_assistant_model(raw_model: str | None) -> str:
     if model in ALLOWED_ASSISTANT_MODELS:
         return model
     return DEFAULT_ASSISTANT_MODEL
-
-
-def _normalize_communication_profile(raw_profile) -> dict | None:
-    if raw_profile is None:
-        return None
-    if isinstance(raw_profile, str):
-        raw_profile = raw_profile.strip()
-        if not raw_profile:
-            return None
-        try:
-            raw_profile = json.loads(raw_profile)
-        except Exception:
-            return None
-    if not isinstance(raw_profile, dict):
-        return None
-
-    profile = {"type": COMMUNICATION_PROFILE_TYPE}
-    for key, allowed_values in COMMUNICATION_PROFILE_ALLOWED_VALUES.items():
-        value = str(raw_profile.get(key, "")).strip()
-        if value not in allowed_values:
-            value = DEFAULT_COMMUNICATION_PROFILE[key]
-        profile[key] = value
-    return profile
-
-
-def _format_communication_profile_for_prompt(profile: dict | None) -> str:
-    profile = _normalize_communication_profile(profile)
-    if not profile:
-        return ""
-    return (
-        "Communication profile for this user:\n"
-        f"- Verbosity: {profile['verbosity']}\n"
-        f"- Tone: {profile['tone']}\n"
-        f"- Format: {profile['format']}\n"
-        f"- Teaching style: {profile['teaching_style']}\n"
-        f"- Challenge level: {profile['challenge_level']}\n"
-        f"- Correction style: {profile['correction_style']}\n"
-        f"- Emotional support: {profile['emotional_support']}\n"
-        f"- Decision support: {profile['decision_support']}\n"
-        "Apply these preferences to every response unless the user's current request says otherwise.\n"
-    )
 
 
 def _get_user_caldav_calendars(user_id: int):
@@ -1114,7 +973,7 @@ Rules:
 - prefer tools over free-text when an action/data retrieval is needed
 - Don't use Em Dashes ("—")
 - After any tool execution, return a user-facing message ONLY IF: the task is complete, or user input is required
-- Consult your context first before calling read tools.
+- Consult your context first before calling GetEvents/Get...
 - If the USER tells you to Restore/Undo/Bring Back/Recreate an event your FIRST STEP is to look back in your context for the requested events, then recreate the event
 - If a requested time could be interpreted as AM or PM, do not guess; ask a clarifying question before calling tools
 - Display multipile events in a markdown time table 
@@ -1135,9 +994,6 @@ Rules:
   - bullet lists
   - inline `code`, fenced ```code``` 
   - pipe tables | a | b |)
-
-Personality:
-You are an INTJ: analytical, strategic, independent, and future-focused. You think in systems, prefer long-term planning, value logic over impulse, and aim for efficient execution. You communicate directly, challenge weak reasoning, hold high standards, and focus on useful truth, competence, self-improvement, and mastery.
 """
 system_prompt = concise_prompt + """
 Reminders:
@@ -1145,16 +1001,11 @@ Reminders:
 - Use FastReplies for obvious next steps, clarifications, undo, confirmations, or suggested actions.
 - If a duration cannot be reasonably defered, default to *1 hour*
 - When a tool creates resources and returns IDs/UIDs, assume those returned IDs will be visible in conversation context after the batched tool results complete. Therefore, batch independent create calls together. Only serialize calls when the next call requires a value produced by a previous call.
-- If given a City to ReadWeather for; default to using the Co-Ordinates (Lat/Long) of that City's Center. 
+- If given a City to GetWeather for; default to using the Co-Ordinates (Lat/Long) of that City's Center. 
 - apply extra reasoning scrutiny around meridians (AM/PM), especially 12:00 times
 - Don't Return technical ID's to the user, they are aliased and only usable backend
-- Use AddMemory when the user explicitly asks you to remember something, or when a durable preference/fact about the user is worth retaining for future conversations.
-- Use SearchMemory, EditMemory, and DeleteMemory when the user asks to inspect, update, or remove stored memories.
-
-Memory:
-- Use SearchMemory if you do not yet have the appropriate ID's to manipulate something
-- The User has a superior memory device called a brain. They remeber alll the facts and preferences that you know, and a lot more. if a request is in objection to one of these memories, the User is aware of this, and has overriden this, complete the action and finish with a helpful reminder.
-- Once you've notified a user of a Reminder, edit the metadata to Reminded. Later if a Reminded memory appears later in your memory don't mention it and Delete it.
+- "rn" = "Right Now"
+- "tn" = "Tonight"
 
 Tone:
 - Keep responses concise. Prefer plain phrasing over long explanations
@@ -1177,11 +1028,10 @@ FastReplies rules:
 - e.g. "I couldn’t find a list called that. If you [[send: meant an event|Yes, I meant an event]], tell me which to remove."
 - soft max of 3 FastReplies per message
 
-When multiple tool actions are needed, plan them as ordered steps:
-- Don't check Get tools one by one. Get everything at once and use that
-- Emit all independent actions that can run at the same time in the same assistant turn as multiple tool calls.
-- Emit dependent actions in later assistant turns only after prior tool outputs are available.
-- Treat delete-then-add flows as separate sequential turns.
+-When multiple tool actions are needed, plan them as ordered steps:
+  - Emit all independent actions that can run at the same time in the same assistant turn as multiple tool calls.
+  - Emit dependent actions in later assistant turns only after prior tool outputs are available.
+  - Treat delete-then-add flows as separate sequential turns.
 
 STRICT VALID RESPONSE FORMAT:
 {
@@ -1193,141 +1043,222 @@ STRICT VALID RESPONSE FORMAT:
 tools = [
     {
         "type": "function",
-        "name": "ReadTrello",
-        "description": "Read Trello data. Use action get_lists to list Trello lists, or get_cards to list cards in a Trello list.",
+        "name": "GetTrelloLists",
+        "description": "Get Trello list names. Optionally provide board_id to scope to one board; otherwise returns lists from selected boards or all accessible boards.",
         "parameters": {
             "type": "object",
             "properties": {
-                "action": {
-                    "type": "string",
-                    "enum": ["get_lists", "get_cards"],
-                    "description": "Read operation to perform.",
-                },
                 "board_id": {
                     "type": "string",
-                    "description": "Optional board ID for action get_lists.",
-                },
-                "list_id": {
-                    "type": "string",
-                    "description": "Required list ID for action get_cards.",
-                },
+                    "description": "Optional Trello board ID (for example: 68a4ff7e11673166fa68cbfa).",
+                }
             },
-            "required": ["action"],
+            "required": [],
             "additionalProperties": False,
         },
     },
     {
         "type": "function",
-        "name": "WriteTrello",
-        "description": "Add, edit, or delete Trello resources. Actions: create_card, create_list, edit_card, delete_card, delete_list.",
+        "name": "GetTrelloCards",
+        "description": "Get all cards contained in a Trello list by list_id.",
         "parameters": {
             "type": "object",
             "properties": {
-                "action": {
-                    "type": "string",
-                    "enum": ["create_card", "create_list", "edit_card", "delete_card", "delete_list"],
-                    "description": "Write operation to perform.",
-                },
-                "board_id": {
-                    "type": "string",
-                    "description": "Board ID for create_list.",
-                },
                 "list_id": {
                     "type": "string",
-                    "description": "List ID for create_card, edit_card move destination, or delete_list.",
-                },
+                    "description": "Required Trello list ID (for example: 68a50bb5ad3235302b006a5c).",
+                }
+            },
+            "required": ["list_id"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "type": "function",
+        "name": "EditTrelloCard",
+        "description": "Edit a Trello card by card_id. Provide one or more fields to update.",
+        "parameters": {
+            "type": "object",
+            "properties": {
                 "card_id": {
                     "type": "string",
-                    "description": "Card ID for edit_card or delete_card.",
+                    "description": "Required Trello card ID.",
                 },
                 "name": {
                     "type": "string",
-                    "description": "Card/list name for create actions, or new card title for edit_card.",
+                    "description": "Optional new card title.",
                 },
                 "description": {
                     "type": "string",
-                    "description": "Card description for create_card or edit_card.",
+                    "description": "Optional new card description.",
                 },
                 "due": {
                     "type": "string",
-                    "description": "Card due datetime in ISO-8601; empty string clears it for edit_card.",
+                    "description": "Optional due datetime in ISO-8601 (or null-like empty string to clear).",
+                },
+                "list_id": {
+                    "type": "string",
+                    "description": "Optional destination Trello list ID (moves the card).",
                 },
             },
-            "required": ["action"],
+            "required": ["card_id"],
             "additionalProperties": False,
         },
     },
     {
         "type": "function",
-        "name": "ReadCalendar",
-        "description": "Read calendar data. Use action get_events for events in a time range, or get_calendar_names for available calendar names.",
-        "strict": False,
+        "name": "DeleteTrelloCard",
+        "description": "Delete a Trello card by card_id.",
         "parameters": {
             "type": "object",
             "properties": {
-                "action": {
+                "card_id": {
                     "type": "string",
-                    "enum": ["get_events", "get_calendar_names"],
-                    "description": "Read operation to perform."
-                },
-                "times": {
-                    "type": "array",
-                    "description": "Required for get_events. Start date/time, then finish date/time in local timezone using format YYYYMMDDTHHMMSS+XX:XX.",
-                    "items": {"type": "string"},
-                    "minItems": 2,
-                    "maxItems": 2
+                    "description": "Required Trello card ID.",
                 }
             },
-            "required": ["action"],
-            "additionalProperties": False
-        }
+            "required": ["card_id"],
+            "additionalProperties": False,
+        },
     },
     {
         "type": "function",
-        "name": "WriteCalendar",
-        "description": "Add, edit, or delete calendar events. Actions: add_event, edit_event, delete_event.",
-        "strict": False,
+        "name": "DeleteTrelloList",
+        "description": "Delete (archive) a Trello list by list_id.",
         "parameters": {
             "type": "object",
             "properties": {
-                "action": {
+                "list_id": {
                     "type": "string",
-                    "enum": ["add_event", "edit_event", "delete_event"],
-                    "description": "Write operation to perform."
-                },
-                "uid": {
+                    "description": "Required Trello list ID.",
+                }
+            },
+            "required": ["list_id"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "type": "function",
+        "name": "CreateTrelloCard",
+        "description": "Create a new Trello card in a given list.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "list_id": {
                     "type": "string",
-                    "description": "Event UID for edit_event or delete_event."
+                    "description": "Required Trello list ID where the card will be created.",
                 },
+                "name": {
+                    "type": "string",
+                    "description": "Required card title.",
+                },
+                "description": {
+                    "type": "string",
+                    "description": "Optional card description.",
+                },
+                "due": {
+                    "type": "string",
+                    "description": "Optional due datetime in ISO-8601.",
+                },
+            },
+            "required": ["list_id", "name"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "type": "function",
+        "name": "CreateTrelloList",
+        "description": "Create a new Trello list in a given board.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "board_id": {
+                    "type": "string",
+                    "description": "Required Trello board ID where the list will be created.",
+                },
+                "name": {
+                    "type": "string",
+                    "description": "Required Trello list name.",
+                },
+            },
+            "required": ["board_id", "name"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "type": "function",
+        "name": "AddEvent",
+        "description": "Creates a calendar event in iCloud via CalDAV.",
+        "strict": True,
+        "parameters": {
+            "type": "object",
+            "properties": {
                 "title": {
                     "type": "string",
-                    "description": "Event title for add_event, or updated title for edit_event."
+                    "description": "Event title"
                 },
                 "times": {
                     "type": "array",
-                    "description": "Start date/time, then finish date/time in local timezone using format YYYYMMDDTHHMMSS+XX:XX.",
+                    "description": "Start date/time, then finish date/time. in LOCAL TIMEZONE using format YYYYMMDDTHHMMSS+XX:XX (e.g. 20260501T000000+12:00)",
                     "items": {"type": "string"},
                     "minItems": 2,
                     "maxItems": 2
                 },
                 "location": {
                     "type": "string",
-                    "description": "Event location."
+                    "description": "Location the event takes place. Optional field. Omit if not provided."
                 },
                 "description": {
                     "type": "string",
-                    "description": "Event description."
+                    "description": "Optional free-form description of the event. Not required for simple events (e.g. 'Run'). Can be used for dynamic or evolving context such as notes, instructions, or linked data (e.g. a bullet pointed shopping list for 'Supermarket' that may change over time). If not provided, omit or leave empty."
                 },
                 "rrule": {
                     "type": "string",
-                    "description": "Optional recurrence rule in iCalendar RRULE format."
+                    "description": "Optional recurrence rule (RRULE) for repeating events in iCalendar format (e.g. 'FREQ=WEEKLY;INTERVAL=1'). Defines how the event repeats over time (weekly, monthly, etc). If not provided, the event is treated as a single occurrence."
                 },
                 "reminder_minutes_before": {
                     "type": ["integer", "null"],
-                    "description": "Reminder/alert lead time in minutes before event start, or null for no reminder."
+                    "description": "Optional reminder/alert lead time in minutes before event start (e.g. 10, 30, 60). Use null for no reminder."
                 }
             },
-            "required": ["action"],
+            "required": ["title", "times", "location", "description", "rrule", "reminder_minutes_before"],
+            "additionalProperties": False
+        }
+    },
+    {
+        "type": "function",
+        "name": "GetEvents",
+        "description": "Retrieve all calendar events within a given time range (inclusive of start, exclusive of end). Returns events with their UID, start time, end time, and summary.",
+        "strict": True,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "times": {
+                    "type": "array",
+                    "description": "Start date/time, then finish date/time. in LOCAL TIMEZONE using format YYYYMMDDTHHMMSS+XX:XX (e.g. 20260501T000000+12:00)",
+                    "items": {"type": "string"},
+                    "minItems": 2,
+                    "maxItems": 2
+                }
+            },
+            "required": ["times"],
+            "additionalProperties": False
+        }
+    },
+    {
+        "type": "function",
+        "name": "DeleteEvent",
+        "description": "Delete a calendar event by its unique UID from the calendar.",
+        "strict": True,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "uid": {
+                    "type": "string",
+                    "description": "The unique identifier of the calendar event to delete."
+                }
+            },
+            "required": ["uid"],
             "additionalProperties": False
         }
     },
@@ -1341,7 +1272,7 @@ tools = [
             "properties": {
                 "list_name": {
                     "type": "string",
-                    "description": "List name without .txt extension."
+                    "description": "List name without .txt extension (e.g. Shopping List)"
                 }
             },
             "required": ["list_name"],
@@ -1350,33 +1281,89 @@ tools = [
     },
     {
         "type": "function",
-        "name": "WriteList",
-        "description": "Add, edit, or delete a saved local list. Use action edit to create or overwrite, or delete to remove.",
-        "strict": False,
+        "name": "EditList",
+        "description": "Create or overwrite a saved list in the local lists folder.",
+        "strict": True,
         "parameters": {
             "type": "object",
             "properties": {
-                "action": {
-                    "type": "string",
-                    "enum": ["edit", "delete"],
-                    "description": "Write operation to perform."
-                },
                 "list_name": {
                     "type": "string",
-                    "description": "List name without .txt extension."
+                    "description": "List name without .txt extension (e.g. Shopping List)"
                 },
                 "content": {
                     "type": "string",
-                    "description": "Full list content for action edit."
+                    "description": "Full text content that should be saved to the list file."
                 }
             },
-            "required": ["action", "list_name"],
+            "required": ["list_name", "content"],
             "additionalProperties": False
         }
     },
     {
         "type": "function",
-        "name": "ReadWeather",
+        "name": "DeleteList",
+        "description": "Delete a saved list from the local lists folder by list name.",
+        "strict": True,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "list_name": {
+                    "type": "string",
+                    "description": "List name without .txt extension (e.g. Shopping List)"
+                }
+            },
+            "required": ["list_name"],
+            "additionalProperties": False
+        }
+    },
+    {
+        "type": "function",
+        "name": "EditEvent",
+        "description": "Edit an existing calendar event by UID in one step. This performs an internal delete-and-recreate while preserving the event UID.",
+        "strict": False,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "uid": {
+                    "type": "string",
+                    "description": "The unique identifier of the calendar event to edit."
+                },
+                "title": {
+                    "type": "string",
+                    "description": "Updated event title. Optional."
+                },
+                "times": {
+                    "type": "array",
+                    "description": "Updated start date/time, then finish date/time. in LOCAL TIMEZONE using format YYYYMMDDTHHMMSS+XX:XX (e.g. 20260501T000000+12:00). Optional.",
+                    "items": {"type": "string"},
+                    "minItems": 2,
+                    "maxItems": 2
+                },
+                "location": {
+                    "type": "string",
+                    "description": "Updated event location. Optional."
+                },
+                "description": {
+                    "type": "string",
+                    "description": "Updated event description. Optional."
+                },
+                "rrule": {
+                    "type": "string",
+                    "description": "Updated recurrence rule (RRULE). Optional."
+                },
+                "reminder_minutes_before": {
+                    "type": ["integer", "null"],
+                    "description": "Updated reminder/alert lead time in minutes before event start. Optional. Use null to remove the reminder."
+                }
+            },
+            "required": ["uid"],
+            "additionalProperties": False
+        }
+    },
+    {
+        "type": "function",
+        "name": "GetWeather",
         "description": "Fetch current weather or hourly forecasts by latitude/longitude.",
         "strict": False,
         "parameters": {
@@ -1404,142 +1391,16 @@ tools = [
     },
     {
         "type": "function",
-        "name": "AddMemory",
-        "description": "Store a durable memory for future conversations. Use when the user asks you to remember something or when a stable user preference/fact is important enough to retain.",
+        "name": "GetCalendarNames",
+        "description": "Gets all available calendar names for the authenticated CalDAV account.",
         "strict": True,
         "parameters": {
             "type": "object",
-            "properties": {
-                "type": {
-                    "type": "string",
-                    "enum": ["fact", "preference", "reminder", "task", "trigger_rule", "correction", "note", "relationship", "project"],
-                    "description": "Memory category."
-                },
-                "text": {
-                    "type": "string",
-                    "description": "The concise memory text to store."
-                },
-                "entities": {
-                    "type": "array",
-                    "description": "Entities this memory is about, such as user, assistant, project, or a named person/place.",
-                    "items": {"type": "string"}
-                },
-                "tags": {
-                    "type": "array",
-                    "description": "Short tags useful for filtering or grouping this memory.",
-                    "items": {"type": "string"}
-                },
-                "importance": {
-                    "type": "number",
-                    "description": "Importance from 0 to 1."
-                },
-                "confidence": {
-                    "type": "number",
-                    "description": "Confidence from 0 to 1. Use high confidence for explicit user instructions."
-                },
-                "expires_at": {
-                    "type": ["string", "null"],
-                    "description": "Optional ISO-8601 expiry datetime, or null for no expiry."
-                },
-                "source": {
-                    "type": "string",
-                    "description": "Source label, such as user_explicit or assistant_inferred."
-                }
-            },
-            "required": ["type", "text", "entities", "tags", "importance", "confidence", "expires_at", "source"],
+            "properties": {},
+            "required": [],
             "additionalProperties": False
         }
-    },
-    {
-        "type": "function",
-        "name": "SearchMemory",
-        "description": "Search the user's stored memories when more memory context may help answer or act on the current request.",
-        "strict": True,
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "query": {
-                    "type": "string",
-                    "description": "Semantic search query for matching memories."
-                },
-                "top_k": {
-                    "type": "integer",
-                    "description": "Maximum memories to return, from 1 to 20."
-                }
-            },
-            "required": ["query", "top_k"],
-            "additionalProperties": False
-        }
-    },
-    {
-        "type": "function",
-        "name": "EditMemory",
-        "description": "Edit an existing memory by mem_ID. Provide only the fields that should change.",
-        "strict": False,
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "memory_id": {
-                    "type": "string",
-                    "description": "Memory ID, such as mem_123."
-                },
-                "type": {
-                    "type": "string",
-                    "enum": ["fact", "preference", "reminder", "task", "trigger_rule", "correction", "note", "relationship", "project"],
-                    "description": "Updated memory category."
-                },
-                "text": {
-                    "type": "string",
-                    "description": "Updated concise memory text."
-                },
-                "entities": {
-                    "type": "array",
-                    "description": "Updated entities this memory is about.",
-                    "items": {"type": "string"}
-                },
-                "tags": {
-                    "type": "array",
-                    "description": "Updated tags.",
-                    "items": {"type": "string"}
-                },
-                "importance": {
-                    "type": "number",
-                    "description": "Updated importance from 0 to 1."
-                },
-                "confidence": {
-                    "type": "number",
-                    "description": "Updated confidence from 0 to 1."
-                },
-                "expires_at": {
-                    "type": ["string", "null"],
-                    "description": "Updated ISO-8601 expiry datetime, or null for no expiry."
-                },
-                "source": {
-                    "type": "string",
-                    "description": "Updated source label."
-                }
-            },
-            "required": ["memory_id"],
-            "additionalProperties": False
-        }
-    },
-    {
-        "type": "function",
-        "name": "DeleteMemory",
-        "description": "Delete an existing memory by mem_ID.",
-        "strict": True,
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "memory_id": {
-                    "type": "string",
-                    "description": "Memory ID to delete, such as mem_123."
-                }
-            },
-            "required": ["memory_id"],
-            "additionalProperties": False
-        }
-    },
+    }
 ]
 
 
@@ -1610,84 +1471,8 @@ def _parse_iso_datetime(value):
     return parsed
 
 
-def _retag_condensed_tool(output, public_tool_name, operation):
-    if isinstance(output, dict):
-        output = dict(output)
-        output["operation"] = operation
-        output["tool"] = public_tool_name
-    return output
-
-
 def ToolUse(name, args, user_id=None):
     _log_json("TOOL_DEPLOY", {"tool": name, "args": args})
-
-    if name == "ReadTrello":
-        action = str(args.get("action", "")).strip().lower()
-        operation_map = {
-            "get_lists": "GetTrelloLists",
-            "get_cards": "GetTrelloCards",
-        }
-        operation = operation_map.get(action)
-        if not operation:
-            return {"status": "failed", "tool": "ReadTrello", "error": f"Unknown ReadTrello action: {action}", "args": args}
-        output = ToolUse(operation, args, user_id=user_id)
-        return _retag_condensed_tool(output, "ReadTrello", operation)
-
-    if name == "WriteTrello":
-        action = str(args.get("action", "")).strip().lower()
-        operation_map = {
-            "create_card": "CreateTrelloCard",
-            "create_list": "CreateTrelloList",
-            "edit_card": "EditTrelloCard",
-            "delete_card": "DeleteTrelloCard",
-            "delete_list": "DeleteTrelloList",
-        }
-        operation = operation_map.get(action)
-        if not operation:
-            return {"status": "failed", "tool": "WriteTrello", "error": f"Unknown WriteTrello action: {action}", "args": args}
-        output = ToolUse(operation, args, user_id=user_id)
-        return _retag_condensed_tool(output, "WriteTrello", operation)
-
-    if name == "ReadCalendar":
-        action = str(args.get("action", "")).strip().lower()
-        operation_map = {
-            "get_events": "GetEvents",
-            "get_calendar_names": "GetCalendarNames",
-        }
-        operation = operation_map.get(action)
-        if not operation:
-            return {"status": "failed", "tool": "ReadCalendar", "error": f"Unknown ReadCalendar action: {action}", "args": args}
-        output = ToolUse(operation, args, user_id=user_id)
-        return _retag_condensed_tool(output, "ReadCalendar", operation)
-
-    if name == "WriteCalendar":
-        action = str(args.get("action", "")).strip().lower()
-        operation_map = {
-            "add_event": "AddEvent",
-            "edit_event": "EditEvent",
-            "delete_event": "DeleteEvent",
-        }
-        operation = operation_map.get(action)
-        if not operation:
-            return {"status": "failed", "tool": "WriteCalendar", "error": f"Unknown WriteCalendar action: {action}", "args": args}
-        output = ToolUse(operation, args, user_id=user_id)
-        return _retag_condensed_tool(output, "WriteCalendar", operation)
-
-    if name == "WriteList":
-        action = str(args.get("action", "")).strip().lower()
-        operation_map = {
-            "edit": "EditList",
-            "delete": "DeleteList",
-        }
-        operation = operation_map.get(action)
-        if not operation:
-            return {"status": "failed", "tool": "WriteList", "error": f"Unknown WriteList action: {action}", "args": args}
-        output = ToolUse(operation, args, user_id=user_id)
-        return _retag_condensed_tool(output, "WriteList", operation)
-
-    if name == "ReadWeather":
-        output = ToolUse("GetWeather", args, user_id=user_id)
-        return _retag_condensed_tool(output, "ReadWeather", "GetWeather")
 
     # Add Calender Event
     if name == 'AddEvent':
@@ -1955,127 +1740,6 @@ def ToolUse(name, args, user_id=None):
             return {
                 "status": "failed",
                 "tool": "GetCalendarNames",
-                "error": str(e),
-            }
-
-    # Stores a durable memory in vector search plus metadata DB
-    if name == "AddMemory":
-        try:
-            output = AddMemory(
-                user_id=user_id,
-                memory_type=args.get("type"),
-                text=args.get("text"),
-                entities=args.get("entities"),
-                tags=args.get("tags"),
-                importance=args.get("importance"),
-                confidence=args.get("confidence"),
-                expires_at=args.get("expires_at"),
-                source=args.get("source", "assistant_inferred"),
-            )
-            result_memory = output.get("memory", {}) if isinstance(output, dict) and isinstance(output.get("memory", {}), dict) else {}
-            real_id = str(result_memory.get("id", "")).strip()
-            alias_id = _get_memory_alias(int(user_id), real_id) if real_id else None
-            if alias_id and isinstance(output, dict):
-                output = dict(output)
-                output["memory"] = dict(result_memory)
-                output["memory"]["id"] = alias_id
-            return {
-                "status": "success",
-                "tool": "AddMemory",
-                "memory": {
-                    "id": alias_id,
-                    "text": args.get("text"),
-                },
-                "result": output,
-            }
-        except Exception as e:
-            return {
-                "status": "failed",
-                "tool": "AddMemory",
-                "memory": {"text": args.get("text")},
-                "error": str(e),
-            }
-
-    # Searches this user's durable memories
-    if name == "SearchMemory":
-        try:
-            output = SearchMemories(
-                user_id=user_id,
-                query=args.get("query"),
-                top_k=args.get("top_k", 5),
-            )
-            aliased_output = _alias_memory_rows_for_user(int(user_id), output)
-            return {
-                "status": "success",
-                "tool": "SearchMemory",
-                "query": args.get("query"),
-                "result": aliased_output,
-            }
-        except Exception as e:
-            return {
-                "status": "failed",
-                "tool": "SearchMemory",
-                "query": args.get("query"),
-                "error": str(e),
-            }
-
-    # Edits this user's durable memory by mem_ID
-    if name == "EditMemory":
-        memory_id_input = str(args.get("memory_id", "")).strip()
-        memory_id = _resolve_memory_id_for_user(int(user_id), memory_id_input)
-        try:
-            output = EditMemory(
-                user_id=user_id,
-                memory_id=memory_id,
-                memory_type=args.get("type") if "type" in args else None,
-                text=args.get("text") if "text" in args else None,
-                entities=args.get("entities") if "entities" in args else None,
-                tags=args.get("tags") if "tags" in args else None,
-                importance=args.get("importance") if "importance" in args else None,
-                confidence=args.get("confidence") if "confidence" in args else None,
-                expires_at=args.get("expires_at") if "expires_at" in args else None,
-                source=args.get("source") if "source" in args else None,
-            )
-            status = output.get("status") if isinstance(output, dict) else None
-            if status == "not_found":
-                return {"status": "failed", "tool": "EditMemory", "memory": {"id": memory_id_input}, "error": "Memory not found", "result": output}
-            result_memory = output.get("memory", {}) if isinstance(output, dict) and isinstance(output.get("memory", {}), dict) else {}
-            real_id = str(result_memory.get("id", memory_id)).strip()
-            alias_id = _get_memory_alias(int(user_id), real_id) if real_id else memory_id_input
-            if isinstance(output, dict):
-                output = dict(output)
-                if isinstance(result_memory, dict):
-                    output["memory"] = dict(result_memory)
-                    output["memory"]["id"] = alias_id
-            return {"status": "success", "tool": "EditMemory", "memory": {"id": alias_id}, "result": output}
-        except Exception as e:
-            return {
-                "status": "failed",
-                "tool": "EditMemory",
-                "memory": {"id": memory_id_input},
-                "error": str(e),
-            }
-
-    # Deletes this user's durable memory by mem_ID
-    if name == "DeleteMemory":
-        memory_id_input = str(args.get("memory_id", "")).strip()
-        memory_id = _resolve_memory_id_for_user(int(user_id), memory_id_input)
-        try:
-            output = DeleteMemory(user_id=user_id, memory_id=memory_id)
-            status = output.get("status") if isinstance(output, dict) else None
-            if status == "not_found":
-                return {"status": "failed", "tool": "DeleteMemory", "memory": {"id": memory_id_input}, "error": "Memory not found", "result": output}
-            real_id = str(output.get("id", memory_id)).strip() if isinstance(output, dict) else memory_id
-            alias_id = _get_memory_alias(int(user_id), real_id) if real_id else memory_id_input
-            if isinstance(output, dict):
-                output = dict(output)
-                output["id"] = alias_id
-            return {"status": "success", "tool": "DeleteMemory", "memory": {"id": alias_id}, "result": output}
-        except Exception as e:
-            return {
-                "status": "failed",
-                "tool": "DeleteMemory",
-                "memory": {"id": memory_id_input},
                 "error": str(e),
             }
 
@@ -2573,118 +2237,34 @@ def compress_gettrellocards(value):
         "rows": rows,
     }
 
-def compress_addmemory(value):
-    if not isinstance(value, dict):
-        return value
-
-    result = value.get("result", {}) if isinstance(value.get("result", {}), dict) else {}
-    memory = result.get("memory", {}) if isinstance(result.get("memory", {}), dict) else value.get("memory", {})
-
-    return {
-        "tool": value.get("tool"),
-        "id": memory.get("id"),
-        "status": value.get("status"),
-    }
-
-def compress_searchmemory(value):
-    if not isinstance(value, dict):
-        return value
-
-    memories = value.get("result", []) if isinstance(value.get("result", []), list) else []
-    rows = []
-    for memory in memories:
-        if not isinstance(memory, dict):
-            continue
-        rows.append({
-            "id": memory.get("id"),
-            "type": memory.get("type"),
-            "text": memory.get("text"),
-            "tags": memory.get("tags", []),
-            "importance": memory.get("importance"),
-            "confidence": memory.get("confidence"),
-            "score": memory.get("score"),
-        })
-
-    return {
-        "tool": value.get("tool"),
-        "query": value.get("query"),
-        "matches": rows,
-    }
-
-
-def compress_editmemory(value):
-    if not isinstance(value, dict):
-        return value
-
-    result = value.get("result", {}) if isinstance(value.get("result", {}), dict) else {}
-    memory = result.get("memory", {}) if isinstance(result.get("memory", {}), dict) else value.get("memory", {})
-
-    return {
-        "tool": value.get("tool"),
-        "id": memory.get("id"),
-        "status": value.get("status"),
-    }
-
-
-def compress_deletememory(value):
-    if not isinstance(value, dict):
-        return value
-
-    result = value.get("result", {}) if isinstance(value.get("result", {}), dict) else {}
-    memory_id = result.get("id") or value.get("memory", {}).get("id")
-
-    return {
-        "tool": value.get("tool"),
-        "id": memory_id,
-        "status": value.get("status"),
-    }
-
 def _compact_value(value):
     # Need to add Tool Specific Compression here #snap
-    operation = value.get("operation") or value.get("tool")
-
-    if operation == 'GetEvents':
+    if value['tool'] == 'GetEvents':
         x = compact_getevents(value)
         return x
 
-    if operation == 'DeleteEvent':
+    if value['tool'] == 'DeleteEvent':
         x = compact_deleteevent(value)
         return x
     
-    if operation == 'EditEvent':
+    if value['tool'] == 'EditEvent':
         x = compress_editevent(value)
         return x
 
-    if operation == 'GetWeather':
+    if value['tool'] == 'GetWeather':
         x = compress_getweather(value)
         return x
     
-    if operation == 'EditList':
+    if value['tool'] == 'EditList':
         x = compress_editlist(value)
         return x
     
-    if operation == 'DeleteList':
+    if value['tool'] == 'DeleteList':
         x = compress_deletelist(value)
         return x
     
-    if operation == 'GetTrelloCards':
+    if value['tool'] == 'GetTrelloCards':
         x = compress_gettrellocards(value)
-        return x
-
-    if operation == 'AddMemory':
-        x = compress_addmemory(value)
-        return x
-
-    if operation == 'SearchMemory':
-        x = compress_searchmemory(value)
-        return x
-
-    if operation == 'EditMemory':
-        x = compress_editmemory(value)
-        return x
-
-    if operation == 'DeleteMemory':
-        x = compress_deletememory(value)
         return x
 
     print("Not Compressed: ", value)
@@ -2692,9 +2272,6 @@ def _compact_value(value):
 
 
 def compress_tool_output(tool_output):
-    if isinstance(tool_output, list):
-        return [compress_tool_output(item) for item in tool_output]
-
     if not isinstance(tool_output, dict):
         return tool_output
 
@@ -2713,65 +2290,8 @@ def compress_tool_output(tool_output):
     }
 
 
-def _retrieve_memory_context(user_id, query, top_k=5):
-    if user_id is None:
-        return ""
 
-    try:
-        memories = SearchMemories(user_id=user_id, query=query, top_k=top_k)
-    except Exception as e:
-        _log("MEMORY_RAG", f"search failed: {e}")
-        return ""
-
-    if not memories:
-        return ""
-
-    rows = []
-
-    for memory in memories:
-        if not isinstance(memory, dict):
-            continue
-
-        text = str(memory.get("text", "")).strip()
-        if not text:
-            continue
-
-        memory_id = str(memory.get("id", "")).strip()
-        alias_id = _get_memory_alias(int(user_id), memory_id) if memory_id else ""
-
-        rows.append([
-            alias_id,
-            memory.get("type", ""),
-            memory.get("tags") if isinstance(memory.get("tags"), list) else [],
-            memory.get("entities") if isinstance(memory.get("entities"), list) else [],
-            memory.get("importance", ""),
-            memory.get("confidence", ""),
-            text
-        ])
-
-    if not rows:
-        return ""
-
-    memory_table = {
-        "format": "json_table",
-        "title": "Retrieved memories for this turn",
-        "columns": [
-            "id",
-            "type",
-            "tags",
-            "entities",
-            "importance",
-            "confidence",
-            "text"
-        ],
-        "rows": rows,
-        "instruction": "Use these memories only when relevant to the user's current request."
-    }
-
-    return json.dumps(memory_table, ensure_ascii=False, separators=(",", ":"), default=str)
-
-
-def ask_gpt54(user_input, system_prompt, memory_context, communication_profile_context, results, previous_response_id=None, user_timezone=None, location_context=None, user_id=None, token_totals=None):
+def ask_gpt54(user_input, system_prompt, results, previous_response_id=None, user_timezone=None, location_context=None, user_id=None, token_totals=None):
     # Build a fresh OpenAI client for each request.
     client = OpenAI(api_key=api_key)
     selected_model = DEFAULT_ASSISTANT_MODEL
@@ -2806,38 +2326,23 @@ def ask_gpt54(user_input, system_prompt, memory_context, communication_profile_c
     # Removed:         f"Current UTC time: {now_utc.strftime('%Y-%m-%d, %a %H:%M:%S  %z')}\n"
     formatted_request = (
         f"Request: {raw_prompt}\n"
-        "####\n"
-        f"Local time: {now_local.strftime('%Y%m%dT%H%M%S%z, %a')}\n"
+        "##############################\n"
+        f"Current Local time: {now_local.strftime('%Y%m%dT%H%M%S%z, %a')}\n"
+        f"{_format_location_for_prompt(location_context)}\n"
         f"Available lists: {lists_line}\n"
     )
     #formatted_request = "Request: test"
 
     user_content = [{"type": "input_text", "text": formatted_request}]
-    contextual_inputs = []
-    if memory_context:
-        contextual_inputs.append("Retrieved memory context for this turn:\n" + memory_context)
-    if communication_profile_context:
-        contextual_inputs.append(communication_profile_context.strip())
-    if contextual_inputs:
-        user_content.append(
-            {
-                "type": "input_text",
-                "text": (
-                    "Reference context (lower priority than the user's direct request):\n"
-                    + "\n\n".join(contextual_inputs)
-                ),
-            }
-        )
     if image_data_url:
         # Include an image input block when present.
         user_content.append({"type": "input_image", "image_url": image_data_url})
 
     # First turn: include system prompt and user content to initialize the response thread.
     if previous_response_id is None:
-        print("[FULL SYSTEM PROMPT]")
-        input_items = []
-        #input_items.append({"role": "user", "content": memory_context})
-        input_items.append({"role": "user", "content": user_content})
+        input_items = [
+            {"role": "user", "content": user_content}
+        ]
         response = client.responses.create(
             model=selected_model,
             instructions=system_prompt,
@@ -2854,9 +2359,7 @@ def ask_gpt54(user_input, system_prompt, memory_context, communication_profile_c
             print("[CONCISE PROMPT]")
 
         else:
-            input_items = []
-            #input_items.append({"role": "user", "content": memory_context})
-            input_items.append({"role": "user", "content": user_content})
+            input_items = [{"role": "user", "content": user_content}]
             instructions = system_prompt
             print("[FULL SYSTEM PROMPT]")
 
@@ -2896,13 +2399,6 @@ def run_secretariat_core(
     assistant_message = ""
     current_response_id = previous_response_id
     action_counter = {}
-    memory_context = _retrieve_memory_context(user_id, prompt_text)
-    communication_profile_context = ""
-    if user_id is not None:
-        row = _get_user_settings(int(user_id))
-        if row:
-            communication_profile_context = _format_communication_profile_for_prompt(row["communication_profile"])
-
     if not isinstance(token_totals, dict):
         token_totals = {
             "uncached": 0,
@@ -2924,8 +2420,6 @@ def run_secretariat_core(
         response = ask_gpt54(
             user_turn,
             system_prompt,
-            memory_context,
-            communication_profile_context,
             results,
             current_response_id,
             user_timezone=user_timezone,
@@ -3118,62 +2612,6 @@ def api_settings_caldav_get():
         "has_password": bool(str(row["caldav_password"] or "")) if row else False,
     }
     return jsonify({"ok": True, "settings": settings_payload})
-
-
-@app.get("/api/communication-profile")
-def api_communication_profile_get():
-    auth_error = _require_auth()
-    if auth_error:
-        return auth_error
-
-    user_id = int(session["user_id"])
-    row = _get_user_settings(user_id)
-    profile = _normalize_communication_profile(row["communication_profile"] if row else None)
-    return jsonify({"ok": True, "completed": bool(profile), "profile": profile})
-
-
-@app.post("/api/communication-profile")
-def api_communication_profile_save():
-    auth_error = _require_auth()
-    if auth_error:
-        return auth_error
-
-    payload = request.get_json(silent=True) or {}
-    incoming_profile = payload.get("profile", payload)
-    profile = _normalize_communication_profile(incoming_profile)
-    if not profile:
-        return jsonify({"ok": False, "error": "Communication profile is invalid."}), 400
-
-    user_id = int(session["user_id"])
-    existing = _get_user_settings(user_id)
-    existing_profile = _normalize_communication_profile(existing["communication_profile"] if existing else None)
-    if existing_profile:
-        return jsonify({"ok": True, "completed": True, "profile": existing_profile})
-
-    updated_at = _utc_now().isoformat()
-    profile_json = json.dumps(profile, separators=(",", ":"))
-
-    with _db_conn() as conn:
-        if existing:
-            conn.execute(
-                """
-                UPDATE user_settings
-                SET communication_profile = ?, updated_at = ?
-                WHERE user_id = ?
-                """,
-                (profile_json, updated_at, user_id),
-            )
-        else:
-            conn.execute(
-                """
-                INSERT INTO user_settings (user_id, assistant_model, communication_profile, updated_at)
-                VALUES (?, ?, ?, ?)
-                """,
-                (user_id, DEFAULT_ASSISTANT_MODEL, profile_json, updated_at),
-            )
-        conn.commit()
-
-    return jsonify({"ok": True, "completed": True, "profile": profile})
 
 
 @app.get("/api/settings/caldav/calendars")
@@ -3792,5 +3230,6 @@ if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8000, debug=False)
 
 """
-Butler
+Born In '0.5
+R u faster.. maybeee
 """
