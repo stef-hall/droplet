@@ -227,9 +227,19 @@ _CANONICAL_MEMORY_TYPES = {
     "commitments": "Commitments",
 }
 
+_MEMORY_TYPE_ALIASES = {
+    "triggers": "trigger",
+    "reminders": "reminder",
+    "preference": "prefrence",
+    "preferences": "prefrence",
+    "entity": "entities",
+    "commitment": "commitments",
+}
+
 
 def _normalize_memory_type(value):
     normalized = str(value or "").strip().lower()
+    normalized = _MEMORY_TYPE_ALIASES.get(normalized, normalized)
     if normalized not in _CANONICAL_MEMORY_TYPES:
         allowed = ", ".join(_CANONICAL_MEMORY_TYPES.values())
         raise ValueError(f"type must be one of: {allowed}.")
@@ -331,24 +341,27 @@ def _memory_is_expired(memory):
     return expires_dt <= datetime.now().astimezone()
 
 
-def SearchMemories(user_id, query, top_k=5):
+def SearchMemories(user_id, query, top_k=5, memory_type=None):
     query = str(query or "").strip()
     if not query:
         return []
 
     safe_user_id = int(user_id)
     limit = max(1, min(int(top_k), 20))
+    normalized_type = None
+    if memory_type is not None and str(memory_type).strip():
+        normalized_type = _normalize_memory_type(memory_type)
+
     with _memory_lock:
         model, collection = _get_memory_collection()
         results = collection.query(
             query_embeddings=[model.encode(query).tolist()],
-            n_results=limit,
+            n_results=20 if normalized_type else limit,
             where={"user_id": safe_user_id},
         )
 
         output = []
         ids = (results.get("ids") or [[]])[0]
-        documents = (results.get("documents") or [[]])[0]
         distances = (results.get("distances") or [[]])[0]
         for idx, item_id in enumerate(ids):
             memory = _memory_metadata_search(item_id, user_id=safe_user_id)
@@ -356,14 +369,18 @@ def SearchMemories(user_id, query, top_k=5):
                 continue
             if _memory_is_expired(memory):
                 continue
+            if normalized_type and memory.get("type") != normalized_type:
+                continue
             memory["score"] = distances[idx] if idx < len(distances) else None
             output.append(memory)
+            if len(output) >= limit:
+                break
 
     return output
 
 
-def SearchMemory(user_id, query, top_k=5):
-    return SearchMemories(user_id=user_id, query=query, top_k=top_k)
+def SearchMemory(user_id, query, top_k=5, memory_type=None):
+    return SearchMemories(user_id=user_id, query=query, top_k=top_k, memory_type=memory_type)
 
 
 def DeleteMemory(user_id, memory_id):

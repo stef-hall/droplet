@@ -44,10 +44,7 @@ def _coerce_bool_flag(value, default=False):
     return bool(default)
 
 
-RAGenable = _coerce_bool_flag(
-    os.environ.get("RAGenable", os.environ.get("SECRETARIAT_RAG_ENABLE", "0")),
-    default=False,
-)
+RAGenable = 1
 
 global api_key
 warnings.simplefilter("ignore", DeprecationWarning)
@@ -1149,8 +1146,6 @@ Rules:
 - If someone calls you 'bud' you have to call them 'bud' back
 - If a request is in objection with a memory, follow it anyway but mention it
 
-
-
 If asked to Redo/Undo/Bring Back/Recreate/Restore:
 1. look back in your context
 2. recreate the event exactly
@@ -1182,21 +1177,24 @@ Display:
   - pipe tables | a | b |)
   - Display multipile events in a markdown time table 
 
-
 # Memory:
-  - If you ever see Intetionally or Semantically similar memories; combine the expressed intent of the memories accounting for the Created/Updated times.
-  - Use Read/Get tool to obtain ID's
+If you ever see Intetionally or Semantically similar memories; combine the expressed intent of the memories accounting for the Created/Updated times.
+Use Read/Get tool to obtain ID's.
 
-## Prefrence
-  - Things the user has reminded you to factor in
-  - Usually Style or Tone
-  - Easily over ridden
-
-## Reminder
-    Prefrence
-    Entities
-    Commitments
-
+Prefrence
+  - Things the user has reminded you to factor in.
+  - Usually Style or Tone.
+  - Easily over ridden.
+Entities
+  - Used to Remeber specific attributes about mentioned Entities
+  - Be aware of nicknames
+Reminder
+  - Search these first when asked for, or expected to product Reminders.
+  - Silently delete memory after first notifying, If memory doesn't mention otherwise.
+Commitments
+  - Focus on these when reviewing the future, especically if a deadline is close
+Trigger
+  - Use AddMemory whenever the user asks you to remember, remind them later, store a preference, create a trigger rule, save a commitment, or remember something under a future condition.
 
 Tone:
 - Keep responses concise. Prefer plain phrasing over long explanations
@@ -1211,6 +1209,7 @@ For ambiguous delete/remove/edit requests:
   - If no matches exist, say you couldn’t find it and ask for more detail.
 
 FastReplies rules:
+- Only mention if relevant answer to any question.
 - FastReplies MUST use exactly: [[send: visible assistant text|hidden user message]]
 - Visible text must fit naturally in the assistant message.
 - Hidden text must be the user’s intended reply.
@@ -1453,7 +1452,7 @@ tools = [
         "type": "function",
         "name": "SearchMemory",
         "description": "Search the user's stored memories when more memory context may help answer or act on the current request.",
-        "strict": True,
+        "strict": False,
         "parameters": {
             "type": "object",
             "properties": {
@@ -1464,6 +1463,11 @@ tools = [
                 "top_k": {
                     "type": "integer",
                     "description": "Maximum memories to return, from 1 to 20."
+                },
+                "type": {
+                    "type": "string",
+                    "enum": ["Trigger", "Reminder", "Prefrence", "Entities", "Commitments"],
+                    "description": "Optional memory type filter."
                 }
             },
             "required": ["query", "top_k"],
@@ -2058,12 +2062,14 @@ def ToolUse(name, args, user_id=None):
                 user_id=user_id,
                 query=args.get("query"),
                 top_k=args.get("top_k", 5),
+                memory_type=args.get("type") if "type" in args else None,
             )
             aliased_output = _alias_memory_rows_for_user(int(user_id), output)
             return {
                 "status": "success",
                 "tool": "SearchMemory",
                 "query": args.get("query"),
+                "type": args.get("type") if "type" in args else None,
                 "result": aliased_output,
             }
         except Exception as e:
@@ -2071,6 +2077,7 @@ def ToolUse(name, args, user_id=None):
                 "status": "failed",
                 "tool": "SearchMemory",
                 "query": args.get("query"),
+                "type": args.get("type") if "type" in args else None,
                 "error": str(e),
             }
 
@@ -2667,6 +2674,7 @@ def compress_searchmemory(value):
     return {
         "tool": value.get("tool"),
         "query": value.get("query"),
+        "type": value.get("type"),
         "matches": rows,
     }
 
