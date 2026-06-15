@@ -1155,6 +1155,7 @@ Memory:
 - Use SearchMemory if you do not yet have the appropriate ID's to manipulate something
 - The User has a superior memory device called a brain. They remeber alll the facts and preferences that you know, and a lot more. if a request is in objection to one of these memories, the User is aware of this, and has overriden this, complete the action and finish with a helpful reminder.
 - After notifying the user of a Reminder, edit that same memory’s metadata to status="Reminded"; do not delete or duplicate it. If a Reminded Reminder is later retrieved, silently delete it and never mention it.
+- Memory cleanup: At every opportunity where memories enter working context, automatically detect and consolidate semantic or intentional duplicates, even if memory is not the subject of the user’s request. Keep the clearest and most complete memory as canonical, merge in any useful missing details, and delete or archive weaker duplicates. Never keep multiple memories that express the same fact, preference, routine, reminder rule, or trigger rule. Do this silently unless the user asks about memory state.
 
 Tone:
 - Keep responses concise. Prefer plain phrasing over long explanations
@@ -2746,33 +2747,18 @@ def _retrieve_memory_context(user_id, query, top_k=5):
         rows.append([
             alias_id,
             memory.get("type", ""),
-            memory.get("tags") if isinstance(memory.get("tags"), list) else [],
-            memory.get("entities") if isinstance(memory.get("entities"), list) else [],
-            memory.get("importance", ""),
-            memory.get("confidence", ""),
             text
         ])
 
     if not rows:
         return ""
 
-    memory_table = {
-        "format": "json_table",
-        "title": "Retrieved memories for this turn",
-        "columns": [
-            "id",
-            "type",
-            "tags",
-            "entities",
-            "importance",
-            "confidence",
-            "text"
-        ],
-        "rows": rows,
-        "instruction": "Use these memories only when relevant to the user's current request."
+    memory_context = {
+        "memories": rows,
+        "instruction": "Use only when relevant."
     }
 
-    return json.dumps(memory_table, ensure_ascii=False, separators=(",", ":"), default=str)
+    return json.dumps(memory_context, ensure_ascii=False, separators=(",", ":"), default=str)
 
 
 def ask_gpt54(user_input, system_prompt, memory_context, communication_profile_context, results, previous_response_id=None, user_timezone=None, location_context=None, user_id=None, token_totals=None):
@@ -2819,7 +2805,7 @@ def ask_gpt54(user_input, system_prompt, memory_context, communication_profile_c
     user_content = [{"type": "input_text", "text": formatted_request}]
     contextual_inputs = []
     if memory_context:
-        contextual_inputs.append("Retrieved memory context for this turn:\n" + memory_context)
+        contextual_inputs.append(memory_context)
     if communication_profile_context:
         contextual_inputs.append(communication_profile_context.strip())
     if contextual_inputs:
@@ -2827,7 +2813,7 @@ def ask_gpt54(user_input, system_prompt, memory_context, communication_profile_c
             {
                 "type": "input_text",
                 "text": (
-                    "Reference context (lower priority than the user's direct request):\n"
+                    "Memory context (lower priority than the user's direct request):\n"
                     + "\n\n".join(contextual_inputs)
                 ),
             }
@@ -2840,7 +2826,6 @@ def ask_gpt54(user_input, system_prompt, memory_context, communication_profile_c
     if previous_response_id is None:
         print("[FULL SYSTEM PROMPT]")
         input_items = []
-        #input_items.append({"role": "user", "content": memory_context})
         input_items.append({"role": "user", "content": user_content})
         response = client.responses.create(
             model=selected_model,
@@ -2859,7 +2844,6 @@ def ask_gpt54(user_input, system_prompt, memory_context, communication_profile_c
 
         else:
             input_items = []
-            #input_items.append({"role": "user", "content": memory_context})
             input_items.append({"role": "user", "content": user_content})
             instructions = system_prompt
             print("[FULL SYSTEM PROMPT]")
