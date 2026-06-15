@@ -1405,6 +1405,27 @@ tools = [
     },
     {
         "type": "function",
+        "name": "SearchMemory",
+        "description": "Search the user's stored memories when more memory context may help answer or act on the current request.",
+        "strict": True,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Semantic search query for matching memories."
+                },
+                "top_k": {
+                    "type": "integer",
+                    "description": "Maximum memories to return, from 1 to 20."
+                }
+            },
+            "required": ["query", "top_k"],
+            "additionalProperties": False
+        }
+    },
+    {
+        "type": "function",
         "name": "AddMemory",
         "description": "Store a durable memory for future conversations. Use when the user asks you to remember something or when a stable user preference/fact is important enough to retain.",
         "strict": True,
@@ -1448,27 +1469,6 @@ tools = [
                 }
             },
             "required": ["type", "text", "entities", "tags", "importance", "confidence", "expires_at", "source"],
-            "additionalProperties": False
-        }
-    },
-    {
-        "type": "function",
-        "name": "SearchMemory",
-        "description": "Search the user's stored memories when more memory context may help answer or act on the current request.",
-        "strict": True,
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "query": {
-                    "type": "string",
-                    "description": "Semantic search query for matching memories."
-                },
-                "top_k": {
-                    "type": "integer",
-                    "description": "Maximum memories to return, from 1 to 20."
-                }
-            },
-            "required": ["query", "top_k"],
             "additionalProperties": False
         }
     },
