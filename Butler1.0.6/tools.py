@@ -219,25 +219,21 @@ def _normalize_memory_score(value, field_name):
     return score
 
 
-_ALLOWED_MEMORY_TYPES = {
-    "fact",
-    "preference",
-    "reminder",
-    "task",
-    "trigger_rule",
-    "correction",
-    "note",
-    "relationship",
-    "project",
+_CANONICAL_MEMORY_TYPES = {
+    "trigger": "Trigger",
+    "reminder": "Reminder",
+    "prefrence": "Prefrence",
+    "entities": "Entities",
+    "commitments": "Commitments",
 }
 
 
 def _normalize_memory_type(value):
-    normalized = str(value or "note").strip().lower() or "note"
-    if normalized not in _ALLOWED_MEMORY_TYPES:
-        allowed = ", ".join(sorted(_ALLOWED_MEMORY_TYPES))
+    normalized = str(value or "").strip().lower()
+    if normalized not in _CANONICAL_MEMORY_TYPES:
+        allowed = ", ".join(_CANONICAL_MEMORY_TYPES.values())
         raise ValueError(f"type must be one of: {allowed}.")
-    return normalized
+    return _CANONICAL_MEMORY_TYPES[normalized]
 
 
 def AddMemory(

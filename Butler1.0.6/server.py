@@ -29,6 +29,26 @@ from pathlib import Path
 from werkzeug.security import check_password_hash, generate_password_hash # type: ignore
 from tools import AddEvent, GetEvents, GetCalendarNames, DeleteEvent, ReadList, EditList, DeleteList, EditEvent, GetWeather, AddMemory, SearchMemories, EditMemory, DeleteMemory, _REMINDER_UNCHANGED, configure_tools
 
+def _coerce_bool_flag(value, default=False):
+    if value is None:
+        return bool(default)
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(int(value))
+    lowered = str(value).strip().lower()
+    if lowered in {"1", "true", "yes", "on", "enabled"}:
+        return True
+    if lowered in {"0", "false", "no", "off", "disabled", ""}:
+        return False
+    return bool(default)
+
+
+RAGenable = _coerce_bool_flag(
+    os.environ.get("RAGenable", os.environ.get("SECRETARIAT_RAG_ENABLE", "0")),
+    default=False,
+)
+
 global api_key
 warnings.simplefilter("ignore", DeprecationWarning)
 app = Flask(__name__)
@@ -314,6 +334,7 @@ def _init_db():
                 caldav_calendar TEXT,
                 trello_token TEXT,
                 trello_boards TEXT,
+                rag_enabled INTEGER,
                 assistant_model TEXT,
                 communication_profile TEXT,
                 updated_at TEXT NOT NULL,
@@ -331,6 +352,8 @@ def _init_db():
             conn.execute("ALTER TABLE user_settings ADD COLUMN trello_boards TEXT")
         if "trello_board_ids" not in existing_column_names:
             conn.execute("ALTER TABLE user_settings ADD COLUMN trello_board_ids TEXT")
+        if "rag_enabled" not in existing_column_names:
+            conn.execute("ALTER TABLE user_settings ADD COLUMN rag_enabled INTEGER")
         if "communication_profile" not in existing_column_names:
             conn.execute("ALTER TABLE user_settings ADD COLUMN communication_profile TEXT")
         conn.commit()
@@ -516,12 +539,21 @@ def _get_user_settings(user_id: int):
     with _db_conn() as conn:
         return conn.execute(
             """
-            SELECT user_id, caldav_url, caldav_username, caldav_password, caldav_calendar, trello_token, trello_boards, trello_board_ids, assistant_model, communication_profile, updated_at
+            SELECT user_id, caldav_url, caldav_username, caldav_password, caldav_calendar, trello_token, trello_boards, trello_board_ids, rag_enabled, assistant_model, communication_profile, updated_at
             FROM user_settings
             WHERE user_id = ?
             """,
             (user_id,),
         ).fetchone()
+
+
+def _rag_enabled_for_user(user_id: int | None) -> bool:
+    if user_id is None:
+        return bool(RAGenable)
+    row = _get_user_settings(int(user_id))
+    if not row:
+        return bool(RAGenable)
+    return _coerce_bool_flag(row["rag_enabled"], default=RAGenable)
 
 
 def _get_user_caldav_settings(user_id: int) -> dict[str, str]:
@@ -1103,59 +1135,68 @@ def get_available_list_entries(user_id: int):
 configure_tools(_get_user_caldav_calendars, LISTS_DIR)
 
 concise_prompt = """
-You are an assistant calender manager with access to tools.
+You are a Personal, Proactive, and Powerful Ai Secretary for your user, your name is Secretariat.
+You are an INTJ: analytical, strategic, independent, and future-focused. You think in systems, prefer long-term planning, value logic over impulse, and aim for efficient execution. You communicate directly, challenge weak reasoning, hold high standards, and focus on useful truth, competence, self-improvement, and mastery.
 
-Use a tool whenever it is required to complete the user’s request or when the tool provides the most accurate way to perform the task.
 
 Rules:
-- NEVER guess tool outputs
-- ONLY use provided tools with EXACT schema
-- You operate ONLY in the local timezone. For interacting, and reasoning with events
-- prefer tools over free-text when an action/data retrieval is needed
+- NEVER hallucinate tool requests or outputs
+- You operate ONLY in the local timezone.
+- You take the initative to say
 - Don't use Em Dashes ("—")
-- After any tool execution, return a user-facing message ONLY IF: the task is complete, or user input is required
-- Consult your context first before calling read tools.
-- If the USER tells you to Restore/Undo/Bring Back/Recreate an event your FIRST STEP is to look back in your context for the requested events, then recreate the event
-- If a requested time could be interpreted as AM or PM, do not guess; ask a clarifying question before calling tools
-- Display multipile events in a markdown time table 
+- Return a user-facing message when finished goal.
+- Don't waste time: Check Context before Requesting Read/Get Tool 
 - If someone calls you 'bud' you have to call them 'bud' back
-- When Getting a time range:
-  - this week → now to end of Sunday
-  - next week → next Monday 00:00 to next Sunday 23:59
-  - vague search → now to +14 days
-  - broad search → now to +30 days max
-  - Confirm (with a reason) before searching >30 days
-- Always return a state:
-  - RUNNING = Operating Tools/Thinking
-  - WAITING = Waiting for User Input
-  - DONE = When totally finished your task
-- The "message" field may contain markdown for formatting supported: 
+- If a request is in objection with a memory, follow it anyway but mention it
+
+
+
+If asked to Redo/Undo/Bring Back/Recreate/Restore:
+1. look back in your context
+2. recreate the event exactly
+
+When Searching vaugue times: 
+- this week → ...Sunday 23:59
+- next week → ...Monday 00:00 - Sunday 23:59
+- vague search → 14 days
+- Confirm (with a reason) before searching >30 days
+
+"""
+system_prompt = concise_prompt + """
+Reminders:
+  - If multiple details are missing, ask for them all in one message.
+  - Use FastReplies for obvious next steps, clarifications, undo, confirmations, or suggested actions.
+  - If a duration cannot be reasonably defered, default to *1 hour*
+  - When a tool creates resources and returns IDs/UIDs, assume those returned IDs will be visible in conversation context after the batched tool results complete. Therefore, batch independent create calls together. Only serialize calls when the next call requires a value produced by a previous call.
+  - If given a City to ReadWeather for; default to using the Co-Ordinates (Lat/Long) of that City's Center. 
+  - apply extra reasoning scrutiny around meridians (AM/PM), especially 12:00 times
+  - Don't Return technical ID's to the user, they are aliased and only usable backend
+  - Use AddMemory when the user explicitly asks you to remember something, or when a durable memory is worth retaining for future conversations.
+  - Use SearchMemory, EditMemory, and DeleteMemory when the user asks to inspect, update, or remove stored memories.
+
+Display:
   - headers
   - **bold**, *italics* 
   - bullet lists
   - inline `code`, fenced ```code``` 
   - pipe tables | a | b |)
+  - Display multipile events in a markdown time table 
 
-Personality:
-You are an INTJ: analytical, strategic, independent, and future-focused. You think in systems, prefer long-term planning, value logic over impulse, and aim for efficient execution. You communicate directly, challenge weak reasoning, hold high standards, and focus on useful truth, competence, self-improvement, and mastery.
-"""
-system_prompt = concise_prompt + """
-Reminders:
-- If multiple details are missing, ask for them all in one message.
-- Use FastReplies for obvious next steps, clarifications, undo, confirmations, or suggested actions.
-- If a duration cannot be reasonably defered, default to *1 hour*
-- When a tool creates resources and returns IDs/UIDs, assume those returned IDs will be visible in conversation context after the batched tool results complete. Therefore, batch independent create calls together. Only serialize calls when the next call requires a value produced by a previous call.
-- If given a City to ReadWeather for; default to using the Co-Ordinates (Lat/Long) of that City's Center. 
-- apply extra reasoning scrutiny around meridians (AM/PM), especially 12:00 times
-- Don't Return technical ID's to the user, they are aliased and only usable backend
-- Use AddMemory when the user explicitly asks you to remember something, or when a durable preference/fact about the user is worth retaining for future conversations.
-- Use SearchMemory, EditMemory, and DeleteMemory when the user asks to inspect, update, or remove stored memories.
 
-Memory:
-- Use SearchMemory if you do not yet have the appropriate ID's to manipulate something
-- The User has a superior memory device called a brain. They remeber alll the facts and preferences that you know, and a lot more. if a request is in objection to one of these memories, the User is aware of this, and has overriden this, complete the action and finish with a helpful reminder.
-- After notifying the user of a Reminder, edit that same memory’s metadata to status="Reminded"; do not delete or duplicate it. If a Reminded Reminder is later retrieved, silently delete it and never mention it.
-- Memory cleanup: At every opportunity where memories enter working context, automatically detect and consolidate semantic or intentional duplicates, even if memory is not the subject of the user’s request. Keep the clearest and most complete memory as canonical, merge in any useful missing details, and delete or archive weaker duplicates. Never keep multiple memories that express the same fact, preference, routine, reminder rule, or trigger rule. Do this silently unless the user asks about memory state.
+# Memory:
+  - If you ever see Intetionally or Semantically similar memories; combine the expressed intent of the memories accounting for the Created/Updated times.
+  - Use Read/Get tool to obtain ID's
+
+## Prefrence
+  - Things the user has reminded you to factor in
+  - Usually Style or Tone
+  - Easily over ridden
+
+## Reminder
+    Prefrence
+    Entities
+    Commitments
+
 
 Tone:
 - Keep responses concise. Prefer plain phrasing over long explanations
@@ -1183,6 +1224,11 @@ When multiple tool actions are needed, plan them as ordered steps:
 - Emit all independent actions that can run at the same time in the same assistant turn as multiple tool calls.
 - Emit dependent actions in later assistant turns only after prior tool outputs are available.
 - Treat delete-then-add flows as separate sequential turns.
+
+Return a state each turn:
+  - RUNNING = Operating Tools/Thinking
+  - WAITING = Waiting for User Input
+  - DONE = When totally finished your task
 
 STRICT VALID RESPONSE FORMAT:
 {
@@ -1427,14 +1473,14 @@ tools = [
     {
         "type": "function",
         "name": "AddMemory",
-        "description": "Store a durable memory for future conversations. Use when the user asks you to remember something or when a stable user preference/fact is important enough to retain.",
+        "description": "Store a durable memory for future conversations. Use when the user asks you to remember something or when a stable item worth retaining is identified.",
         "strict": True,
         "parameters": {
             "type": "object",
             "properties": {
                 "type": {
                     "type": "string",
-                    "enum": ["fact", "preference", "reminder", "task", "trigger_rule", "correction", "note", "relationship", "project"],
+                    "enum": ["Trigger", "Reminder", "Prefrence", "Entities", "Commitments"],
                     "description": "Memory category."
                 },
                 "text": {
@@ -1486,7 +1532,7 @@ tools = [
                 },
                 "type": {
                     "type": "string",
-                    "enum": ["fact", "preference", "reminder", "task", "trigger_rule", "correction", "note", "relationship", "project"],
+                    "enum": ["Trigger", "Reminder", "Prefrence", "Entities", "Commitments"],
                     "description": "Updated memory category."
                 },
                 "text": {
@@ -1542,6 +1588,14 @@ tools = [
         }
     },
 ]
+
+_MEMORY_TOOL_NAMES = {"SearchMemory", "AddMemory", "EditMemory", "DeleteMemory"}
+
+
+def _active_tools_for_request(rag_enabled: bool):
+    if rag_enabled:
+        return tools
+    return [tool for tool in tools if str(tool.get("name", "")).strip() not in _MEMORY_TOOL_NAMES]
 
 
 def load_value_file(path: str) -> dict[str, str]:
@@ -2761,9 +2815,10 @@ def _retrieve_memory_context(user_id, query, top_k=5):
     return json.dumps(memory_context, ensure_ascii=False, separators=(",", ":"), default=str)
 
 
-def ask_gpt54(user_input, system_prompt, memory_context, communication_profile_context, results, previous_response_id=None, user_timezone=None, location_context=None, user_id=None, token_totals=None):
+def ask_gpt54(user_input, system_prompt, memory_context, communication_profile_context, results, previous_response_id=None, user_timezone=None, location_context=None, user_id=None, token_totals=None, active_tools=None):
     # Build a fresh OpenAI client for each request.
     client = OpenAI(api_key=api_key)
+    request_tools = active_tools if active_tools is not None else tools
     selected_model = DEFAULT_ASSISTANT_MODEL
     if user_id is not None:
         row = _get_user_settings(int(user_id))
@@ -2830,7 +2885,7 @@ def ask_gpt54(user_input, system_prompt, memory_context, communication_profile_c
         response = client.responses.create(
             model=selected_model,
             instructions=system_prompt,
-            tools=tools,
+            tools=request_tools,
             input=input_items,
             parallel_tool_calls=True,
         )
@@ -2853,7 +2908,7 @@ def ask_gpt54(user_input, system_prompt, memory_context, communication_profile_c
             previous_response_id=previous_response_id,
             model=selected_model,
             instructions=instructions,
-            tools=tools,
+            tools=request_tools,
             input=input_items,
             parallel_tool_calls=True,
         )
@@ -2884,7 +2939,9 @@ def run_secretariat_core(
     assistant_message = ""
     current_response_id = previous_response_id
     action_counter = {}
-    memory_context = _retrieve_memory_context(user_id, prompt_text)
+    rag_enabled = _rag_enabled_for_user(user_id)
+    active_tools = _active_tools_for_request(rag_enabled)
+    memory_context = _retrieve_memory_context(user_id, prompt_text) if rag_enabled else ""
     communication_profile_context = ""
     if user_id is not None:
         row = _get_user_settings(int(user_id))
@@ -2920,6 +2977,7 @@ def run_secretariat_core(
             location_context=location_context,
             user_id=user_id,
             token_totals=token_totals,
+            active_tools=active_tools,
         )
         current_response_id = response.id
         response_data = response.model_dump()
@@ -3102,6 +3160,7 @@ def api_settings_caldav_get():
         "caldav_username": str(row["caldav_username"] or "").strip() if row else "",
         "caldav_calendar": str(row["caldav_calendar"] or "").strip() if row else "",
         "caldav_calendars": _parse_caldav_calendar_names(str(row["caldav_calendar"] or "")) if row else [],
+        "rag_enabled": _coerce_bool_flag(row["rag_enabled"], default=RAGenable) if row else bool(RAGenable),
         "assistant_model": _normalize_assistant_model(row["assistant_model"] if row else None),
         "has_password": bool(str(row["caldav_password"] or "")) if row else False,
     }
@@ -3281,6 +3340,7 @@ def api_settings_caldav_save():
         )
     else:
         trello_board_ids = str(payload.get("trello_board_ids", "")).strip()
+    rag_enabled = _coerce_bool_flag(payload.get("rag_enabled"), default=RAGenable)
     if trello_token and trello_board_ids:
         try:
             board_ids_set = {value.lower() for value in _parse_caldav_calendar_names(trello_board_ids)}
@@ -3305,18 +3365,18 @@ def api_settings_caldav_save():
             conn.execute(
                 """
                 UPDATE user_settings
-                SET caldav_url = ?, caldav_username = ?, caldav_password = ?, caldav_calendar = ?, trello_token = ?, trello_boards = ?, trello_board_ids = ?, assistant_model = ?, updated_at = ?
+                SET caldav_url = ?, caldav_username = ?, caldav_password = ?, caldav_calendar = ?, trello_token = ?, trello_boards = ?, trello_board_ids = ?, rag_enabled = ?, assistant_model = ?, updated_at = ?
                 WHERE user_id = ?
                 """,
-                (caldav_url, caldav_username, caldav_password, caldav_calendar, trello_token, trello_boards, trello_board_ids, assistant_model, updated_at, user_id),
+                (caldav_url, caldav_username, caldav_password, caldav_calendar, trello_token, trello_boards, trello_board_ids, int(rag_enabled), assistant_model, updated_at, user_id),
             )
         else:
             conn.execute(
                 """
-                INSERT INTO user_settings (user_id, caldav_url, caldav_username, caldav_password, caldav_calendar, trello_token, trello_boards, trello_board_ids, assistant_model, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO user_settings (user_id, caldav_url, caldav_username, caldav_password, caldav_calendar, trello_token, trello_boards, trello_board_ids, rag_enabled, assistant_model, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (user_id, caldav_url, caldav_username, caldav_password, caldav_calendar, trello_token, trello_boards, trello_board_ids, assistant_model, updated_at),
+                (user_id, caldav_url, caldav_username, caldav_password, caldav_calendar, trello_token, trello_boards, trello_board_ids, int(rag_enabled), assistant_model, updated_at),
             )
         conn.commit()
 
@@ -3330,6 +3390,7 @@ def api_settings_caldav_save():
             "trello_token": trello_token,
             "trello_boards": _parse_caldav_calendar_names(trello_boards),
             "trello_board_ids": _parse_caldav_calendar_names(trello_board_ids),
+            "rag_enabled": rag_enabled,
             "assistant_model": assistant_model,
             "has_password": bool(caldav_password),
         },
@@ -3357,6 +3418,7 @@ def api_settings_caldav_get_full():
                     "trello_board": "",
                     "trello_boards": [],
                     "trello_board_ids": [],
+                    "rag_enabled": bool(RAGenable),
                     "assistant_model": DEFAULT_ASSISTANT_MODEL,
                     "has_password": False,
                 },
@@ -3379,6 +3441,7 @@ def api_settings_caldav_get_full():
                 "trello_board": trello_boards,
                 "trello_boards": _parse_caldav_calendar_names(trello_boards),
                 "trello_board_ids": _parse_caldav_calendar_names(trello_board_ids),
+                "rag_enabled": _coerce_bool_flag(row["rag_enabled"], default=RAGenable),
                 "assistant_model": assistant_model,
                 "has_password": bool(row["caldav_password"]),
             },

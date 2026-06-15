@@ -845,7 +845,7 @@ textarea {
   margin: 2px;
   border: 0;
   background: transparent;
-  color: var(--accent);
+  color: #000000;
   font: inherit;
   padding: 0;
   cursor: pointer;
@@ -871,7 +871,18 @@ textarea {
   opacity: 0.75;
 }
 
+.quick-reply-inline.edit-armed {
+  color: #1e9f48;
+  text-decoration-color: #1e9f48;
+}
+
 .quick-reply-inline:hover::after {
+  width: 0.9em;
+  margin-left: 0.15em;
+  opacity: 1;
+}
+
+.quick-reply-inline.edit-armed::after {
   width: 0.9em;
   margin-left: 0.15em;
   opacity: 1;

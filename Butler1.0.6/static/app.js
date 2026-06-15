@@ -47,6 +47,7 @@ function getCssRootNumberVar(name, fallback) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 const MAX_PROMPT_HEIGHT = 180;
+const QUICK_REPLY_EDIT_HOVER_MS = 100;
 const STICKY_NOTE_DOCK_THRESHOLD = 182;
 const STICKY_NOTE_DOCK_THRESHOLD_MOBILE = 50;
 const STICKY_NOTE_DOCK_HYSTERESIS = 24;
@@ -114,6 +115,7 @@ const ALLOWED_DESKTOP_META_STATUSES = new Set([
 const THEME_STORAGE_KEY = "secretariat-theme";
 const STICKY_NOTES_ENABLED_STORAGE_KEY = "secretariat-sticky-notes-enabled";
 const STICKY_NOTE_LAYOUT_STORAGE_KEY = "secretariat-sticky-layout";
+const quickReplyHoverTimers = new WeakMap();
 
 function isStickyNotesEnabled() {
   return !stickyNotesToggleEl || stickyNotesToggleEl.checked;
@@ -2385,9 +2387,65 @@ feedEl.addEventListener("click", async (event) => {
   if (!(quickReplyButton instanceof HTMLButtonElement)) return;
   const reply = decodeHtmlEntitiesDeep(quickReplyButton.dataset.reply || "").trim();
   if (!reply) return;
+
+  const quickReplyHoverTimer = quickReplyHoverTimers.get(quickReplyButton);
+  if (quickReplyHoverTimer) {
+    clearTimeout(quickReplyHoverTimer);
+    quickReplyHoverTimers.delete(quickReplyButton);
+  }
+  const shouldEditInComposer = quickReplyButton.classList.contains("edit-armed");
+  quickReplyButton.classList.remove("edit-armed");
+
+  if (shouldEditInComposer) {
+    promptInput.value = reply;
+    autoSizePrompt();
+    dockComposer();
+    promptInput.focus();
+    promptInput.setSelectionRange(promptInput.value.length, promptInput.value.length);
+    return;
+  }
+
   promptInput.value = reply;
   dockComposer();
   await submitPromptText(reply);
+});
+
+feedEl.addEventListener("pointerover", (event) => {
+  if (!(event instanceof PointerEvent) || event.pointerType !== "mouse") return;
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) return;
+  const quickReplyButton = target.closest(".quick-reply-inline");
+  if (!(quickReplyButton instanceof HTMLButtonElement)) return;
+  const relatedTarget = event.relatedTarget;
+  if (relatedTarget instanceof Node && quickReplyButton.contains(relatedTarget)) return;
+
+  quickReplyButton.classList.remove("edit-armed");
+  const existingTimer = quickReplyHoverTimers.get(quickReplyButton);
+  if (existingTimer) {
+    clearTimeout(existingTimer);
+  }
+  const timer = setTimeout(() => {
+    quickReplyButton.classList.add("edit-armed");
+    quickReplyHoverTimers.delete(quickReplyButton);
+  }, QUICK_REPLY_EDIT_HOVER_MS);
+  quickReplyHoverTimers.set(quickReplyButton, timer);
+});
+
+feedEl.addEventListener("pointerout", (event) => {
+  if (!(event instanceof PointerEvent) || event.pointerType !== "mouse") return;
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) return;
+  const quickReplyButton = target.closest(".quick-reply-inline");
+  if (!(quickReplyButton instanceof HTMLButtonElement)) return;
+  const relatedTarget = event.relatedTarget;
+  if (relatedTarget instanceof Node && quickReplyButton.contains(relatedTarget)) return;
+
+  const timer = quickReplyHoverTimers.get(quickReplyButton);
+  if (timer) {
+    clearTimeout(timer);
+    quickReplyHoverTimers.delete(quickReplyButton);
+  }
+  quickReplyButton.classList.remove("edit-armed");
 });
 
 function updateComposerFloatOffset() {
