@@ -48,6 +48,7 @@ function getCssRootNumberVar(name, fallback) {
 }
 const MAX_PROMPT_HEIGHT = 180;
 const QUICK_REPLY_EDIT_HOVER_MS = 100;
+const STREAM_INPUT_MIN_DISPLAY_MS = 1000;
 const STICKY_NOTE_DOCK_THRESHOLD = 182;
 const STICKY_NOTE_DOCK_THRESHOLD_MOBILE = 50;
 const STICKY_NOTE_DOCK_HYSTERESIS = 24;
@@ -1708,6 +1709,12 @@ function ensureFeedPinnedToBottom() {
   });
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, Math.max(0, Number(ms) || 0));
+  });
+}
+
 function setMetaStatus(text, { autoFade = false, fadeDelayMs = 4000 } = {}) {
   const normalizedDesktopStatus = normalizeDesktopMetaStatus(text);
   const safeText = normalizedDesktopStatus || "";
@@ -2081,6 +2088,27 @@ async function submitPromptText(prompt) {
     const decoder = new TextDecoder();
     let buffer = "";
     let finalPayload = null;
+    let lastStreamUiUpdateAt = 0;
+
+    const applyStreamStatus = async (labelText) => {
+      const now = Date.now();
+      const elapsed = now - lastStreamUiUpdateAt;
+      if (lastStreamUiUpdateAt > 0 && elapsed < STREAM_INPUT_MIN_DISPLAY_MS) {
+        await sleep(STREAM_INPUT_MIN_DISPLAY_MS - elapsed);
+      }
+
+      const label = labelText || "Thinking...";
+      updateThinkingLabel(label);
+      const compact = String(label).trim().toLowerCase().replace(/[.\s]+$/g, "");
+      if (compact.startsWith("waiting")) {
+        setMetaStatus("Waiting...");
+      } else if (compact.startsWith("done")) {
+        setMetaStatus("Done");
+      } else {
+        setMetaStatus("Thinking...");
+      }
+      lastStreamUiUpdateAt = Date.now();
+    };
 
     while (true) {
       const { value, done } = await reader.read();
@@ -2098,16 +2126,7 @@ async function submitPromptText(prompt) {
             evt = null;
           }
           if (evt && evt.type === "status") {
-            const label = evt.label || "Thinking...";
-            updateThinkingLabel(label);
-            const compact = String(label).trim().toLowerCase().replace(/[.\s]+$/g, "");
-            if (compact.startsWith("waiting")) {
-              setMetaStatus("Waiting...");
-            } else if (compact.startsWith("done")) {
-              setMetaStatus("Done");
-            } else {
-              setMetaStatus("Thinking...");
-            }
+            await applyStreamStatus(evt.label);
           }
           if (evt && evt.type === "final") {
             finalPayload = evt;
@@ -2120,6 +2139,10 @@ async function submitPromptText(prompt) {
     const data = finalPayload;
     if (!data || !data.ok) {
       throw new Error((data && data.error) || "Request failed.");
+    }
+    const msSinceLastUiUpdate = Date.now() - lastStreamUiUpdateAt;
+    if (lastStreamUiUpdateAt > 0 && msSinceLastUiUpdate < STREAM_INPUT_MIN_DISPLAY_MS) {
+      await sleep(STREAM_INPUT_MIN_DISPLAY_MS - msSinceLastUiUpdate);
     }
 
     currentSessionId = String(data.session_id || "");
