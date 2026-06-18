@@ -40,28 +40,7 @@ def _retrieve_memory_context(user_id, query, top_k=5):
         return ""
 
     try:
-        # memories = SearchMemories(user_id=user_id, query=query, top_k=top_k)
-        memories = [
-            {
-                "mem_ID": "mem_00a71b3348f84a24bec99ce4e673cdea",
-                "type": "Entity",
-                "search_text": "User's dog is named Tilly",
-                "facts": {"entity": "dog", "name": "Tilly", "owner": "Stefan"},
-                "created_at": "2026-06-18T13:21:15+12:00",
-                "updated_at": "2026-06-18T13:21:15+12:00"
-            },
-            {
-                "mem_ID": "mem_00ef3c0fe0ed41848908005521d518f8",
-                "type": "Entity",
-                "search_text": "User's name is Stefan",
-                "facts": {"entity": "user", "name": "Stefan"},
-                "created_at": "2026-06-18T13:21:15+12:00",
-                "updated_at": "2026-06-18T13:21:15+12:00"
-            }
-        ]
-
-        print(memories)
-        print("\n")
+        memories = SearchMemories(user_id=user_id, query=query, top_k=top_k)
     except Exception as e:
         _log("MEMORY_RAG", f"search failed: {e}")
         return ""

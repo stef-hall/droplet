@@ -1041,12 +1041,15 @@ if __name__ == "__main__":
     from server import compress_tool_output as compress
     configure_tools(_get_user_caldav_calendars, LISTS_DIR)
 
-    response = SearchMemories(3, "Dog", 10, "Entity")
+    response = SearchMemories(3, "User's Pets Name", 10)
     print(response, "\n")
     x = server.compress_searchmemory(response)
     print(x)
     quit()
     
+
+
+
     response = GetEvents(3,
     times = ["20260601T000000+12:00","20260608T000000+12:00"]
     )
@@ -1062,6 +1065,7 @@ if __name__ == "__main__":
             "20260519T060000+12:00"
         ]
     )
+
     
     x = server.compress_getweather(x)
     

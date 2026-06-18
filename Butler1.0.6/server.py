@@ -2688,11 +2688,18 @@ def compress_addmemory(value):
     }
 
 def compress_searchmemory(value):
-    print('hey')
-    if not isinstance(value, dict):
+    if isinstance(value, list):
+        memories = value
+        tool_name = "SearchMemory"
+        query_value = None
+        type_value = None
+    elif isinstance(value, dict):
+        memories = value.get("result", []) if isinstance(value.get("result", []), list) else []
+        tool_name = value.get("tool")
+        query_value = value.get("query")
+        type_value = value.get("type")
+    else:
         return value
-
-    memories = value.get("result", []) if isinstance(value.get("result", []), list) else []
     cols = ["mem_ID", "type", "search_text", "facts", "score"]
     rows = []
     for memory in memories:
@@ -2704,14 +2711,14 @@ def compress_searchmemory(value):
             "type": memory.get("type"),
             "search_text": memory.get("search_text"),
             "facts": memory.get("facts", {}),
-            "score": memory.get("score"),
+            "score": float(str(memory.get("score"))[:5]),
         }
         rows.append([row_values[col] for col in cols])
 
     return {
-        "tool": value.get("tool"),
-        "query": value.get("query"),
-        "type": value.get("type"),
+        "tool": tool_name,
+        "query": query_value,
+        "type": type_value,
         "cols": cols,
         "rows": rows,
     }
@@ -2761,7 +2768,16 @@ def compress_deletememory(value):
     }
 
 def _compact_value(value):
-    # Need to add Tool Specific Compression here #snap
+    if isinstance(value, list):
+        if all(isinstance(item, dict) for item in value):
+            memory_like_keys = {"id", "mem_ID", "type", "search_text", "facts", "score"}
+            if any(memory_like_keys.intersection(set(item.keys())) for item in value):
+                return compress_searchmemory(value)
+        return value
+
+    if not isinstance(value, dict):
+        return value
+
     operation = value.get("operation") or value.get("tool")
 
     if operation == 'GetEvents':
@@ -2844,37 +2860,32 @@ def _retrieve_memory_context(user_id, query, top_k=5):
         _log("MEMORY_RAG", f"search failed: {e}")
         return ""
 
-    if not memories:
-        return ""
-
+    columns = ["mem_ID", "type", "search_text", "facts"]
     rows = []
 
     for memory in memories:
         if not isinstance(memory, dict):
             continue
 
-        text = str(memory.get("search_text", memory.get("text", ""))).strip()
-        if not text:
-            continue
+        values = {}
+        for data in columns:
+            if data == "mem_ID":
+                memory_id = memory.get(data, {})
+                values["mem_ID"] = _get_memory_alias(int(user_id), memory_id) if memory_id else ""
+            else:
+                values[data] = memory.get(data)
 
-        memory_id = str(memory.get("mem_ID", memory.get("id", ""))).strip()
-        alias_id = _get_memory_alias(int(user_id), memory_id) if memory_id else ""
-
-        rows.append([
-            alias_id,
-            memory.get("type", ""),
-            text
-        ])
+        rows.append([values[column] for column in columns])
 
     if not rows:
         return ""
 
-    memory_context = {
-        "memories": rows,
-        "instruction": "Use only when relevant."
-    }
-
-    return json.dumps(memory_context, ensure_ascii=False, separators=(",", ":"), default=str)
+    return json.dumps(
+        {"cols": columns, "Memories": rows, "instruction": "Use only when relevant."},
+        ensure_ascii=False,
+        separators=(",", ":"),
+        default=str
+    )
 
 
 def ask_gpt54(user_input, system_prompt, memory_context, communication_profile_context, results, previous_response_id=None, user_timezone=None, location_context=None, user_id=None, token_totals=None, active_tools=None):
