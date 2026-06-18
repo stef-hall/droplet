@@ -1032,7 +1032,7 @@ if __name__ == "__main__":
     from server import compress_tool_output as compress
     configure_tools(_get_user_caldav_calendars, LISTS_DIR)
 
-    response = SearchMemories(3, "whats my name?")
+    response = SearchMemories(3, "Dog", 10, "Entity")
     print(response)
     quit()
     

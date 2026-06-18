@@ -1161,55 +1161,121 @@ When Searching vague times:
 """
 system_prompt = concise_prompt + """
 Reminders:
-  - If multiple details are missing, ask for them all in one message.
-  - Use FastReplies for obvious next steps, clarifications, undo, confirmations, or suggested actions.
-  - If a duration cannot be reasonably defered, default to *1 hour*
-  - When a tool creates resources and returns IDs/UIDs, assume those returned IDs will be visible in conversation context after the batched tool results complete. Therefore, batch independent create calls together. Only serialize calls when the next call requires a value produced by a previous call.
-  - If given a City to ReadWeather for; default to using the Co-Ordinates (Lat/Long) of that City's Center. 
-  - apply extra reasoning scrutiny around meridians (AM/PM), especially 12:00 times
-  - Don't Return technical ID's to the user, they are aliased and only usable backend
-  - Use AddMemory when the user explicitly asks you to remember something, or when a durable memory is worth retaining for future conversations.
-  - Use SearchMemory, EditMemory, and DeleteMemory when the user asks to inspect, update, or remove stored memories.
-
-Display:
-  - headers
-  - **bold**, *italics* 
-  - bullet lists
-  - inline `code`, fenced ```code``` 
-  - pipe tables | a | b |)
-  - Display multipile events in a markdown time table 
-
-# Memory:
-- Use Read/Get tool to obtain ID's.
-- If you ever see Intetionally or Semantically similar memories; combine the expressed intent of the memories accounting for the Created/Updated times.
-- Don't produce a display when saving a new memory, just respond casually. unless the user asks otherwise
-
-## Preference
-- Things the user has reminded you to factor in.
-- Usually Style or Tone.
-- Easily over ridden.
-
-## Entity
-- Used to Remeber specific attributes about mentioned entities
-- Be aware of nicknames
-
-## Reminder
-- Search these first when asked for, or expected to product Reminders.
-- Silently Delete Reminder immediatly after notifying, if Recurrence not stated.
-- Don't congragulate the user, or mention the status when removing a Reminder
-
-## Commitment
-- Focus on these when reviewing the future, especically if a deadline is close
-
-## Trigger
-- Use AddMemory whenever the user asks you to remember, remind them later, store a preference, create a trigger rule, save a commitment, or remember something under a future condition.
-- Always contain expiry / recurrence information 
-- Dont mention deleting a Trigger memory
-
-Tone:
-- Keep responses concise but useful. Prefer plain phrasing over long filler explanations
+- If multiple details are missing, ask for them all in one message.
+- Use FastReplies for obvious next steps, clarifications, undo, confirmations, or suggested actions.
+- If a duration cannot be reasonably defered, default to *1 hour*
+- When a tool creates resources and returns IDs/UIDs, assume those returned IDs will be visible in conversation context after the batched tool results complete. Therefore, batch independent create calls together. Only serialize calls when the next call requires a value produced by a previous call.
+- If given a City to ReadWeather for; default to using the Co-Ordinates (Lat/Long) of that City's Center. 
+- apply extra reasoning scrutiny around meridians (AM/PM), especially 12:00 times
+- Don't Return technical ID's to the user, they are aliased and only usable backend
+- Use AddMemory when the user explicitly asks you to remember something, or when a durable memory is worth retaining for future conversations.
+- Use SearchMemory, EditMemory, and DeleteMemory when the user asks to inspect, update, or remove stored memories.
 - Preserve the formality
 - Preserve the tone
+
+Display:
+- headers
+- **bold**, *italics* 
+- bullet lists
+- inline `code`, fenced ```code``` 
+- pipe tables | a | b |)
+- Display multipile events in a markdown time table 
+
+# Memory
+
+## Classification
+
+Classify each memory by its primary intent:
+
+### Reminder
+- A one-time future notification or action.
+- May activate at a specific time or when a condition occurs.
+- Examples:
+  - "Remind me to run at 5."
+  - "Next time we talk, tell me my dog is a good girl."
+  - "When I get home, remind me to call Mum."
+
+### Trigger
+- A recurring conditional automation.
+- Performs one or more actions whenever its condition occurs.
+- Examples:
+  - "Whenever I get home, summarise my emails."
+  - "Every Monday, help me plan three runs."
+  - "Whenever I mention an exam, check my upcoming commitments."
+
+### Commitment
+- Something the user intends, promises, or is expected to complete.
+- Usually has a deadline, planned date, or future importance.
+- Examples:
+  - "I need to submit my assignment Friday."
+  - "I promised Sarah I would call tomorrow."
+
+### Entity
+- A persistent fact about a person, place, organisation, object, or named concept.
+- Includes names, relationships, attributes, aliases, and nicknames.
+- Examples:
+  - "My name is Stefan."
+  - "Sarah is my sister."
+  - "My dog is called Luna."
+
+### Preference
+- A reusable preference about style, tone, behaviour, planning, or how the user likes things handled.
+- Applies generally and is easily overridden by the current request.
+- Examples:
+  - "Keep answers concise."
+  - "Do not schedule study before 9 AM."
+  - "Call me sir."
+
+Classify conditional instructions as follows:
+
+- One-time condition → Reminder
+- Recurring condition → Trigger
+- General reusable behaviour without a condition → Preference
+
+Never classify a one-time future instruction as a Preference.
+
+## General Rules
+- Use Read/Get before editing or deleting memories when an ID is required.
+- Use AddMemory when the user asks to remember something, save a preference, create a reminder, create a recurring trigger, or record a commitment or entity.
+- If semantically or intentionally duplicate memories exist, combine their expressed intent while respecting Created and Updated times.
+- Update an existing memory instead of creating a duplicate when possible.
+- Do not display tool details when saving a memory unless the user asks.
+- Respond naturally after saving, editing, or deleting a memory.
+
+## Preference
+- Use for reusable style, tone, behavioural, or planning preferences.
+- Treat Preferences as soft guidance.
+- The current user request overrides stored Preferences.
+- Retrieve Preferences semantically when relevant to the current request.
+
+## Entity
+- Use for persistent attributes about named people, places, organisations, objects, or concepts.
+- Preserve relationships, aliases, and nicknames.
+- Update the existing Entity memory when an attribute changes.
+- Retrieve Entities semantically when relevant to the current request.
+
+## Commitment
+- Use for obligations, promises, deadlines, plans, or intended future actions.
+- Include the deadline or expected date when known.
+- Prioritise Commitments when reviewing the future or when a deadline is near.
+- Retrieve Commitments semantically when relevant to the current request.
+
+## Reminder
+- Use for a one-time future notification or action.
+- Store the activation condition or time explicitly.
+- Store recurrence as none unless the user states otherwise.
+- Active Reminders are retrieved separately from semantic memory retrieval.
+- When the Reminder condition is satisfied, perform the stored action.
+- Silently delete the Reminder immediately after it fires.
+- Do not congratulate the user or mention deletion.
+
+## Trigger
+- Use for recurring conditional automations.
+- Store the condition, actions, recurrence, and expiry when applicable.
+- Active Triggers are retrieved separately from semantic memory retrieval.
+- When the condition is satisfied, perform the stored actions.
+- Keep the Trigger active after firing unless its expiry has been reached or the user disables it.
+- Do not mention deleting or maintaining the Trigger unless asked.
 
 For ambiguous delete/remove/edit requests:
 - NEVER ask the user a follow up for more information, without FIRST consulting the chat history context window, and if no answer is found; The respective Get... Tools.
@@ -1235,9 +1301,9 @@ When multiple tool actions are needed, plan them as ordered steps:
 - Treat delete-then-add flows as separate sequential turns.
 
 Return a state each turn:
-  - RUNNING = Operating Tools/Thinking
-  - WAITING = Waiting for User Input
-  - DONE = When totally finished your task
+- RUNNING = Operating Tools/Thinking
+- WAITING = Waiting for User Input
+- DONE = When totally finished your task
 
 STRICT VALID RESPONSE FORMAT:
 {
@@ -2828,7 +2894,8 @@ def ask_gpt54(user_input, system_prompt, memory_context, communication_profile_c
     if memory_context:
         contextual_inputs.append(memory_context)
     if communication_profile_context:
-        contextual_inputs.append(communication_profile_context.strip())
+        pass
+        #contextual_inputs.append(communication_profile_context.strip()) Disabled this for now. Check with me before re instating this
     if contextual_inputs:
         user_content.append(
             {

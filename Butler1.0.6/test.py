@@ -40,59 +40,58 @@ def _retrieve_memory_context(user_id, query, top_k=5):
         return ""
 
     try:
-        #memories = SearchMemories(user_id=user_id, query=query, top_k=top_k)
-        memories = [{'confidence': 0.98, 'created_at': '2026-06-16T01:52:51+12:00', 'entities': ['user', 'Tilly'], 'expires_at': None, 'id': 'mem_a4a69aa6afa84423a7ae1f6743a71359', 'importance': 0.72, 'source': 'user_explicit', 'tags': ['pet', 'dog'], 'text': "Tilly is the user's dog.", 'type': 'Entities', 'updated_at': '2026-06-16T01:52:51+12:00', 'user_id': 3, 'score': 0.8762269616127014}, {'created': '2026-06-15T20:08:15+12:00', 'facts': ["The user's name is Stefan."], 'id': 'mem_c68d6a2725434b11a694edf755818613', 'search_text': "User's name is Stefan", 'type': 'Entities', 'updated': '2026-06-15T20:12:22+12:00', 'user_id': 3, 'score': 0.8776365518569946}, {'confidence': 1.0, 'created_at': '2026-06-16T01:59:01+12:00', 'entities': ['user', 'assistant'], 'expires_at': None, 'id': 'mem_2cd6b8c6d96a4db6a2aba4723632aa6d', 'importance': 0.78, 'source': 'user_explicit', 'tags': ['next-conversation', 'reminder', 'phrase'], 'text': 'When the user next talks to the assistant, say: "Surprise Im right Here!"', 'type': 'Trigger', 'updated_at': '2026-06-18T12:13:05+12:00', 'user_id': 3, 'score': 0.9360418915748596}]
+        # memories = SearchMemories(user_id=user_id, query=query, top_k=top_k)
+        memories = [
+            {
+                "mem_ID": "mem_00a71b3348f84a24bec99ce4e673cdea",
+                "type": "Entity",
+                "search_text": "User's dog is named Tilly",
+                "facts": {"entity": "dog", "name": "Tilly", "owner": "Stefan"},
+                "created_at": "2026-06-18T13:21:15+12:00",
+                "updated_at": "2026-06-18T13:21:15+12:00"
+            },
+            {
+                "mem_ID": "mem_00ef3c0fe0ed41848908005521d518f8",
+                "type": "Entity",
+                "search_text": "User's name is Stefan",
+                "facts": {"entity": "user", "name": "Stefan"},
+                "created_at": "2026-06-18T13:21:15+12:00",
+                "updated_at": "2026-06-18T13:21:15+12:00"
+            }
+        ]
+
         print(memories)
-        print('\n')
+        print("\n")
     except Exception as e:
         _log("MEMORY_RAG", f"search failed: {e}")
         return ""
 
-    if not memories:
-        return ""
-
+    columns = ["mem_ID", "type", "search_text", "facts"]
     rows = []
 
     for memory in memories:
         if not isinstance(memory, dict):
             continue
 
-        text = str(memory.get("search_text", memory.get("text", ""))).strip()
-        if not text:
-            continue
+        values = {}
+        for data in columns:
+            if data == "mem_ID":
+                memory_id = memory.get(data, {})
+                values["mem_ID"] = _get_memory_alias(int(user_id), memory_id) if memory_id else ""
+            else:
+                values[data] = memory.get(data)
 
-        memory_id = str(memory.get("id", "")).strip()
-        alias_id = _get_memory_alias(int(user_id), memory_id) if memory_id else ""
-
-        rows.append([
-            alias_id,
-            memory.get("type", ""),
-            text
-        ])
+        rows.append([values[column] for column in columns])
 
     if not rows:
         return ""
 
-    memory_context = {
-        "memories": rows,
-        "instruction": "Use only when relevant."
-    }
-
-    return json.dumps(memory_context, ensure_ascii=False, separators=(",", ":"), default=str)
-
-user_id = 3
-query = "hey bud"
-top_k = 5
-memories = SearchMemories(user_id=user_id, query=query, top_k=top_k)
-
-print("start")
-t = time.perf_counter()
-for i in range(2):
-    memories = SearchMemories(user_id=user_id, query=query, top_k=top_k)
-print((time.perf_counter() - t))
-print("finish")
-
-quit()
+    return json.dumps(
+        {"cols": columns, "Memories": rows, "Triggers": rows, "instruction": "Use only when relevant."},
+        ensure_ascii=False,
+        separators=(",", ":"),
+        default=str
+    )
 
 
 x = _retrieve_memory_context(3, "hey bud")
