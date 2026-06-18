@@ -2711,7 +2711,7 @@ def compress_searchmemory(value):
             "type": memory.get("type"),
             "search_text": memory.get("search_text"),
             "facts": memory.get("facts", {}),
-            "score": float(str(memory.get("score"))[:5]),
+            "score": float(str(memory.get("score"))[:7]),
         }
         rows.append([row_values[col] for col in cols])
 
@@ -3917,5 +3917,5 @@ if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8000, debug=False)
 
 """
-Butler
+Do you Remeber?
 """
