@@ -2671,10 +2671,17 @@ def compress_addmemory(value):
 
     result = value.get("result", {}) if isinstance(value.get("result", {}), dict) else {}
     memory = result.get("memory", {}) if isinstance(result.get("memory", {}), dict) else value.get("memory", {})
+    memory_id = (
+        memory.get("id")
+        or memory.get("mem_ID")
+        or result.get("id")
+        or value.get("memory", {}).get("id")
+        or value.get("memory", {}).get("mem_ID")
+    )
 
     return {
         "tool": value.get("tool"),
-        "id": memory.get("id"),
+        "id": memory_id,
         "status": value.get("status"),
     }
 
@@ -2687,9 +2694,9 @@ def compress_searchmemory(value):
     for memory in memories:
         if not isinstance(memory, dict):
             continue
+        memory_id = memory.get("id") or memory.get("mem_ID")
         rows.append({
-            "id": memory.get("id"),
-            "mem_ID": memory.get("mem_ID"),
+            "id": memory_id,
             "type": memory.get("type"),
             "search_text": memory.get("search_text"),
             "facts": memory.get("facts", {}),
@@ -2709,10 +2716,17 @@ def compress_editmemory(value):
 
     result = value.get("result", {}) if isinstance(value.get("result", {}), dict) else {}
     memory = result.get("memory", {}) if isinstance(result.get("memory", {}), dict) else value.get("memory", {})
+    memory_id = (
+        memory.get("id")
+        or memory.get("mem_ID")
+        or result.get("id")
+        or value.get("memory", {}).get("id")
+        or value.get("memory", {}).get("mem_ID")
+    )
 
     return {
         "tool": value.get("tool"),
-        "id": memory.get("id"),
+        "id": memory_id,
         "status": value.get("status"),
     }
 
@@ -2722,7 +2736,12 @@ def compress_deletememory(value):
         return value
 
     result = value.get("result", {}) if isinstance(value.get("result", {}), dict) else {}
-    memory_id = result.get("id") or value.get("memory", {}).get("id")
+    memory_id = (
+        result.get("id")
+        or result.get("mem_ID")
+        or value.get("memory", {}).get("id")
+        or value.get("memory", {}).get("mem_ID")
+    )
 
     return {
         "tool": value.get("tool"),
