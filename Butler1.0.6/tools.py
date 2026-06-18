@@ -340,16 +340,17 @@ def _memory_is_expired(memory):
     return expires_dt <= datetime.now().astimezone()
 
 
-def SearchMemories(user_id, query, top_k=5, memory_type=None):
+def SearchMemories(user_id, query, top_k=5, memory_type=None, type=None):
     query = str(query or "").strip()
     if not query:
         return []
 
     safe_user_id = int(user_id)
     limit = max(1, min(int(top_k), 20))
+    requested_type = type if type is not None else memory_type
     normalized_type = None
-    if memory_type is not None and str(memory_type).strip():
-        normalized_type = _normalize_memory_type(memory_type)
+    if requested_type is not None and str(requested_type).strip():
+        normalized_type = _normalize_memory_type(requested_type)
 
     with _memory_lock:
         model, collection = _get_memory_collection()
@@ -378,8 +379,14 @@ def SearchMemories(user_id, query, top_k=5, memory_type=None):
     return output
 
 
-def SearchMemory(user_id, query, top_k=5, memory_type=None):
-    return SearchMemories(user_id=user_id, query=query, top_k=top_k, memory_type=memory_type)
+def SearchMemory(user_id, query, top_k=5, memory_type=None, type=None):
+    return SearchMemories(
+        user_id=user_id,
+        query=query,
+        top_k=top_k,
+        memory_type=memory_type,
+        type=type,
+    )
 
 
 def DeleteMemory(user_id, memory_id):
