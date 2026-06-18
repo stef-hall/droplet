@@ -47,7 +47,8 @@ function getCssRootNumberVar(name, fallback) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 const MAX_PROMPT_HEIGHT = 180;
-const QUICK_REPLY_EDIT_HOVER_MS = 100;
+// Adjust this to control how long (ms) a quick reply must be hovered before it switches to edit mode.
+const QUICK_REPLY_EDIT_HOVER_MS = 1500;
 const STREAM_INPUT_MIN_DISPLAY_MS = 1000;
 const STICKY_NOTE_DOCK_THRESHOLD = 182;
 const STICKY_NOTE_DOCK_THRESHOLD_MOBILE = 50;
@@ -2433,6 +2434,11 @@ feedEl.addEventListener("click", async (event) => {
   await submitPromptText(reply);
 });
 
+function primeQuickReplyForEditing(quickReplyButton) {
+  if (!(quickReplyButton instanceof HTMLButtonElement)) return;
+  quickReplyButton.classList.add("edit-armed");
+}
+
 feedEl.addEventListener("pointerover", (event) => {
   if (!(event instanceof PointerEvent) || event.pointerType !== "mouse") return;
   const target = event.target;
@@ -2448,7 +2454,7 @@ feedEl.addEventListener("pointerover", (event) => {
     clearTimeout(existingTimer);
   }
   const timer = setTimeout(() => {
-    quickReplyButton.classList.add("edit-armed");
+    primeQuickReplyForEditing(quickReplyButton);
     quickReplyHoverTimers.delete(quickReplyButton);
   }, QUICK_REPLY_EDIT_HOVER_MS);
   quickReplyHoverTimers.set(quickReplyButton, timer);
