@@ -398,11 +398,14 @@ def SearchMemories(user_id, query, top_k=5, memory_type=None, type=None):
 
         output = []
         ids = (results.get("ids") or [[]])[0]
-        for item_id in ids:
+        distances = (results.get("distances") or [[]])[0]
+        for idx, item_id in enumerate(ids):
             memory = _memory_metadata_search(item_id, user_id=safe_user_id)
             if memory is None:
                 continue
-            output.append(memory)
+            memory_with_score = dict(memory)
+            memory_with_score["score"] = distances[idx] if idx < len(distances) else None
+            output.append(memory_with_score)
             if len(output) >= limit:
                 break
 
