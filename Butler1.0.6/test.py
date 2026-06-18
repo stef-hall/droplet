@@ -18,6 +18,7 @@ import json
 import warnings
 import logging
 import base64
+import time
 import mimetypes
 import uuid
 import traceback
@@ -79,7 +80,20 @@ def _retrieve_memory_context(user_id, query, top_k=5):
 
     return json.dumps(memory_context, ensure_ascii=False, separators=(",", ":"), default=str)
 
+user_id = 3
+query = "hey bud"
+top_k = 5
+memories = SearchMemories(user_id=user_id, query=query, top_k=top_k)
+
+print("start")
+t = time.perf_counter()
+for i in range(2):
+    memories = SearchMemories(user_id=user_id, query=query, top_k=top_k)
+print((time.perf_counter() - t))
+print("finish")
+
+quit()
+
+
 x = _retrieve_memory_context(3, "hey bud")
-
-
 print(x)
