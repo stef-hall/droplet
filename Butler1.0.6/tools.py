@@ -296,7 +296,7 @@ def AddMemory(
             ids=[memory["id"]],
             documents=[memory["text"]],
             embeddings=[model.encode(memory["text"]).tolist()],
-            metadatas=[{"user_id": safe_user_id}],
+            metadatas=[{"user_id": safe_user_id, "type": memory["type"]}],
         )
 
     return {"status": "stored", "memory": memory}
@@ -354,10 +354,13 @@ def SearchMemories(user_id, query, top_k=5, memory_type=None, type=None):
 
     with _memory_lock:
         model, collection = _get_memory_collection()
+        where_clause = {"user_id": safe_user_id}
+        if normalized_type:
+            where_clause["type"] = normalized_type
         results = collection.query(
             query_embeddings=[model.encode(query).tolist()],
-            n_results=20 if normalized_type else limit,
-            where={"user_id": safe_user_id},
+            n_results=limit,
+            where=where_clause,
         )
 
         output = []
@@ -368,8 +371,6 @@ def SearchMemories(user_id, query, top_k=5, memory_type=None, type=None):
             if memory is None:
                 continue
             if _memory_is_expired(memory):
-                continue
-            if normalized_type and memory.get("type") != normalized_type:
                 continue
             memory["score"] = distances[idx] if idx < len(distances) else None
             output.append(memory)
@@ -472,7 +473,7 @@ def EditMemory(
             ids=[memory["id"]],
             documents=[memory["text"]],
             embeddings=[model.encode(memory["text"]).tolist()],
-            metadatas=[{"user_id": safe_user_id}],
+            metadatas=[{"user_id": safe_user_id, "type": memory["type"]}],
         )
 
     return {"status": "edited", "memory": memory}
