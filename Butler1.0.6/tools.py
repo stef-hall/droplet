@@ -1036,12 +1036,14 @@ def ReadWeather(latitude, longitude, times=None, field_names=None):
 
 
 if __name__ == "__main__":
+    import server
     from server import LISTS_DIR, _get_user_caldav_calendars
     from server import compress_tool_output as compress
     configure_tools(_get_user_caldav_calendars, LISTS_DIR)
 
     response = SearchMemories(3, "Dog", 10, "Entity")
-    print(response)
+    x = server.compress_searchmemory(response)
+    print(x)
     quit()
     
     response = GetEvents(3,
@@ -1059,7 +1061,7 @@ if __name__ == "__main__":
             "20260519T060000+12:00"
         ]
     )
-    import server
+    
     x = server.compress_getweather(x)
     
 
