@@ -517,9 +517,11 @@ def _alias_memory_rows_for_user(user_id: int, rows: list[dict]) -> list[dict]:
         if not isinstance(row, dict):
             continue
         clone = dict(row)
-        real_id = str(clone.get("id", "")).strip()
+        real_id = str(clone.get("mem_ID", clone.get("id", ""))).strip()
         if real_id:
-            clone["id"] = _get_memory_alias(int(user_id), real_id)
+            alias_id = _get_memory_alias(int(user_id), real_id)
+            clone["id"] = alias_id
+            clone["mem_ID"] = alias_id
         aliased.append(clone)
     return aliased
 
@@ -1180,15 +1182,15 @@ Display:
 # Memory:
 - Use Read/Get tool to obtain ID's.
 - If you ever see Intetionally or Semantically similar memories; combine the expressed intent of the memories accounting for the Created/Updated times.
-- Don't produce a display when saving a new memory, just respond casually like: "noted, I'll remeber that, Good to Know" unless the user asks otherwise
+- Don't produce a display when saving a new memory, just respond casually. unless the user asks otherwise
 
-## Prefrence
+## Preference
 - Things the user has reminded you to factor in.
 - Usually Style or Tone.
 - Easily over ridden.
 
-## Entities
-- Used to Remeber specific attributes about mentioned Entities
+## Entity
+- Used to Remeber specific attributes about mentioned entities
 - Be aware of nicknames
 
 ## Reminder
@@ -1196,7 +1198,7 @@ Display:
 - Silently Delete Reminder immediatly after notifying, if Recurrence not stated.
 - Don't congragulate the user, or mention the status when removing a Reminder
 
-## Commitments
+## Commitment
 - Focus on these when reviewing the future, especically if a deadline is close
 
 ## Trigger
@@ -1474,7 +1476,7 @@ tools = [
                 },
                 "type": {
                     "type": "string",
-                    "enum": ["Trigger", "Reminder", "Prefrence", "Entities", "Commitments"],
+                    "enum": ["Trigger", "Reminder", "Commitment", "Preference", "Entity"],
                     "description": "Optional memory type filter."
                 }
             },
@@ -1486,39 +1488,26 @@ tools = [
         "type": "function",
         "name": "AddMemory",
         "description": "Store a durable memory for future conversations. Use when the user asks you to remember something or when a stable item worth retaining is identified.",
-        "strict": True,
+        "strict": False,
         "parameters": {
             "type": "object",
             "properties": {
                 "type": {
                     "type": "string",
-                    "enum": ["Trigger", "Reminder", "Prefrence", "Entities", "Commitments"],
+                    "enum": ["Trigger", "Reminder", "Commitment", "Preference", "Entity"],
                     "description": "Memory category."
                 },
-                "text": {
+                "search_text": {
                     "type": "string",
-                    "description": "The concise memory text to store."
+                    "description": "Text used for semantic search and retrieval."
                 },
-                "entities": {
-                    "type": "array",
-                    "description": "Entities this memory is about, such as user, assistant, project, or a named person/place.",
-                    "items": {"type": "string"}
-                },
-                "tags": {
-                    "type": "array",
-                    "description": "Short tags useful for filtering or grouping this memory.",
-                    "items": {"type": "string"}
-                },
-                "expires_at": {
-                    "type": ["string", "null"],
-                    "description": "Optional ISO-8601 expiry datetime, or null for no expiry."
-                },
-                "source": {
-                    "type": "string",
-                    "description": "Source label, such as user_explicit or assistant_inferred."
+                "facts": {
+                    "type": "object",
+                    "description": "Key/value facts tied to this memory.",
+                    "additionalProperties": True
                 }
             },
-            "required": ["type", "text", "entities", "tags", "expires_at", "source"],
+            "required": ["type", "search_text", "facts"],
             "additionalProperties": False
         }
     },
@@ -1536,30 +1525,17 @@ tools = [
                 },
                 "type": {
                     "type": "string",
-                    "enum": ["Trigger", "Reminder", "Prefrence", "Entities", "Commitments"],
+                    "enum": ["Trigger", "Reminder", "Commitment", "Preference", "Entity"],
                     "description": "Updated memory category."
                 },
-                "text": {
+                "search_text": {
                     "type": "string",
-                    "description": "Updated concise memory text."
+                    "description": "Updated text used for semantic search and retrieval."
                 },
-                "entities": {
-                    "type": "array",
-                    "description": "Updated entities this memory is about.",
-                    "items": {"type": "string"}
-                },
-                "tags": {
-                    "type": "array",
-                    "description": "Updated tags.",
-                    "items": {"type": "string"}
-                },
-                "expires_at": {
-                    "type": ["string", "null"],
-                    "description": "Updated ISO-8601 expiry datetime, or null for no expiry."
-                },
-                "source": {
-                    "type": "string",
-                    "description": "Updated source label."
+                "facts": {
+                    "type": "object",
+                    "description": "Updated key/value facts tied to this memory.",
+                    "additionalProperties": True
                 }
             },
             "required": ["memory_id"],
@@ -2015,25 +1991,23 @@ def ToolUse(name, args, user_id=None):
             output = AddMemory(
                 user_id=user_id,
                 memory_type=args.get("type"),
-                text=args.get("text"),
-                entities=args.get("entities"),
-                tags=args.get("tags"),
-                expires_at=args.get("expires_at"),
-                source=args.get("source", "assistant_inferred"),
+                search_text=args.get("search_text"),
+                facts=args.get("facts"),
             )
             result_memory = output.get("memory", {}) if isinstance(output, dict) and isinstance(output.get("memory", {}), dict) else {}
-            real_id = str(result_memory.get("id", "")).strip()
+            real_id = str(result_memory.get("mem_ID", result_memory.get("id", ""))).strip()
             alias_id = _get_memory_alias(int(user_id), real_id) if real_id else None
             if alias_id and isinstance(output, dict):
                 output = dict(output)
                 output["memory"] = dict(result_memory)
                 output["memory"]["id"] = alias_id
+                output["memory"]["mem_ID"] = alias_id
             return {
                 "status": "success",
                 "tool": "AddMemory",
                 "memory": {
                     "id": alias_id,
-                    "text": args.get("text"),
+                    "search_text": args.get("search_text"),
                 },
                 "result": output,
             }
@@ -2041,7 +2015,7 @@ def ToolUse(name, args, user_id=None):
             return {
                 "status": "failed",
                 "tool": "AddMemory",
-                "memory": {"text": args.get("text")},
+                "memory": {"search_text": args.get("search_text")},
                 "error": str(e),
             }
 
@@ -2080,23 +2054,21 @@ def ToolUse(name, args, user_id=None):
                 user_id=user_id,
                 memory_id=memory_id,
                 memory_type=args.get("type") if "type" in args else None,
-                text=args.get("text") if "text" in args else None,
-                entities=args.get("entities") if "entities" in args else None,
-                tags=args.get("tags") if "tags" in args else None,
-                expires_at=args.get("expires_at") if "expires_at" in args else None,
-                source=args.get("source") if "source" in args else None,
+                search_text=args.get("search_text") if "search_text" in args else None,
+                facts=args.get("facts") if "facts" in args else None,
             )
             status = output.get("status") if isinstance(output, dict) else None
             if status == "not_found":
                 return {"status": "failed", "tool": "EditMemory", "memory": {"id": memory_id_input}, "error": "Memory not found", "result": output}
             result_memory = output.get("memory", {}) if isinstance(output, dict) and isinstance(output.get("memory", {}), dict) else {}
-            real_id = str(result_memory.get("id", memory_id)).strip()
+            real_id = str(result_memory.get("mem_ID", result_memory.get("id", memory_id))).strip()
             alias_id = _get_memory_alias(int(user_id), real_id) if real_id else memory_id_input
             if isinstance(output, dict):
                 output = dict(output)
                 if isinstance(result_memory, dict):
                     output["memory"] = dict(result_memory)
                     output["memory"]["id"] = alias_id
+                    output["memory"]["mem_ID"] = alias_id
             return {"status": "success", "tool": "EditMemory", "memory": {"id": alias_id}, "result": output}
         except Exception as e:
             return {
@@ -2651,10 +2623,10 @@ def compress_searchmemory(value):
             continue
         rows.append({
             "id": memory.get("id"),
+            "mem_ID": memory.get("mem_ID"),
             "type": memory.get("type"),
-            "text": memory.get("text"),
-            "tags": memory.get("tags", []),
-            "score": memory.get("score"),
+            "search_text": memory.get("search_text"),
+            "facts": memory.get("facts", {}),
         })
 
     return {
@@ -2785,11 +2757,11 @@ def _retrieve_memory_context(user_id, query, top_k=5):
         if not isinstance(memory, dict):
             continue
 
-        text = str(memory.get("text", "")).strip()
+        text = str(memory.get("search_text", memory.get("text", ""))).strip()
         if not text:
             continue
 
-        memory_id = str(memory.get("id", "")).strip()
+        memory_id = str(memory.get("mem_ID", memory.get("id", ""))).strip()
         alias_id = _get_memory_alias(int(user_id), memory_id) if memory_id else ""
 
         rows.append([

@@ -222,18 +222,18 @@ def _normalize_memory_score(value, field_name):
 _CANONICAL_MEMORY_TYPES = {
     "trigger": "Trigger",
     "reminder": "Reminder",
-    "prefrence": "Prefrence",
-    "entities": "Entities",
-    "commitments": "Commitments",
+    "commitment": "Commitment",
+    "preference": "Preference",
+    "entity": "Entity",
 }
 
 _MEMORY_TYPE_ALIASES = {
     "triggers": "trigger",
     "reminders": "reminder",
-    "preference": "prefrence",
-    "preferences": "prefrence",
-    "entity": "entities",
-    "commitment": "commitments",
+    "commitments": "commitment",
+    "preferences": "preference",
+    "prefrence": "preference",
+    "entities": "entity",
 }
 
 
@@ -246,33 +246,79 @@ def _normalize_memory_type(value):
     return _CANONICAL_MEMORY_TYPES[normalized]
 
 
+def _normalize_memory_facts(value):
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise ValueError("facts must be an object with key/value pairs.")
+    normalized = {}
+    for key, raw_value in value.items():
+        clean_key = str(key).strip()
+        if not clean_key:
+            continue
+        clean_value = str(raw_value).strip()
+        if not clean_value:
+            continue
+        normalized[clean_key] = clean_value
+    return normalized
+
+
+def _memory_shape(memory, default_id=None):
+    if not isinstance(memory, dict):
+        raise ValueError("memory record must be an object.")
+
+    memory_id = str(memory.get("mem_ID", memory.get("id", default_id)) or "").strip()
+    if not memory_id:
+        raise ValueError("memory id is missing.")
+
+    memory_type = _normalize_memory_type(memory.get("type"))
+    search_text = str(memory.get("search_text", memory.get("text", "")) or "").strip()
+    if not search_text:
+        raise ValueError("search_text is required.")
+
+    created_at = str(memory.get("created_at", "") or "").strip()
+    updated_at = str(memory.get("updated_at", "") or "").strip()
+    if not created_at or not updated_at:
+        now = datetime.now().astimezone().isoformat(timespec="seconds")
+        created_at = created_at or now
+        updated_at = updated_at or now
+
+    facts = _normalize_memory_facts(memory.get("facts"))
+    if not facts:
+        # Lightweight migration path for legacy records that used list fields.
+        entities = memory.get("entities")
+        tags = memory.get("tags")
+        if isinstance(entities, list) and entities:
+            facts["entities"] = ", ".join([str(x).strip() for x in entities if str(x).strip()])
+        if isinstance(tags, list) and tags:
+            facts["tags"] = ", ".join([str(x).strip() for x in tags if str(x).strip()])
+
+    return {
+        "mem_ID": memory_id,
+        "type": memory_type,
+        "search_text": search_text,
+        "facts": facts,
+        "created_at": created_at,
+        "updated_at": updated_at,
+    }
+
+
 def AddMemory(
     user_id,
     memory_type,
-    text,
-    entities,
-    tags,
-    expires_at=None,
-    source="assistant_inferred",
+    search_text,
+    facts,
 ):
-    text = str(text or "").strip()
-    if not text:
-        raise ValueError("text is required.")
-
     safe_user_id = int(user_id)
     now = datetime.now().astimezone().isoformat(timespec="seconds")
-    memory = {
-        "id": f"mem_{uuid.uuid4().hex}",
-        "user_id": safe_user_id,
-        "type": _normalize_memory_type(memory_type),
-        "text": text,
-        "entities": _normalize_memory_list(entities, "entities"),
-        "tags": _normalize_memory_list(tags, "tags"),
+    memory = _memory_shape({
+        "mem_ID": f"mem_{uuid.uuid4().hex}",
+        "type": memory_type,
+        "search_text": search_text,
+        "facts": facts,
         "created_at": now,
         "updated_at": now,
-        "expires_at": expires_at if expires_at not in ("", None) else None,
-        "source": str(source or "assistant_inferred").strip() or "assistant_inferred",
-    }
+    })
 
     with _memory_lock:
         model, collection = _get_memory_collection()
@@ -286,16 +332,16 @@ def AddMemory(
                     json = excluded.json
                 """,
                 (
-                    memory["id"],
+                    memory["mem_ID"],
                     safe_user_id,
                     json.dumps(memory, ensure_ascii=False, sort_keys=True),
                 ),
             )
 
         collection.upsert(
-            ids=[memory["id"]],
-            documents=[memory["text"]],
-            embeddings=[model.encode(memory["text"]).tolist()],
+            ids=[memory["mem_ID"]],
+            documents=[memory["search_text"]],
+            embeddings=[model.encode(memory["search_text"]).tolist()],
             metadatas=[{"user_id": safe_user_id, "type": memory["type"]}],
         )
 
@@ -319,25 +365,7 @@ def _memory_metadata_search(item_id, user_id=None):
         return None
 
     memory = json.loads(row[0])
-    if user_id is not None and int(memory.get("user_id", -1)) != int(user_id):
-        return None
-    if isinstance(memory, dict):
-        memory.pop("importance", None)
-        memory.pop("confidence", None)
-    return memory
-
-
-def _memory_is_expired(memory):
-    expires_at = memory.get("expires_at") if isinstance(memory, dict) else None
-    if not expires_at:
-        return False
-    try:
-        expires_dt = datetime.fromisoformat(str(expires_at).replace("Z", "+00:00"))
-    except ValueError:
-        return False
-    if expires_dt.tzinfo is None:
-        expires_dt = expires_dt.astimezone()
-    return expires_dt <= datetime.now().astimezone()
+    return _memory_shape(memory, default_id=item_id)
 
 
 def SearchMemories(user_id, query, top_k=5, memory_type=None, type=None):
@@ -365,14 +393,10 @@ def SearchMemories(user_id, query, top_k=5, memory_type=None, type=None):
 
         output = []
         ids = (results.get("ids") or [[]])[0]
-        distances = (results.get("distances") or [[]])[0]
-        for idx, item_id in enumerate(ids):
+        for item_id in ids:
             memory = _memory_metadata_search(item_id, user_id=safe_user_id)
             if memory is None:
                 continue
-            if _memory_is_expired(memory):
-                continue
-            memory["score"] = distances[idx] if idx < len(distances) else None
             output.append(memory)
             if len(output) >= limit:
                 break
@@ -416,11 +440,8 @@ def EditMemory(
     user_id,
     memory_id,
     memory_type=None,
-    text=None,
-    entities=None,
-    tags=None,
-    expires_at=None,
-    source=None,
+    search_text=None,
+    facts=None,
 ):
     safe_user_id = int(user_id)
     memory_id = str(memory_id or "").strip()
@@ -434,24 +455,16 @@ def EditMemory(
 
         if memory_type is not None:
             memory["type"] = _normalize_memory_type(memory_type)
-        if text is not None:
-            new_text = str(text or "").strip()
-            if not new_text:
-                raise ValueError("text cannot be empty.")
-            memory["text"] = new_text
-        if entities is not None:
-            memory["entities"] = _normalize_memory_list(entities, "entities")
-        if tags is not None:
-            memory["tags"] = _normalize_memory_list(tags, "tags")
-        memory.pop("importance", None)
-        memory.pop("confidence", None)
-        if expires_at is not None:
-            memory["expires_at"] = expires_at if expires_at != "" else None
-        if source is not None:
-            memory["source"] = str(source or "assistant_inferred").strip() or "assistant_inferred"
+        if search_text is not None:
+            new_search_text = str(search_text or "").strip()
+            if not new_search_text:
+                raise ValueError("search_text cannot be empty.")
+            memory["search_text"] = new_search_text
+        if facts is not None:
+            memory["facts"] = _normalize_memory_facts(facts)
 
-        memory["user_id"] = safe_user_id
         memory["updated_at"] = datetime.now().astimezone().isoformat(timespec="seconds")
+        memory = _memory_shape(memory, default_id=memory_id)
 
         model, collection = _get_memory_collection()
         with _memory_metadata_connection() as conn:
@@ -470,9 +483,9 @@ def EditMemory(
             )
 
         collection.upsert(
-            ids=[memory["id"]],
-            documents=[memory["text"]],
-            embeddings=[model.encode(memory["text"]).tolist()],
+            ids=[memory["mem_ID"]],
+            documents=[memory["search_text"]],
+            embeddings=[model.encode(memory["search_text"]).tolist()],
             metadatas=[{"user_id": safe_user_id, "type": memory["type"]}],
         )
 

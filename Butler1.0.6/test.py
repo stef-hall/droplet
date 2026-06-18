@@ -57,7 +57,7 @@ def _retrieve_memory_context(user_id, query, top_k=5):
         if not isinstance(memory, dict):
             continue
 
-        text = str(memory.get("text", "")).strip()
+        text = str(memory.get("search_text", memory.get("text", ""))).strip()
         if not text:
             continue
 
