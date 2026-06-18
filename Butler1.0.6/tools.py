@@ -384,7 +384,12 @@ def SearchMemories(user_id, query, top_k=5, memory_type=None, type=None):
         model, collection = _get_memory_collection()
         where_clause = {"user_id": safe_user_id}
         if normalized_type:
-            where_clause["type"] = normalized_type
+            where_clause = {
+                "$and": [
+                    {"user_id": safe_user_id},
+                    {"type": normalized_type},
+                ]
+            }
         results = collection.query(
             query_embeddings=[model.encode(query).tolist()],
             n_results=limit,
