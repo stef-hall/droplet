@@ -1042,6 +1042,7 @@ if __name__ == "__main__":
     configure_tools(_get_user_caldav_calendars, LISTS_DIR)
 
     response = SearchMemories(3, "Dog", 10, "Entity")
+    print(response, "\n")
     x = server.compress_searchmemory(response)
     print(x)
     quit()

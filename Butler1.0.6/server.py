@@ -2679,34 +2679,41 @@ def compress_addmemory(value):
         or value.get("memory", {}).get("mem_ID")
     )
 
+    cols = ["mem_ID", "status"]
+    rows = [[memory_id, value.get("status")]]
     return {
         "tool": value.get("tool"),
-        "id": memory_id,
-        "status": value.get("status"),
+        "cols": cols,
+        "rows": rows,
     }
 
 def compress_searchmemory(value):
+    print('hey')
     if not isinstance(value, dict):
         return value
 
     memories = value.get("result", []) if isinstance(value.get("result", []), list) else []
+    cols = ["mem_ID", "type", "search_text", "facts", "score"]
     rows = []
     for memory in memories:
         if not isinstance(memory, dict):
             continue
         memory_id = memory.get("id") or memory.get("mem_ID")
-        rows.append({
-            "id": memory_id,
+        row_values = {
+            "mem_ID": memory_id,
             "type": memory.get("type"),
             "search_text": memory.get("search_text"),
             "facts": memory.get("facts", {}),
-        })
+            "score": memory.get("score"),
+        }
+        rows.append([row_values[col] for col in cols])
 
     return {
         "tool": value.get("tool"),
         "query": value.get("query"),
         "type": value.get("type"),
-        "matches": rows,
+        "cols": cols,
+        "rows": rows,
     }
 
 
@@ -2724,10 +2731,12 @@ def compress_editmemory(value):
         or value.get("memory", {}).get("mem_ID")
     )
 
+    cols = ["mem_ID", "status"]
+    rows = [[memory_id, value.get("status")]]
     return {
         "tool": value.get("tool"),
-        "id": memory_id,
-        "status": value.get("status"),
+        "cols": cols,
+        "rows": rows,
     }
 
 
@@ -2743,10 +2752,12 @@ def compress_deletememory(value):
         or value.get("memory", {}).get("mem_ID")
     )
 
+    cols = ["mem_ID", "status"]
+    rows = [[memory_id, value.get("status")]]
     return {
         "tool": value.get("tool"),
-        "id": memory_id,
-        "status": value.get("status"),
+        "cols": cols,
+        "rows": rows,
     }
 
 def _compact_value(value):
