@@ -252,8 +252,6 @@ def AddMemory(
     text,
     entities,
     tags,
-    importance,
-    confidence,
     expires_at=None,
     source="assistant_inferred",
 ):
@@ -272,8 +270,6 @@ def AddMemory(
         "tags": _normalize_memory_list(tags, "tags"),
         "created_at": now,
         "updated_at": now,
-        "importance": _normalize_memory_score(importance, "importance"),
-        "confidence": _normalize_memory_score(confidence, "confidence"),
         "expires_at": expires_at if expires_at not in ("", None) else None,
         "source": str(source or "assistant_inferred").strip() or "assistant_inferred",
     }
@@ -325,6 +321,9 @@ def _memory_metadata_search(item_id, user_id=None):
     memory = json.loads(row[0])
     if user_id is not None and int(memory.get("user_id", -1)) != int(user_id):
         return None
+    if isinstance(memory, dict):
+        memory.pop("importance", None)
+        memory.pop("confidence", None)
     return memory
 
 
@@ -412,8 +411,6 @@ def EditMemory(
     text=None,
     entities=None,
     tags=None,
-    importance=None,
-    confidence=None,
     expires_at=None,
     source=None,
 ):
@@ -438,10 +435,8 @@ def EditMemory(
             memory["entities"] = _normalize_memory_list(entities, "entities")
         if tags is not None:
             memory["tags"] = _normalize_memory_list(tags, "tags")
-        if importance is not None:
-            memory["importance"] = _normalize_memory_score(importance, "importance")
-        if confidence is not None:
-            memory["confidence"] = _normalize_memory_score(confidence, "confidence")
+        memory.pop("importance", None)
+        memory.pop("confidence", None)
         if expires_at is not None:
             memory["expires_at"] = expires_at if expires_at != "" else None
         if source is not None:

@@ -1150,7 +1150,7 @@ If asked to Redo/Undo/Bring Back/Recreate/Restore:
 1. look back in your context
 2. recreate the event exactly
 
-When Searching vaugue times: 
+When Searching vague times: 
 - this week → ...Sunday 23:59
 - next week → ...Monday 00:00 - Sunday 23:59
 - vague search → 14 days
@@ -1177,25 +1177,31 @@ Display:
   - pipe tables | a | b |)
   - Display multipile events in a markdown time table 
 
-Memory:
-Use Read/Get tool to obtain ID's.
-If you ever see Intetionally or Semantically similar memories; combine the expressed intent of the memories accounting for the Created/Updated times.
-Prefrence
-  - Things the user has reminded you to factor in.
-  - Usually Style or Tone.
-  - Easily over ridden.
-Entities
-  - Used to Remeber specific attributes about mentioned Entities
-  - Be aware of nicknames
-Reminder
-  - Search these first when asked for, or expected to product Reminders.
-  - Silently Delete Reminder immediatly after notifying, if Recurrence not stated.
-  - Don't congragulate the user, or mention the status when removing a Reminder
-Commitments
-  - Focus on these when reviewing the future, especically if a deadline is close
-Trigger
-  - Use AddMemory whenever the user asks you to remember, remind them later, store a preference, create a trigger rule, save a commitment, or remember something under a future condition.
-  - Dont mention deleting a Trigger memory
+# Memory:
+- Use Read/Get tool to obtain ID's.
+- If you ever see Intetionally or Semantically similar memories; combine the expressed intent of the memories accounting for the Created/Updated times.
+
+## Prefrence
+- Things the user has reminded you to factor in.
+- Usually Style or Tone.
+- Easily over ridden.
+
+## Entities
+- Used to Remeber specific attributes about mentioned Entities
+- Be aware of nicknames
+
+## Reminder
+- Search these first when asked for, or expected to product Reminders.
+- Silently Delete Reminder immediatly after notifying, if Recurrence not stated.
+- Don't congragulate the user, or mention the status when removing a Reminder
+
+## Commitments
+- Focus on these when reviewing the future, especically if a deadline is close
+
+## Trigger
+- Use AddMemory whenever the user asks you to remember, remind them later, store a preference, create a trigger rule, save a commitment, or remember something under a future condition.
+- Always contain expiry / recurrence information 
+- Dont mention deleting a Trigger memory
 
 Tone:
 - Keep responses concise but useful. Prefer plain phrasing over long filler explanations
@@ -1502,14 +1508,6 @@ tools = [
                     "description": "Short tags useful for filtering or grouping this memory.",
                     "items": {"type": "string"}
                 },
-                "importance": {
-                    "type": "number",
-                    "description": "Importance from 0 to 1."
-                },
-                "confidence": {
-                    "type": "number",
-                    "description": "Confidence from 0 to 1. Use high confidence for explicit user instructions."
-                },
                 "expires_at": {
                     "type": ["string", "null"],
                     "description": "Optional ISO-8601 expiry datetime, or null for no expiry."
@@ -1519,7 +1517,7 @@ tools = [
                     "description": "Source label, such as user_explicit or assistant_inferred."
                 }
             },
-            "required": ["type", "text", "entities", "tags", "importance", "confidence", "expires_at", "source"],
+            "required": ["type", "text", "entities", "tags", "expires_at", "source"],
             "additionalProperties": False
         }
     },
@@ -1553,14 +1551,6 @@ tools = [
                     "type": "array",
                     "description": "Updated tags.",
                     "items": {"type": "string"}
-                },
-                "importance": {
-                    "type": "number",
-                    "description": "Updated importance from 0 to 1."
-                },
-                "confidence": {
-                    "type": "number",
-                    "description": "Updated confidence from 0 to 1."
                 },
                 "expires_at": {
                     "type": ["string", "null"],
@@ -2027,8 +2017,6 @@ def ToolUse(name, args, user_id=None):
                 text=args.get("text"),
                 entities=args.get("entities"),
                 tags=args.get("tags"),
-                importance=args.get("importance"),
-                confidence=args.get("confidence"),
                 expires_at=args.get("expires_at"),
                 source=args.get("source", "assistant_inferred"),
             )
@@ -2094,8 +2082,6 @@ def ToolUse(name, args, user_id=None):
                 text=args.get("text") if "text" in args else None,
                 entities=args.get("entities") if "entities" in args else None,
                 tags=args.get("tags") if "tags" in args else None,
-                importance=args.get("importance") if "importance" in args else None,
-                confidence=args.get("confidence") if "confidence" in args else None,
                 expires_at=args.get("expires_at") if "expires_at" in args else None,
                 source=args.get("source") if "source" in args else None,
             )
@@ -2667,8 +2653,6 @@ def compress_searchmemory(value):
             "type": memory.get("type"),
             "text": memory.get("text"),
             "tags": memory.get("tags", []),
-            "importance": memory.get("importance"),
-            "confidence": memory.get("confidence"),
             "score": memory.get("score"),
         })
 
