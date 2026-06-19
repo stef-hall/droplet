@@ -1640,8 +1640,9 @@ def _retag_condensed_tool(output, public_tool_name, operation):
     return output
 
 
-def ToolUse(name, args, user_id=None):
-    _log_json("TOOL_DEPLOY", {"tool": name, "args": args})
+def ToolUse(name, args, user_id=None, log_tool_deploy=True):
+    if log_tool_deploy:
+        _log_json("TOOL_DEPLOY", {"tool": name, "args": args})
 
     if name == "ReadTrello":
         action = str(args.get("action", "")).strip().lower()
@@ -1692,7 +1693,7 @@ def ToolUse(name, args, user_id=None):
         operation = operation_map.get(action)
         if not operation:
             return {"status": "failed", "tool": "WriteCalendar", "error": f"Unknown WriteCalendar action: {action}", "args": args}
-        output = ToolUse(operation, args, user_id=user_id)
+        output = ToolUse(operation, args, user_id=user_id, log_tool_deploy=False)
         return _retag_condensed_tool(output, "WriteCalendar", operation)
 
     if name == "WriteList":
