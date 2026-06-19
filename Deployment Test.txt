@@ -39,6 +39,9 @@ Cache hit rate: 100.00%
 [INPUT UN/C] 343 / 5888
 [TOTAL UN/C] 1075 / 12800
 
+1.0.6 - Butler
+[INPUT UN/C] 1558 / 4096
+[TOTAL UN/C] 2177 / 7680
 
 
 GE, Jam, Undo, Budx6
