@@ -874,7 +874,7 @@ textarea {
   white-space: nowrap;
   line-height: inherit;
   vertical-align: baseline;
-  transition: width 160ms ease, margin-left 160ms ease, opacity 120ms ease;
+  transition: width 313ms ease, margin-left 313ms ease, opacity 500ms ease;
 }
 
 .quick-reply-inline:hover {
