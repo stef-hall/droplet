@@ -880,12 +880,6 @@ textarea {
   text-decoration-color: #1e9f48;
 }
 
-.quick-reply-inline:hover::after {
-  width: 0.9em;
-  margin-left: 0.15em;
-  opacity: 1;
-}
-
 .quick-reply-inline.edit-armed::after {
   width: 0.9em;
   margin-left: 0.15em;
