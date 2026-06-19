@@ -1,5 +1,6 @@
 ﻿const form = document.getElementById("secretariat-form");
 const promptInput = document.getElementById("prompt");
+const sendBtn = form ? form.querySelector(".send-btn") : null;
 const feedEl = document.getElementById("chat-feed");
 const metaEl = document.getElementById("meta");
 const addAttachmentBtn = document.getElementById("add-attachment");
@@ -1698,6 +1699,17 @@ function autoSizePrompt() {
   promptInput.style.height = `${Math.min(promptInput.scrollHeight, MAX_PROMPT_HEIGHT)}px`;
 }
 
+function hasValidPromptMessage() {
+  return Boolean(promptInput && promptInput.value && promptInput.value.trim());
+}
+
+function updateSendButtonState() {
+  if (!(sendBtn instanceof HTMLButtonElement)) return;
+  const isValid = hasValidPromptMessage();
+  sendBtn.disabled = !isValid;
+  sendBtn.classList.toggle("is-inactive", !isValid);
+}
+
 function scrollFeedToBottom() {
   feedEl.scrollTop = feedEl.scrollHeight;
 }
@@ -2053,6 +2065,7 @@ async function submitPromptText(prompt) {
   appendMessage("user", prompt, { hadAttachment });
   promptInput.value = "";
   autoSizePrompt();
+  updateSendButtonState();
   const imageDataUrlForRequest = attachedImageDataUrl;
   if (imageDataUrlForRequest) {
     clearAttachedImage();
@@ -2329,6 +2342,7 @@ document.addEventListener("keydown", (event) => {
 });
 
 autoSizePrompt();
+updateSendButtonState();
 initializeComposerFloating();
 if (stickyNotesToggleEl) {
   let stickyNotesEnabled = true;
@@ -2347,7 +2361,10 @@ checkAuth().then(() => {
   }
 });
 
-promptInput.addEventListener("input", autoSizePrompt);
+promptInput.addEventListener("input", () => {
+  autoSizePrompt();
+  updateSendButtonState();
+});
 promptInput.addEventListener("focus", () => {
   dockComposer();
 });
@@ -2423,6 +2440,7 @@ feedEl.addEventListener("click", async (event) => {
   if (shouldEditInComposer) {
     promptInput.value = reply;
     autoSizePrompt();
+    updateSendButtonState();
     dockComposer();
     promptInput.focus();
     promptInput.setSelectionRange(promptInput.value.length, promptInput.value.length);
@@ -2430,6 +2448,7 @@ feedEl.addEventListener("click", async (event) => {
   }
 
   promptInput.value = reply;
+  updateSendButtonState();
   dockComposer();
   await submitPromptText(reply);
 });

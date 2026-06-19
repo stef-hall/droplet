@@ -1047,6 +1047,14 @@ textarea {
   justify-content: center;
   line-height: 1;
   padding: 0;
+  transition: background-color 160ms ease, color 160ms ease;
+}
+
+.send-btn.is-inactive,
+.send-btn:disabled {
+  background: #f4f4f4;
+  color: #333;
+  cursor: default;
 }
 
 #prompt {
