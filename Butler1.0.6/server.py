@@ -1144,13 +1144,20 @@ Your ultimate goal is to save your user's time. This is done by  by preforming a
 - You operate ONLY in the local timezone.
 - Return a user-facing message when finished goal.
 - If a request is in objection with a memory, follow it anyway but mention it
+- Ignore seconds and round to nearest minute unless seconds EXPLICTLY requested.
 
 """
 system_prompt = concise_prompt + """
 
 ## Style
 - Preserve current Tone, and Formality.
-- You have access to Markdown formatting.
+- You have access to Markdown formatting:
+    - headers
+    - **bold**, *italics* 
+    - bullet lists
+    - inline `code`, fenced ```code``` 
+    - pipe tables | a | b |
+- Display multipile events in a markdown time table 
 - If someone calls you 'bud' you have to call them 'bud' back.
 - Don't use Em Dashes ("—")
 
@@ -1215,6 +1222,7 @@ Use FastReplies to help the user quickly take obvious actions from your response
 - Hidden text must be the user’s intended reply.
 - Any suggested actions, or solutions contained in a clarification questions MUST have FastReplies options.
 - Any “I can…”, “if you meant…”, or “do you want…” should be a FastReply.
+- e.g. "I couldn’t find a list called that. If you [[send: meant an event|Yes, I meant an event]], tell me which to remove."
 
 
 # STRICT VALID RESPONSE FORMAT:
@@ -1226,97 +1234,6 @@ Use FastReplies to help the user quickly take obvious actions from your response
 
 
 tools = [
-    {
-        "type": "function",
-        "name": "ReadTrello",
-        "description": "Read Trello data. Use action get_lists to list Trello lists, or get_cards to list cards in a Trello list.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "action": {
-                    "type": "string",
-                    "enum": ["get_lists", "get_cards"],
-                    "description": "Read operation to perform.",
-                },
-                "board_id": {
-                    "type": "string",
-                    "description": "Optional board ID for action get_lists.",
-                },
-                "list_id": {
-                    "type": "string",
-                    "description": "Required list ID for action get_cards.",
-                },
-            },
-            "required": ["action"],
-            "additionalProperties": False,
-        },
-    },
-    {
-        "type": "function",
-        "name": "WriteTrello",
-        "description": "Add, edit, or delete Trello resources. Actions: create_card, create_list, edit_card, delete_card, delete_list.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "action": {
-                    "type": "string",
-                    "enum": ["create_card", "create_list", "edit_card", "delete_card", "delete_list"],
-                    "description": "Write operation to perform.",
-                },
-                "board_id": {
-                    "type": "string",
-                    "description": "Board ID for create_list.",
-                },
-                "list_id": {
-                    "type": "string",
-                    "description": "List ID for create_card, edit_card move destination, or delete_list.",
-                },
-                "card_id": {
-                    "type": "string",
-                    "description": "Card ID for edit_card or delete_card.",
-                },
-                "name": {
-                    "type": "string",
-                    "description": "Card/list name for create actions, or new card title for edit_card.",
-                },
-                "description": {
-                    "type": "string",
-                    "description": "Card description for create_card or edit_card.",
-                },
-                "due": {
-                    "type": "string",
-                    "description": "Card due datetime in ISO-8601; empty string clears it for edit_card.",
-                },
-            },
-            "required": ["action"],
-            "additionalProperties": False,
-        },
-    },
-    {
-        "type": "function",
-        "name": "ReadCalendar",
-        "description": "Read calendar data. Use action get_events for events in a time range, or get_calendar_names for available calendar names.",
-        "strict": False,
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "action": {
-                    "type": "string",
-                    "enum": ["get_events", "get_calendar_names"],
-                    "description": "Read operation to perform."
-                },
-                "times": {
-                    "type": "array",
-                    "description": "Required for get_events. Start date/time, then finish date/time in local timezone using format YYYYMMDDTHHMMSS+XX:XX.",
-                    "items": {"type": "string"},
-                    "minItems": 2,
-                    "maxItems": 2
-                }
-            },
-            "required": ["action"],
-            "additionalProperties": False
-        }
-    },
     {
         "type": "function",
         "name": "WriteCalendar",
@@ -1434,6 +1351,97 @@ tools = [
                 }
             },
             "required": ["latitude", "longitude"],
+            "additionalProperties": False
+        }
+    },
+    {
+        "type": "function",
+        "name": "ReadTrello",
+        "description": "Read Trello data. Use action get_lists to list Trello lists, or get_cards to list cards in a Trello list.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["get_lists", "get_cards"],
+                    "description": "Read operation to perform.",
+                },
+                "board_id": {
+                    "type": "string",
+                    "description": "Optional board ID for action get_lists.",
+                },
+                "list_id": {
+                    "type": "string",
+                    "description": "Required list ID for action get_cards.",
+                },
+            },
+            "required": ["action"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "type": "function",
+        "name": "WriteTrello",
+        "description": "Add, edit, or delete Trello resources. Actions: create_card, create_list, edit_card, delete_card, delete_list.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["create_card", "create_list", "edit_card", "delete_card", "delete_list"],
+                    "description": "Write operation to perform.",
+                },
+                "board_id": {
+                    "type": "string",
+                    "description": "Board ID for create_list.",
+                },
+                "list_id": {
+                    "type": "string",
+                    "description": "List ID for create_card, edit_card move destination, or delete_list.",
+                },
+                "card_id": {
+                    "type": "string",
+                    "description": "Card ID for edit_card or delete_card.",
+                },
+                "name": {
+                    "type": "string",
+                    "description": "Card/list name for create actions, or new card title for edit_card.",
+                },
+                "description": {
+                    "type": "string",
+                    "description": "Card description for create_card or edit_card.",
+                },
+                "due": {
+                    "type": "string",
+                    "description": "Card due datetime in ISO-8601; empty string clears it for edit_card.",
+                },
+            },
+            "required": ["action"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "type": "function",
+        "name": "ReadCalendar",
+        "description": "Read calendar data. Use action get_events for events in a time range, or get_calendar_names for available calendar names.",
+        "strict": False,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["get_events", "get_calendar_names"],
+                    "description": "Read operation to perform."
+                },
+                "times": {
+                    "type": "array",
+                    "description": "Required for get_events. Start date/time, then finish date/time in local timezone using format YYYYMMDDTHHMMSS+XX:XX.",
+                    "items": {"type": "string"},
+                    "minItems": 2,
+                    "maxItems": 2
+                }
+            },
+            "required": ["action"],
             "additionalProperties": False
         }
     },
