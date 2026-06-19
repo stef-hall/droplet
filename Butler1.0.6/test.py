@@ -35,39 +35,45 @@ def _log(label, message):
 def _get_memory_alias(user_id: int, real_id: str) -> str:
     return "ID"
 
-def _retrieve_memory_context(user_id, query, top_k=5):
-    if user_id is None:
-        return ""
-
+def _compile_memories(user_id, query, cols, top_k, types):
     try:
-        #memories = SearchMemories(user_id=user_id, query=query, top_k=top_k)
-        memories = [{'mem_ID': 'mem_289df82dd82a4098869eec986fefbfd5', 'type': 'Preference', 'search_text': 'User likes Tyler, the Creator and Fallout', 'facts': {'likes': "['Tyler, the Creator', 'Fallout']"}, 'created_at': '2026-06-18T18:08:44+12:00', 'updated_at': '2026-06-18T18:08:44+12:00', 'score': 0.8216750025749207}, {'mem_ID': 'mem_9167b040c82646feb3cce8ff00a09446', 'type': 'Entity', 'search_text': 'User likes Elvis before midday and The Rolling Stones after midday', 'facts': {'after_12:00': 'The Rolling Stones', 'before_12:00': 'Elvis', 'entity': 'music preference by time'}, 'created_at': '2026-06-18T18:08:44+12:00', 'updated_at': '2026-06-18T18:08:44+12:00', 'score': 0.8325091004371643}, {'mem_ID': 'mem_d0d8d2a20ec142839b54bddfb99e63a8', 'type': 'Entity', 'search_text': "User's dog is named Tilly", 'facts': {'entity': 'dog', 'name': 'Tilly', 'owner': 'user'}, 'created_at': '2026-06-18T18:07:11+12:00', 'updated_at': '2026-06-18T18:07:11+12:00', 'score': 0.8693448305130005}, {'mem_ID': 'mem_2d4c66d3b55d4762955a9dc951a159c6', 'type': 'Entity', 'search_text': "User's name is Stefan", 'facts': {'entity': 'user', 'name': 'Stefan'}, 'created_at': '2026-06-18T18:07:11+12:00', 'updated_at': '2026-06-18T18:07:11+12:00', 'score': 0.8776365518569946}, {'mem_ID': 'mem_e0206fdee46c4413bc5f139f7a4a7ce0', 'type': 'Trigger', 'search_text': 'At the beginning of every week, remind the user to plan runs', 'facts': {'action': 'remind user to plan runs', 'condition': 'beginning of every week', 'details': 'user goes on runs twice a day', 'recurrence': 'weekly'}, 'created_at': '2026-06-18T18:08:44+12:00', 'updated_at': '2026-06-18T18:08:44+12:00', 'score': 0.9183304309844971}]
+        memories = SearchMemories(user_id=user_id, query=query, top_k=top_k, types=types)
     except Exception as e:
-        _log("MEMORY_RAG", f"search failed: {e}")
+        _log("MEMORY_RAG", f"search failed for types ({types}): {e}")
         return ""
-
-    columns = ["mem_ID", "type", "search_text", "facts"]
+ 
     rows = []
-
     for memory in memories:
         if not isinstance(memory, dict):
             continue
 
         values = {}
-        for data in columns:
+        for data in cols:
             if data == "mem_ID":
                 memory_id = memory.get(data, {})
                 values["mem_ID"] = _get_memory_alias(int(user_id), memory_id) if memory_id else ""
             else:
                 values[data] = memory.get(data)
 
-        rows.append([values[column] for column in columns])
+        rows.append([values[column] for column in cols])
 
     if not rows:
+        return []
+    else:
+        return rows
+
+
+def _retrieve_memory_context(user_id, query, top_k=5):
+    if user_id is None:
         return ""
 
+    cols = ["mem_ID", "type", "search_text", "facts"]
+    relevantInfo = _compile_memories(user_id, query, cols, 8, ['Preference', 'Entity', 'Commitment'])
+    Reminders = _compile_memories(user_id, query, cols, 5, ['Reminder'])
+    Triggers = _compile_memories(user_id, query, cols, 5, ['Trigger'])
+
     return json.dumps(
-        {"cols": columns, "Memories": rows, "instruction": "Use only when relevant."},
+        {"cols": cols, "Memories": relevantInfo, "Reminders": Reminders, "Triggers": Triggers},
         ensure_ascii=False,
         separators=(",", ":"),
         default=str

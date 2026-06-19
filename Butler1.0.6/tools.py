@@ -246,6 +246,32 @@ def _normalize_memory_type(value):
     return _CANONICAL_MEMORY_TYPES[normalized]
 
 
+def _normalize_memory_types(value):
+    if value is None:
+        return None
+
+    if isinstance(value, str):
+        raw_items = [value]
+    elif isinstance(value, (list, tuple, set)):
+        raw_items = list(value)
+    else:
+        raise ValueError("types must be a string or an array of strings.")
+
+    if not raw_items:
+        raise ValueError("types must include at least one type.")
+
+    normalized_items = []
+    seen = set()
+    for raw_item in raw_items:
+        normalized = _normalize_memory_type(raw_item)
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        normalized_items.append(normalized)
+
+    return normalized_items
+
+
 def _normalize_memory_facts(value):
     if value is None:
         return {}
@@ -368,43 +394,74 @@ def _memory_metadata_search(item_id, user_id=None):
     return _memory_shape(memory, default_id=item_id)
 
 
-def SearchMemories(user_id, query, top_k=5, memory_type=None, type=None):
+def SearchMemories(user_id, query, top_k=5, memory_type=None, type=None, memory_types=None, types=None):
     query = str(query or "").strip()
     if not query:
         return []
 
     safe_user_id = int(user_id)
     limit = max(1, min(int(top_k), 20))
-    requested_type = type if type is not None else memory_type
-    normalized_type = None
-    if requested_type is not None and str(requested_type).strip():
-        normalized_type = _normalize_memory_type(requested_type)
+
+    requested_types = None
+    if types is not None:
+        requested_types = types
+    elif memory_types is not None:
+        requested_types = memory_types
+    elif type is not None:
+        requested_types = [type]
+    elif memory_type is not None:
+        requested_types = [memory_type]
+
+    normalized_types = _normalize_memory_types(requested_types)
 
     with _memory_lock:
         model, collection = _get_memory_collection()
-        where_clause = {"user_id": safe_user_id}
-        if normalized_type:
-            where_clause = {
-                "$and": [
-                    {"user_id": safe_user_id},
-                    {"type": normalized_type},
-                ]
-            }
-        results = collection.query(
-            query_embeddings=[model.encode(query).tolist()],
-            n_results=limit,
-            where=where_clause,
+        query_embedding = model.encode(query).tolist()
+        query_plans = []
+        if normalized_types:
+            for normalized_type in normalized_types:
+                query_plans.append({
+                    "where": {
+                        "$and": [
+                            {"user_id": safe_user_id},
+                            {"type": normalized_type},
+                        ]
+                    }
+                })
+        else:
+            query_plans.append({"where": {"user_id": safe_user_id}})
+
+        candidate_rows = {}
+        for plan in query_plans:
+            results = collection.query(
+                query_embeddings=[query_embedding],
+                n_results=limit,
+                where=plan["where"],
+            )
+            ids = (results.get("ids") or [[]])[0]
+            distances = (results.get("distances") or [[]])[0]
+            for idx, item_id in enumerate(ids):
+                score = distances[idx] if idx < len(distances) else None
+                existing = candidate_rows.get(item_id)
+                if existing is None or (
+                    score is not None and (existing.get("score") is None or score < existing["score"])
+                ):
+                    candidate_rows[item_id] = {"id": item_id, "score": score}
+
+        ranked_candidates = sorted(
+            candidate_rows.values(),
+            key=lambda row: (row["score"] is None, row["score"] if row["score"] is not None else float("inf")),
         )
 
         output = []
-        ids = (results.get("ids") or [[]])[0]
-        distances = (results.get("distances") or [[]])[0]
-        for idx, item_id in enumerate(ids):
-            memory = _memory_metadata_search(item_id, user_id=safe_user_id)
+        for row in ranked_candidates:
+            memory = _memory_metadata_search(row["id"], user_id=safe_user_id)
             if memory is None:
                 continue
+            if normalized_types and memory.get("type") not in normalized_types:
+                continue
             memory_with_score = dict(memory)
-            memory_with_score["score"] = distances[idx] if idx < len(distances) else None
+            memory_with_score["score"] = row["score"]
             output.append(memory_with_score)
             if len(output) >= limit:
                 break
@@ -412,13 +469,15 @@ def SearchMemories(user_id, query, top_k=5, memory_type=None, type=None):
     return output
 
 
-def SearchMemory(user_id, query, top_k=5, memory_type=None, type=None):
+def SearchMemory(user_id, query, top_k=5, memory_type=None, type=None, memory_types=None, types=None):
     return SearchMemories(
         user_id=user_id,
         query=query,
         top_k=top_k,
         memory_type=memory_type,
         type=type,
+        memory_types=memory_types,
+        types=types,
     )
 
 
