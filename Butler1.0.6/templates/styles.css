@@ -1021,7 +1021,7 @@ textarea {
   line-height: 0;
   padding: 0;
   position: relative;
-  transition: background-color 160ms ease, color 160ms ease;
+  transition: background-color 313ms ease, color 313ms ease;
 }
 
 .icon-btn:hover {
