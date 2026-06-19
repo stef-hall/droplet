@@ -44,7 +44,7 @@ def _coerce_bool_flag(value, default=False):
     return bool(default)
 
 
-RAGenable = 1
+RAGenable = 0
 
 global api_key
 warnings.simplefilter("ignore", DeprecationWarning)
@@ -1221,7 +1221,7 @@ system_prompt = concise_prompt + """
 
 # FastReplies
 Use FastReplies to help the user quickly take obvious actions from your response.
-- FastReplies MUST use exactly: [[send: visible assistant text|hidden user message]]
+- FastReplies must be embedded only inside `message`. In the format: "... [[send: visible assistant text|hidden user message]] ..."
 - Visible text must fit naturally in the assistant message.
 - Hidden text must be the user’s intended reply.
 - Any suggested actions, or solutions contained in a clarification questions MUST have FastReplies options.
