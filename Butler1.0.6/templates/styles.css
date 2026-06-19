@@ -849,7 +849,7 @@ textarea {
   margin: 2px;
   border: 0;
   background: transparent;
-  color: #000000;
+  color: inherit;
   font: inherit;
   padding: 0;
   cursor: pointer;
