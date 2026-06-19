@@ -9,7 +9,7 @@ and make the list contents the weather for the  respective location.
 Then print all the lists youve created content's, before waiting for me to tell you to move on, then:
 
 Delete all the Events, and Lists you made during this session.
-REPORT ANY ERRORS OR ANYTHING OUT OF THE ORDINARY - THIS IS TESTING
+Report any apparant erros, this is testing
 
 
 
