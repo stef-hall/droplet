@@ -7,6 +7,9 @@
   --line: #e4e4e4;
   --assistant: #ffffff;
   --user: #ececec;
+  --md-table-border: rgba(0, 0, 0, 0.12);
+  --md-table-header-bg: rgba(0, 0, 0, 0.05);
+  --md-table-bg: #ffffff;
   /* Squircle presets */
   --composer-radius-soft: 36px;
   --composer-squircle-soft: 60;
@@ -37,6 +40,9 @@
   --line: #2f343b;
   --assistant: #1d2126;
   --user: #2a2f36;
+  --md-table-border: rgba(255, 255, 255, 0.2);
+  --md-table-header-bg: rgba(255, 255, 255, 0.1);
+  --md-table-bg: #20242a;
 }
 
 * {
@@ -829,7 +835,8 @@ textarea {
 .bubble.md table {
   width: 100%;
   border-collapse: collapse;
-  border: 1px solid rgba(0, 0, 0, 0.12);
+  border: 1px solid var(--md-table-border);
+  background: var(--md-table-bg);
   font-size: 0.95rem;
 }
 
@@ -839,14 +846,14 @@ textarea {
 
 .bubble.md th,
 .bubble.md td {
-  border: 1px solid rgba(0, 0, 0, 0.12);
+  border: 1px solid var(--md-table-border);
   padding: 6px 8px;
   text-align: left;
   vertical-align: top;
 }
 
 .bubble.md th {
-  background: rgba(0, 0, 0, 0.05);
+  background: var(--md-table-header-bg);
   font-weight: 600;
 }
 
