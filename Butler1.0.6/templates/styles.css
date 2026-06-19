@@ -415,15 +415,21 @@ textarea {
   -webkit-mask-image: linear-gradient(
     to bottom,
     transparent 0,
-    #000 36px,
-    #000 calc(100% - 72px),
+    #000 42px,
+    #000 calc(100% - 132px),
+    rgba(0, 0, 0, 0.86) calc(100% - 94px),
+    rgba(0, 0, 0, 0.42) calc(100% - 52px),
+    rgba(0, 0, 0, 0.16) calc(100% - 24px),
     transparent 100%
   );
   mask-image: linear-gradient(
     to bottom,
     transparent 0,
-    #000 36px,
-    #000 calc(100% - 72px),
+    #000 42px,
+    #000 calc(100% - 132px),
+    rgba(0, 0, 0, 0.86) calc(100% - 94px),
+    rgba(0, 0, 0, 0.42) calc(100% - 52px),
+    rgba(0, 0, 0, 0.16) calc(100% - 24px),
     transparent 100%
   );
   scrollbar-width: thin;
