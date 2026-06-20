@@ -1,7 +1,0 @@
-Weather for San Diego
-Time window: 20260620T123500+1200 to 20260620T125000+1200
-Timezone returned: America/Los_Angeles
-Current: 21.3°C, Clear sky, wind 15.1 km/h, rain 0 mm
-Forecast temp: 18.8°C to 18.8°C
-Forecast wind: 9.2 to 9.2 km/h
-Conditions: 1200 Overcast

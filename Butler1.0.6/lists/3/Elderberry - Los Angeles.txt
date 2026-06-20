@@ -1,7 +1,0 @@
-Weather for Los Angeles
-Time window: 20260620T125000+1200 to 20260620T130500+1200
-Timezone returned: America/Los_Angeles
-Current: 21.8°C, Clear sky, wind 15.0 km/h, rain 0 mm
-Forecast temp: 22.1°C to 22.4°C
-Forecast wind: 12.7 to 15.2 km/h
-Conditions: 1200-1300 Clear sky

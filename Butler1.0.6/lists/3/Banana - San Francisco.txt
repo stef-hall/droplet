@@ -1,7 +1,0 @@
-Weather for San Francisco
-Time window: 20260620T120500+1200 to 20260620T122000+1200
-Timezone returned: America/Los_Angeles
-Current: 18.6°C, Clear sky, wind 24.2 km/h, rain 0 mm
-Forecast temp: 17.5°C to 17.5°C
-Forecast wind: 8.6 to 8.6 km/h
-Conditions: 1200 Overcast
