@@ -1,0 +1,7 @@
+Weather for San Jose
+Time window: 20260620T122000+1200 to 20260620T123500+1200
+Timezone returned: America/Los_Angeles
+Current: 23.6°C, Clear sky, wind 18.5 km/h, rain 0 mm
+Forecast temp: 21.7°C to 21.7°C
+Forecast wind: 7.9 to 7.9 km/h
+Conditions: 1200 Mainly clear
