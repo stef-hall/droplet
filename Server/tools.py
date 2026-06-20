@@ -219,58 +219,132 @@ def _normalize_memory_score(value, field_name):
     return score
 
 
-_ALLOWED_MEMORY_TYPES = {
-    "fact",
-    "preference",
-    "reminder",
-    "task",
-    "trigger_rule",
-    "correction",
-    "note",
-    "relationship",
-    "project",
+_CANONICAL_MEMORY_TYPES = {
+    "trigger": "Trigger",
+    "reminder": "Reminder",
+    "commitment": "Commitment",
+    "preference": "Preference",
+    "entity": "Entity",
+}
+
+_MEMORY_TYPE_ALIASES = {
+    "triggers": "trigger",
+    "reminders": "reminder",
+    "commitments": "commitment",
+    "preferences": "preference",
+    "prefrence": "preference",
+    "entities": "entity",
 }
 
 
 def _normalize_memory_type(value):
-    normalized = str(value or "note").strip().lower() or "note"
-    if normalized not in _ALLOWED_MEMORY_TYPES:
-        allowed = ", ".join(sorted(_ALLOWED_MEMORY_TYPES))
+    normalized = str(value or "").strip().lower()
+    normalized = _MEMORY_TYPE_ALIASES.get(normalized, normalized)
+    if normalized not in _CANONICAL_MEMORY_TYPES:
+        allowed = ", ".join(_CANONICAL_MEMORY_TYPES.values())
         raise ValueError(f"type must be one of: {allowed}.")
+    return _CANONICAL_MEMORY_TYPES[normalized]
+
+
+def _normalize_memory_types(value):
+    if value is None:
+        return None
+
+    if isinstance(value, str):
+        raw_items = [value]
+    elif isinstance(value, (list, tuple, set)):
+        raw_items = list(value)
+    else:
+        raise ValueError("types must be a string or an array of strings.")
+
+    if not raw_items:
+        raise ValueError("types must include at least one type.")
+
+    normalized_items = []
+    seen = set()
+    for raw_item in raw_items:
+        normalized = _normalize_memory_type(raw_item)
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        normalized_items.append(normalized)
+
+    return normalized_items
+
+
+def _normalize_memory_facts(value):
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise ValueError("facts must be an object with key/value pairs.")
+    normalized = {}
+    for key, raw_value in value.items():
+        clean_key = str(key).strip()
+        if not clean_key:
+            continue
+        clean_value = str(raw_value).strip()
+        if not clean_value:
+            continue
+        normalized[clean_key] = clean_value
     return normalized
+
+
+def _memory_shape(memory, default_id=None):
+    if not isinstance(memory, dict):
+        raise ValueError("memory record must be an object.")
+
+    memory_id = str(memory.get("mem_ID", memory.get("id", default_id)) or "").strip()
+    if not memory_id:
+        raise ValueError("memory id is missing.")
+
+    memory_type = _normalize_memory_type(memory.get("type"))
+    search_text = str(memory.get("search_text", memory.get("text", "")) or "").strip()
+    if not search_text:
+        raise ValueError("search_text is required.")
+
+    created_at = str(memory.get("created_at", "") or "").strip()
+    updated_at = str(memory.get("updated_at", "") or "").strip()
+    if not created_at or not updated_at:
+        now = datetime.now().astimezone().isoformat(timespec="seconds")
+        created_at = created_at or now
+        updated_at = updated_at or now
+
+    facts = _normalize_memory_facts(memory.get("facts"))
+    if not facts:
+        # Lightweight migration path for legacy records that used list fields.
+        entities = memory.get("entities")
+        tags = memory.get("tags")
+        if isinstance(entities, list) and entities:
+            facts["entities"] = ", ".join([str(x).strip() for x in entities if str(x).strip()])
+        if isinstance(tags, list) and tags:
+            facts["tags"] = ", ".join([str(x).strip() for x in tags if str(x).strip()])
+
+    return {
+        "mem_ID": memory_id,
+        "type": memory_type,
+        "search_text": search_text,
+        "facts": facts,
+        "created_at": created_at,
+        "updated_at": updated_at,
+    }
 
 
 def AddMemory(
     user_id,
     memory_type,
-    text,
-    entities,
-    tags,
-    importance,
-    confidence,
-    expires_at=None,
-    source="assistant_inferred",
+    search_text,
+    facts,
 ):
-    text = str(text or "").strip()
-    if not text:
-        raise ValueError("text is required.")
-
     safe_user_id = int(user_id)
     now = datetime.now().astimezone().isoformat(timespec="seconds")
-    memory = {
-        "id": f"mem_{uuid.uuid4().hex}",
-        "user_id": safe_user_id,
-        "type": _normalize_memory_type(memory_type),
-        "text": text,
-        "entities": _normalize_memory_list(entities, "entities"),
-        "tags": _normalize_memory_list(tags, "tags"),
+    memory = _memory_shape({
+        "mem_ID": f"mem_{uuid.uuid4().hex}",
+        "type": memory_type,
+        "search_text": search_text,
+        "facts": facts,
         "created_at": now,
         "updated_at": now,
-        "importance": _normalize_memory_score(importance, "importance"),
-        "confidence": _normalize_memory_score(confidence, "confidence"),
-        "expires_at": expires_at if expires_at not in ("", None) else None,
-        "source": str(source or "assistant_inferred").strip() or "assistant_inferred",
-    }
+    })
 
     with _memory_lock:
         model, collection = _get_memory_collection()
@@ -284,17 +358,17 @@ def AddMemory(
                     json = excluded.json
                 """,
                 (
-                    memory["id"],
+                    memory["mem_ID"],
                     safe_user_id,
                     json.dumps(memory, ensure_ascii=False, sort_keys=True),
                 ),
             )
 
         collection.upsert(
-            ids=[memory["id"]],
-            documents=[memory["text"]],
-            embeddings=[model.encode(memory["text"]).tolist()],
-            metadatas=[{"user_id": safe_user_id}],
+            ids=[memory["mem_ID"]],
+            documents=[memory["search_text"]],
+            embeddings=[model.encode(memory["search_text"]).tolist()],
+            metadatas=[{"user_id": safe_user_id, "type": memory["type"]}],
         )
 
     return {"status": "stored", "memory": memory}
@@ -317,57 +391,94 @@ def _memory_metadata_search(item_id, user_id=None):
         return None
 
     memory = json.loads(row[0])
-    if user_id is not None and int(memory.get("user_id", -1)) != int(user_id):
-        return None
-    return memory
+    return _memory_shape(memory, default_id=item_id)
 
 
-def _memory_is_expired(memory):
-    expires_at = memory.get("expires_at") if isinstance(memory, dict) else None
-    if not expires_at:
-        return False
-    try:
-        expires_dt = datetime.fromisoformat(str(expires_at).replace("Z", "+00:00"))
-    except ValueError:
-        return False
-    if expires_dt.tzinfo is None:
-        expires_dt = expires_dt.astimezone()
-    return expires_dt <= datetime.now().astimezone()
-
-
-def SearchMemories(user_id, query, top_k=5):
+def SearchMemories(user_id, query, top_k=5, memory_type=None, type=None, memory_types=None, types=None):
     query = str(query or "").strip()
     if not query:
         return []
 
     safe_user_id = int(user_id)
     limit = max(1, min(int(top_k), 20))
+
+    requested_types = None
+    if types is not None:
+        requested_types = types
+    elif memory_types is not None:
+        requested_types = memory_types
+    elif type is not None:
+        requested_types = [type]
+    elif memory_type is not None:
+        requested_types = [memory_type]
+
+    normalized_types = _normalize_memory_types(requested_types)
+
     with _memory_lock:
         model, collection = _get_memory_collection()
-        results = collection.query(
-            query_embeddings=[model.encode(query).tolist()],
-            n_results=limit,
-            where={"user_id": safe_user_id},
+        query_embedding = model.encode(query).tolist()
+        query_plans = []
+        if normalized_types:
+            for normalized_type in normalized_types:
+                query_plans.append({
+                    "where": {
+                        "$and": [
+                            {"user_id": safe_user_id},
+                            {"type": normalized_type},
+                        ]
+                    }
+                })
+        else:
+            query_plans.append({"where": {"user_id": safe_user_id}})
+
+        candidate_rows = {}
+        for plan in query_plans:
+            results = collection.query(
+                query_embeddings=[query_embedding],
+                n_results=limit,
+                where=plan["where"],
+            )
+            ids = (results.get("ids") or [[]])[0]
+            distances = (results.get("distances") or [[]])[0]
+            for idx, item_id in enumerate(ids):
+                score = distances[idx] if idx < len(distances) else None
+                existing = candidate_rows.get(item_id)
+                if existing is None or (
+                    score is not None and (existing.get("score") is None or score < existing["score"])
+                ):
+                    candidate_rows[item_id] = {"id": item_id, "score": score}
+
+        ranked_candidates = sorted(
+            candidate_rows.values(),
+            key=lambda row: (row["score"] is None, row["score"] if row["score"] is not None else float("inf")),
         )
 
         output = []
-        ids = (results.get("ids") or [[]])[0]
-        documents = (results.get("documents") or [[]])[0]
-        distances = (results.get("distances") or [[]])[0]
-        for idx, item_id in enumerate(ids):
-            memory = _memory_metadata_search(item_id, user_id=safe_user_id)
+        for row in ranked_candidates:
+            memory = _memory_metadata_search(row["id"], user_id=safe_user_id)
             if memory is None:
                 continue
-            if _memory_is_expired(memory):
+            if normalized_types and memory.get("type") not in normalized_types:
                 continue
-            memory["score"] = distances[idx] if idx < len(distances) else None
-            output.append(memory)
+            memory_with_score = dict(memory)
+            memory_with_score["score"] = row["score"]
+            output.append(memory_with_score)
+            if len(output) >= limit:
+                break
 
     return output
 
 
-def SearchMemory(user_id, query, top_k=5):
-    return SearchMemories(user_id=user_id, query=query, top_k=top_k)
+def SearchMemory(user_id, query, top_k=5, memory_type=None, type=None, memory_types=None, types=None):
+    return SearchMemories(
+        user_id=user_id,
+        query=query,
+        top_k=top_k,
+        memory_type=memory_type,
+        type=type,
+        memory_types=memory_types,
+        types=types,
+    )
 
 
 def DeleteMemory(user_id, memory_id):
@@ -396,13 +507,8 @@ def EditMemory(
     user_id,
     memory_id,
     memory_type=None,
-    text=None,
-    entities=None,
-    tags=None,
-    importance=None,
-    confidence=None,
-    expires_at=None,
-    source=None,
+    search_text=None,
+    facts=None,
 ):
     safe_user_id = int(user_id)
     memory_id = str(memory_id or "").strip()
@@ -416,26 +522,16 @@ def EditMemory(
 
         if memory_type is not None:
             memory["type"] = _normalize_memory_type(memory_type)
-        if text is not None:
-            new_text = str(text or "").strip()
-            if not new_text:
-                raise ValueError("text cannot be empty.")
-            memory["text"] = new_text
-        if entities is not None:
-            memory["entities"] = _normalize_memory_list(entities, "entities")
-        if tags is not None:
-            memory["tags"] = _normalize_memory_list(tags, "tags")
-        if importance is not None:
-            memory["importance"] = _normalize_memory_score(importance, "importance")
-        if confidence is not None:
-            memory["confidence"] = _normalize_memory_score(confidence, "confidence")
-        if expires_at is not None:
-            memory["expires_at"] = expires_at if expires_at != "" else None
-        if source is not None:
-            memory["source"] = str(source or "assistant_inferred").strip() or "assistant_inferred"
+        if search_text is not None:
+            new_search_text = str(search_text or "").strip()
+            if not new_search_text:
+                raise ValueError("search_text cannot be empty.")
+            memory["search_text"] = new_search_text
+        if facts is not None:
+            memory["facts"] = _normalize_memory_facts(facts)
 
-        memory["user_id"] = safe_user_id
         memory["updated_at"] = datetime.now().astimezone().isoformat(timespec="seconds")
+        memory = _memory_shape(memory, default_id=memory_id)
 
         model, collection = _get_memory_collection()
         with _memory_metadata_connection() as conn:
@@ -454,10 +550,10 @@ def EditMemory(
             )
 
         collection.upsert(
-            ids=[memory["id"]],
-            documents=[memory["text"]],
-            embeddings=[model.encode(memory["text"]).tolist()],
-            metadatas=[{"user_id": safe_user_id}],
+            ids=[memory["mem_ID"]],
+            documents=[memory["search_text"]],
+            embeddings=[model.encode(memory["search_text"]).tolist()],
+            metadatas=[{"user_id": safe_user_id, "type": memory["type"]}],
         )
 
     return {"status": "edited", "memory": memory}
@@ -999,14 +1095,20 @@ def ReadWeather(latitude, longitude, times=None, field_names=None):
 
 
 if __name__ == "__main__":
+    import server
     from server import LISTS_DIR, _get_user_caldav_calendars
     from server import compress_tool_output as compress
     configure_tools(_get_user_caldav_calendars, LISTS_DIR)
 
-    response = SearchMemories(3, "whats my name?")
-    print(response)
+    response = SearchMemories(3, "User's Pets Name", 10)
+    print(response, "\n")
+    x = server.compress_searchmemory(response)
+    print(x)
     quit()
     
+
+
+
     response = GetEvents(3,
     times = ["20260601T000000+12:00","20260608T000000+12:00"]
     )
@@ -1022,7 +1124,8 @@ if __name__ == "__main__":
             "20260519T060000+12:00"
         ]
     )
-    import server
+
+    
     x = server.compress_getweather(x)
     
 

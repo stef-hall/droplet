@@ -7,6 +7,9 @@
   --line: #e4e4e4;
   --assistant: #ffffff;
   --user: #ececec;
+  --md-table-border: rgba(0, 0, 0, 0.12);
+  --md-table-header-bg: rgba(0, 0, 0, 0.05);
+  --md-table-bg: #ffffff;
   /* Squircle presets */
   --composer-radius-soft: 36px;
   --composer-squircle-soft: 60;
@@ -37,6 +40,9 @@
   --line: #2f343b;
   --assistant: #1d2126;
   --user: #2a2f36;
+  --md-table-border: rgba(255, 255, 255, 0.2);
+  --md-table-header-bg: rgba(255, 255, 255, 0.1);
+  --md-table-bg: #20242a;
 }
 
 * {
@@ -415,15 +421,21 @@ textarea {
   -webkit-mask-image: linear-gradient(
     to bottom,
     transparent 0,
-    #000 36px,
-    #000 calc(100% - 72px),
+    #000 42px,
+    #000 calc(100% - 132px),
+    rgba(0, 0, 0, 0.86) calc(100% - 94px),
+    rgba(0, 0, 0, 0.42) calc(100% - 52px),
+    rgba(0, 0, 0, 0.16) calc(100% - 24px),
     transparent 100%
   );
   mask-image: linear-gradient(
     to bottom,
     transparent 0,
-    #000 36px,
-    #000 calc(100% - 72px),
+    #000 42px,
+    #000 calc(100% - 132px),
+    rgba(0, 0, 0, 0.86) calc(100% - 94px),
+    rgba(0, 0, 0, 0.42) calc(100% - 52px),
+    rgba(0, 0, 0, 0.16) calc(100% - 24px),
     transparent 100%
   );
   scrollbar-width: thin;
@@ -678,7 +690,11 @@ textarea {
 .bubble.md li {
   text-shadow: 0 1px 1px rgb(100 100 100 / 10%);
   font-weight: 400;
-  color: #000000;
+  color: inherit;
+}
+
+.bubble.md li::marker {
+  color: currentColor;
 }
 
 .bubble.md code {
@@ -707,23 +723,74 @@ textarea {
   font-size: 0.9em;
 }
 
-.bubble.md pre code .report-pos {
+.bubble.md pre code .report-pos,
+.bubble.md .md-summary-head .report-pos {
   font-weight: 600;
   color: #05b605;
 }
 
-.bubble.md pre code .report-neg {
+.bubble.md pre code .report-neg,
+.bubble.md .md-summary-head .report-neg {
   font-weight: 600;
   color: #df2517;
 }
 
-.bubble.md pre code .report-neutral {
+.bubble.md pre code .report-neutral,
+.bubble.md .md-summary-head .report-neutral {
   font-weight: 600;
   color: #005eff;
 }
 
 .bubble.md .md-summary {
+  display: inline-block;
+  position: relative;
+  width: fit-content;
+  min-width: 132px;
+  max-width: 100%;
   margin-top: 1em;
+  text-shadow: none;
+  background: rgba(0, 0, 0, 0.06);
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 10px;
+  padding: 3px 10px;
+  overflow: visible;
+  vertical-align: top;
+  transition:
+    border-color 160ms ease,
+    background-color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.bubble.md .md-summary:hover,
+.bubble.md .md-summary:focus-within,
+.bubble.md .md-summary:focus {
+  background: rgba(0, 0, 0, 0.07);
+  border-color: rgba(0, 0, 0, 0.16);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08);
+  outline: none;
+}
+
+.bubble.md .md-summary-head {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: baseline;
+  gap: 7px;
+  min-height: 1.45em;
+  line-height: 1.45;
+  white-space: nowrap;
+}
+
+.bubble.md .md-summary-counts {
+  display: inline-flex;
+  justify-content: flex-end;
+  gap: 7px;
+  min-width: 46px;
+}
+
+.bubble.md .md-summary-count {
+  font-family: "Consolas", "SFMono-Regular", Menlo, monospace;
+  font-size: 0.88em;
+  font-weight: 700;
 }
 
 .bubble.md .md-summary-title {
@@ -734,7 +801,28 @@ textarea {
 }
 
 .bubble.md .md-summary pre {
+  position: absolute;
+  top: calc(100% + 3px);
+  left: 0;
+  z-index: 4;
+  min-width: 100%;
   margin-top: 0;
+  opacity: 0;
+  pointer-events: none;
+  background: rgba(244, 244, 244, 0.98);
+  box-shadow: 0 7px 20px rgba(0, 0, 0, 0.12);
+  transform: translateY(-3px);
+  transition:
+    opacity 140ms ease,
+    transform 180ms ease;
+}
+
+.bubble.md .md-summary:hover pre,
+.bubble.md .md-summary:focus-within pre,
+.bubble.md .md-summary:focus pre {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
 }
 
 .bubble.md .md-table-wrap {
@@ -747,7 +835,8 @@ textarea {
 .bubble.md table {
   width: 100%;
   border-collapse: collapse;
-  border: 1px solid rgba(0, 0, 0, 0.12);
+  border: 1px solid var(--md-table-border);
+  background: var(--md-table-bg);
   font-size: 0.95rem;
 }
 
@@ -757,14 +846,14 @@ textarea {
 
 .bubble.md th,
 .bubble.md td {
-  border: 1px solid rgba(0, 0, 0, 0.12);
+  border: 1px solid var(--md-table-border);
   padding: 6px 8px;
   text-align: left;
   vertical-align: top;
 }
 
 .bubble.md th {
-  background: rgba(0, 0, 0, 0.05);
+  background: var(--md-table-header-bg);
   font-weight: 600;
 }
 
@@ -773,7 +862,7 @@ textarea {
   margin: 2px;
   border: 0;
   background: transparent;
-  color: var(--accent);
+  color: inherit;
   font: inherit;
   padding: 0;
   cursor: pointer;
@@ -792,14 +881,19 @@ textarea {
   white-space: nowrap;
   line-height: inherit;
   vertical-align: baseline;
-  transition: width 160ms ease, margin-left 160ms ease, opacity 120ms ease;
+  transition: width 313ms ease, margin-left 313ms ease, opacity 500ms ease;
 }
 
 .quick-reply-inline:hover {
   opacity: 0.75;
 }
 
-.quick-reply-inline:hover::after {
+.quick-reply-inline.edit-armed {
+  color: #1e9f48;
+  text-decoration-color: #1e9f48;
+}
+
+.quick-reply-inline.edit-armed::after {
   width: 0.9em;
   margin-left: 0.15em;
   opacity: 1;
@@ -934,7 +1028,7 @@ textarea {
   line-height: 0;
   padding: 0;
   position: relative;
-  transition: background-color 160ms ease, color 160ms ease;
+  transition: background-color 313ms ease, color 313ms ease;
 }
 
 .icon-btn:hover {
@@ -960,6 +1054,14 @@ textarea {
   justify-content: center;
   line-height: 1;
   padding: 0;
+  transition: background-color 160ms ease, color 160ms ease;
+}
+
+.send-btn.is-inactive,
+.send-btn:disabled {
+  background: #f4f4f4;
+  color: #333;
+  cursor: default;
 }
 
 #prompt {

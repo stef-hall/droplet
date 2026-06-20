@@ -1,5 +1,6 @@
 ﻿const form = document.getElementById("secretariat-form");
 const promptInput = document.getElementById("prompt");
+const sendBtn = form ? form.querySelector(".send-btn") : null;
 const feedEl = document.getElementById("chat-feed");
 const metaEl = document.getElementById("meta");
 const addAttachmentBtn = document.getElementById("add-attachment");
@@ -47,6 +48,9 @@ function getCssRootNumberVar(name, fallback) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 const MAX_PROMPT_HEIGHT = 180;
+// Adjust this to control how long (ms) a quick reply must be hovered before it switches to edit mode.
+const QUICK_REPLY_EDIT_HOVER_MS = 1500;
+const STREAM_INPUT_MIN_DISPLAY_MS = 1000;
 const STICKY_NOTE_DOCK_THRESHOLD = 182;
 const STICKY_NOTE_DOCK_THRESHOLD_MOBILE = 50;
 const STICKY_NOTE_DOCK_HYSTERESIS = 24;
@@ -114,6 +118,7 @@ const ALLOWED_DESKTOP_META_STATUSES = new Set([
 const THEME_STORAGE_KEY = "secretariat-theme";
 const STICKY_NOTES_ENABLED_STORAGE_KEY = "secretariat-sticky-notes-enabled";
 const STICKY_NOTE_LAYOUT_STORAGE_KEY = "secretariat-sticky-layout";
+const quickReplyHoverTimers = new WeakMap();
 
 function isStickyNotesEnabled() {
   return !stickyNotesToggleEl || stickyNotesToggleEl.checked;
@@ -1499,6 +1504,48 @@ function renderMarkdownTable(tableLines) {
   return `<div class="md-table-wrap"><table><thead><tr>${headerHtml}</tr></thead><tbody>${bodyHtml}</tbody></table></div>`;
 }
 
+function getSummaryLineCount(lineText) {
+  const value = String(lineText || "");
+  const signedMatch = value.match(/[+-]\s*(\d+)/);
+  if (signedMatch) return Number(signedMatch[1]) || 0;
+  const numberMatch = value.match(/\b(\d+)\b/);
+  return numberMatch ? Number(numberMatch[1]) || 0 : 0;
+}
+
+function renderSummaryHeader(codeLines) {
+  const totals = {
+    added: 0,
+    deleted: 0,
+    edited: 0
+  };
+
+  codeLines.forEach((raw) => {
+    const lineText = String(raw || "");
+    const lowered = lineText.toLowerCase();
+    const count = getSummaryLineCount(lineText);
+    if (!count) return;
+
+    if (/\b(deleted|delete|removed|remove)\b/.test(lowered) || /-\s*\d+/.test(lineText)) {
+      totals.deleted += count;
+      return;
+    }
+    if (/\b(edited|edit|updated|update|changed|change)\b/.test(lowered)) {
+      totals.edited += count;
+      return;
+    }
+    if (/\b(added|add|created|create)\b/.test(lowered) || /\+\s*\d+/.test(lineText)) {
+      totals.added += count;
+    }
+  });
+
+  const counters = [];
+  if (totals.added) counters.push(`<span class="md-summary-count report-pos">+${totals.added}</span>`);
+  if (totals.deleted) counters.push(`<span class="md-summary-count report-neg">-${totals.deleted}</span>`);
+  if (totals.edited) counters.push(`<span class="md-summary-count report-neutral">+${totals.edited}</span>`);
+
+  return `<div class="md-summary-head"><span class="md-summary-title">Summary</span><span class="md-summary-counts">${counters.join("")}</span></div>`;
+}
+
 function renderMarkdown(text) {
   const source = String(text ?? "").replace(/\r\n/g, "\n");
   const lines = source.split("\n");
@@ -1548,7 +1595,7 @@ function renderMarkdown(text) {
         })
         .join("\n");
       if (fenceType === "summary") {
-        chunks.push(`<section class="md-summary"><pre><code><span class="md-summary-title">Summary</span>\n${renderedCode}</code></pre></section>`);
+        chunks.push(`<section class="md-summary" tabindex="0">${renderSummaryHeader(codeLines)}<pre><code>${renderedCode}</code></pre></section>`);
       } else {
         chunks.push(`<pre><code>${renderedCode}</code></pre>`);
       }
@@ -1652,6 +1699,17 @@ function autoSizePrompt() {
   promptInput.style.height = `${Math.min(promptInput.scrollHeight, MAX_PROMPT_HEIGHT)}px`;
 }
 
+function hasValidPromptMessage() {
+  return Boolean(promptInput && promptInput.value && promptInput.value.trim());
+}
+
+function updateSendButtonState() {
+  if (!(sendBtn instanceof HTMLButtonElement)) return;
+  const isValid = hasValidPromptMessage();
+  sendBtn.disabled = !isValid;
+  sendBtn.classList.toggle("is-inactive", !isValid);
+}
+
 function scrollFeedToBottom() {
   feedEl.scrollTop = feedEl.scrollHeight;
 }
@@ -1661,6 +1719,12 @@ function ensureFeedPinnedToBottom() {
   requestAnimationFrame(() => {
     scrollFeedToBottom();
     setTimeout(scrollFeedToBottom, 80);
+  });
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, Math.max(0, Number(ms) || 0));
   });
 }
 
@@ -2001,6 +2065,7 @@ async function submitPromptText(prompt) {
   appendMessage("user", prompt, { hadAttachment });
   promptInput.value = "";
   autoSizePrompt();
+  updateSendButtonState();
   const imageDataUrlForRequest = attachedImageDataUrl;
   if (imageDataUrlForRequest) {
     clearAttachedImage();
@@ -2037,6 +2102,27 @@ async function submitPromptText(prompt) {
     const decoder = new TextDecoder();
     let buffer = "";
     let finalPayload = null;
+    let lastStreamUiUpdateAt = 0;
+
+    const applyStreamStatus = async (labelText) => {
+      const now = Date.now();
+      const elapsed = now - lastStreamUiUpdateAt;
+      if (lastStreamUiUpdateAt > 0 && elapsed < STREAM_INPUT_MIN_DISPLAY_MS) {
+        await sleep(STREAM_INPUT_MIN_DISPLAY_MS - elapsed);
+      }
+
+      const label = labelText || "Thinking...";
+      updateThinkingLabel(label);
+      const compact = String(label).trim().toLowerCase().replace(/[.\s]+$/g, "");
+      if (compact.startsWith("waiting")) {
+        setMetaStatus("Waiting...");
+      } else if (compact.startsWith("done")) {
+        setMetaStatus("Done");
+      } else {
+        setMetaStatus("Thinking...");
+      }
+      lastStreamUiUpdateAt = Date.now();
+    };
 
     while (true) {
       const { value, done } = await reader.read();
@@ -2054,16 +2140,7 @@ async function submitPromptText(prompt) {
             evt = null;
           }
           if (evt && evt.type === "status") {
-            const label = evt.label || "Thinking...";
-            updateThinkingLabel(label);
-            const compact = String(label).trim().toLowerCase().replace(/[.\s]+$/g, "");
-            if (compact.startsWith("waiting")) {
-              setMetaStatus("Waiting...");
-            } else if (compact.startsWith("done")) {
-              setMetaStatus("Done");
-            } else {
-              setMetaStatus("Thinking...");
-            }
+            await applyStreamStatus(evt.label);
           }
           if (evt && evt.type === "final") {
             finalPayload = evt;
@@ -2076,6 +2153,10 @@ async function submitPromptText(prompt) {
     const data = finalPayload;
     if (!data || !data.ok) {
       throw new Error((data && data.error) || "Request failed.");
+    }
+    const msSinceLastUiUpdate = Date.now() - lastStreamUiUpdateAt;
+    if (lastStreamUiUpdateAt > 0 && msSinceLastUiUpdate < STREAM_INPUT_MIN_DISPLAY_MS) {
+      await sleep(STREAM_INPUT_MIN_DISPLAY_MS - msSinceLastUiUpdate);
     }
 
     currentSessionId = String(data.session_id || "");
@@ -2261,6 +2342,7 @@ document.addEventListener("keydown", (event) => {
 });
 
 autoSizePrompt();
+updateSendButtonState();
 initializeComposerFloating();
 if (stickyNotesToggleEl) {
   let stickyNotesEnabled = true;
@@ -2279,7 +2361,10 @@ checkAuth().then(() => {
   }
 });
 
-promptInput.addEventListener("input", autoSizePrompt);
+promptInput.addEventListener("input", () => {
+  autoSizePrompt();
+  updateSendButtonState();
+});
 promptInput.addEventListener("focus", () => {
   dockComposer();
 });
@@ -2343,9 +2428,72 @@ feedEl.addEventListener("click", async (event) => {
   if (!(quickReplyButton instanceof HTMLButtonElement)) return;
   const reply = decodeHtmlEntitiesDeep(quickReplyButton.dataset.reply || "").trim();
   if (!reply) return;
+
+  const quickReplyHoverTimer = quickReplyHoverTimers.get(quickReplyButton);
+  if (quickReplyHoverTimer) {
+    clearTimeout(quickReplyHoverTimer);
+    quickReplyHoverTimers.delete(quickReplyButton);
+  }
+  const shouldEditInComposer = quickReplyButton.classList.contains("edit-armed");
+  quickReplyButton.classList.remove("edit-armed");
+
+  if (shouldEditInComposer) {
+    promptInput.value = reply;
+    autoSizePrompt();
+    updateSendButtonState();
+    dockComposer();
+    promptInput.focus();
+    promptInput.setSelectionRange(promptInput.value.length, promptInput.value.length);
+    return;
+  }
+
   promptInput.value = reply;
+  updateSendButtonState();
   dockComposer();
   await submitPromptText(reply);
+});
+
+function primeQuickReplyForEditing(quickReplyButton) {
+  if (!(quickReplyButton instanceof HTMLButtonElement)) return;
+  quickReplyButton.classList.add("edit-armed");
+}
+
+feedEl.addEventListener("pointerover", (event) => {
+  if (!(event instanceof PointerEvent) || event.pointerType !== "mouse") return;
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) return;
+  const quickReplyButton = target.closest(".quick-reply-inline");
+  if (!(quickReplyButton instanceof HTMLButtonElement)) return;
+  const relatedTarget = event.relatedTarget;
+  if (relatedTarget instanceof Node && quickReplyButton.contains(relatedTarget)) return;
+
+  quickReplyButton.classList.remove("edit-armed");
+  const existingTimer = quickReplyHoverTimers.get(quickReplyButton);
+  if (existingTimer) {
+    clearTimeout(existingTimer);
+  }
+  const timer = setTimeout(() => {
+    primeQuickReplyForEditing(quickReplyButton);
+    quickReplyHoverTimers.delete(quickReplyButton);
+  }, QUICK_REPLY_EDIT_HOVER_MS);
+  quickReplyHoverTimers.set(quickReplyButton, timer);
+});
+
+feedEl.addEventListener("pointerout", (event) => {
+  if (!(event instanceof PointerEvent) || event.pointerType !== "mouse") return;
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) return;
+  const quickReplyButton = target.closest(".quick-reply-inline");
+  if (!(quickReplyButton instanceof HTMLButtonElement)) return;
+  const relatedTarget = event.relatedTarget;
+  if (relatedTarget instanceof Node && quickReplyButton.contains(relatedTarget)) return;
+
+  const timer = quickReplyHoverTimers.get(quickReplyButton);
+  if (timer) {
+    clearTimeout(timer);
+    quickReplyHoverTimers.delete(quickReplyButton);
+  }
+  quickReplyButton.classList.remove("edit-armed");
 });
 
 function updateComposerFloatOffset() {

@@ -1,137 +1,84 @@
+from __future__ import annotations
 
-import json
-import os
+import ast
+import operator as op
+from flask import Flask, Response, jsonify, redirect, render_template, request, send_from_directory, session, stream_with_context # type: ignore
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from threading import Lock
 import sqlite3
-import chromadb
-from sentence_transformers import SentenceTransformer
+import re
+import os
 
-DB_PATH = "./vector_db"
-METADATA_DB_PATH = os.path.join(DB_PATH, "metadata.db")
-COLLECTION_NAME = "memories"
+from datetime import datetime, timezone, timedelta
+from zoneinfo import ZoneInfo
+from caldav import DAVClient # type: ignore
+from openai import OpenAI # type: ignore
+import vobject # type: ignore
+import json
+import warnings
+import logging
+import base64
+import time
+import mimetypes
+import uuid
+import traceback
+import secrets
+import hashlib
+from urllib.parse import urlencode, unquote
+from urllib.request import Request, urlopen
+from pathlib import Path
+from werkzeug.security import check_password_hash, generate_password_hash # type: ignore
+from tools import AddEvent, GetEvents, GetCalendarNames, DeleteEvent, ReadList, EditList, DeleteList, EditEvent, GetWeather, AddMemory, SearchMemories, EditMemory, DeleteMemory, _REMINDER_UNCHANGED, configure_tools
+def _log(label, message):
+    print(f"[{label}] {message}", flush=True)
 
-model = SentenceTransformer("all-MiniLM-L6-v2")
+def _get_memory_alias(user_id: int, real_id: str) -> str:
+    return "ID"
 
-client = chromadb.PersistentClient(path=DB_PATH)
+def _compile_memories(user_id, query, cols, top_k, types):
+    try:
+        memories = SearchMemories(user_id=user_id, query=query, top_k=top_k, types=types)
+    except Exception as e:
+        _log("MEMORY_RAG", f"search failed for types ({types}): {e}")
+        return ""
+ 
+    rows = []
+    for memory in memories:
+        if not isinstance(memory, dict):
+            continue
 
-collection = client.get_or_create_collection(
-    name=COLLECTION_NAME,
-    metadata={"hnsw:space": "cosine"}
-)
+        values = {}
+        for data in cols:
+            if data == "mem_ID":
+                memory_id = memory.get(data, {})
+                values["mem_ID"] = _get_memory_alias(int(user_id), memory_id) if memory_id else ""
+            else:
+                values[data] = memory.get(data)
 
+        rows.append([values[column] for column in cols])
 
-def metadata_connection():
-    os.makedirs(DB_PATH, exist_ok=True)
-    conn = sqlite3.connect(METADATA_DB_PATH)
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS metadata (
-            id TEXT PRIMARY KEY,
-            json TEXT NOT NULL
-        )
-        """
-    )
-    return conn
-
-
-def add_semantic_text(items):
-    """
-    Add items shaped like {"id": "...", "text": "...", ...metadata}.
-
-    Chroma stores only id, text, and embedding. The full JSON object is stored
-    in SQLite by id so semantic search can stay focused on the text.
-    """
-    ids = []
-    documents = []
-    embeddings = []
-
-    with metadata_connection() as conn:
-        for item in items:
-            item_id = item["id"]
-            metadata_json = json.dumps(item, ensure_ascii=False, sort_keys=True)
-            conn.execute(
-                """
-                INSERT INTO metadata (id, json)
-                VALUES (?, ?)
-                ON CONFLICT(id) DO UPDATE SET json = excluded.json
-                """,
-                (item_id, metadata_json)
-            )
-
-    for item in items:
-        item_id = item["id"]
-        doc = item["text"]
-
-        ids.append(item_id)
-        documents.append(doc)
-        embeddings.append(model.encode(doc).tolist())
-
-    collection.upsert(
-        ids=ids,
-        documents=documents,
-        embeddings=embeddings
-    )
+    if not rows:
+        return []
+    else:
+        return rows
 
 
-def semantic_search(query, top_k=3):
-    query_embedding = model.encode(query).tolist()
+def _retrieve_memory_context(user_id, query, top_k=5):
+    if user_id is None:
+        return ""
 
-    results = collection.query(
-        query_embeddings=[query_embedding],
-        n_results=top_k
+    cols = ["mem_ID", "type", "search_text", "facts"]
+    relevantInfo = _compile_memories(user_id, query, cols, 8, ['Preference', 'Entity', 'Commitment'])
+    Reminders = _compile_memories(user_id, query, cols, 5, ['Reminder'])
+    Triggers = _compile_memories(user_id, query, cols, 5, ['Trigger'])
+
+    return json.dumps(
+        {"cols": cols, "Memories": relevantInfo, "Reminders": Reminders, "Triggers": Triggers},
+        ensure_ascii=False,
+        separators=(",", ":"),
+        default=str
     )
 
-    output = []
 
-    for i in range(len(results["ids"][0])):
-        output.append({
-            "id": results["ids"][0][i],
-            "text": results["documents"][0][i],
-            "score": results["distances"][0][i]
-        })
-
-    return output
-
-
-def metadata_search(item_id):
-    with metadata_connection() as conn:
-        row = conn.execute(
-            "SELECT json FROM metadata WHERE id = ?",
-            (item_id,)
-        ).fetchone()
-
-    if row is None:
-        return None
-
-    return json.loads(row[0])
-
-
-if __name__ == "__main__":
-    data = [
-        {
-            "id": "mem_1",
-            "text": "a delicious plate of spaghetti bolognese",
-            "type": "food",
-            "source": "demo"
-        },
-        {
-            "id": "mem_2",
-            "text": "a tall building with an office in it",
-            "type": "place",
-            "source": "demo"
-        },
-        {
-            "id": "mem_3",
-            "text": "a cute dog as somebodys pet",
-            "type": "animal",
-            "source": "demo"
-        }
-
-    ]
-
-    #add_semantic_text(data)
-    query = "whats my name?"
-    results = semantic_search(query)
-    for i in results:
-    	print(i)
-    	print(metadata_search(i["id"]))
-    print('\n')
+x = _retrieve_memory_context(3, "hey bud")
+print(x)
