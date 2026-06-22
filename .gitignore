@@ -1,7 +1,8 @@
+__pycache__/
+*.pyc
 secrets.txt
 Server/secretariat.db
 Server/vector_db/
 Server/lists/
-__pycache__/
-*.pyc
+**/vector_db/
 **/secrets.txt
