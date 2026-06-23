@@ -871,6 +871,7 @@ def _edit_trello_card_for_user(
     description: str | None = None,
     due: str | None = None,
     list_id: str | None = None,
+    pos: str | None = None,
 ) -> dict:
     row = _get_user_settings(int(user_id))
     if not row:
@@ -892,6 +893,7 @@ def _edit_trello_card_for_user(
         "description": False,
         "due": False,
         "list_id": False,
+        "pos": False,
     }
 
     if name is not None:
@@ -906,6 +908,9 @@ def _edit_trello_card_for_user(
     if list_id is not None:
         params["idList"] = str(list_id)
         updated_fields["list_id"] = True
+    if pos is not None:
+        params["pos"] = str(pos)
+        updated_fields["pos"] = True
 
     if not any(updated_fields.values()):
         raise ValueError("At least one editable field is required.")
@@ -979,6 +984,7 @@ def _create_trello_card_for_user(
     name: str,
     description: str | None = None,
     due: str | None = None,
+    pos: str | None = None,
 ) -> dict:
     row = _get_user_settings(int(user_id))
     if not row:
@@ -1004,6 +1010,8 @@ def _create_trello_card_for_user(
         params["desc"] = str(description)
     if due is not None:
         params["due"] = str(due)
+    if pos is not None:
+        params["pos"] = str(pos)
 
     body = urlencode(params).encode("utf-8")
     request = Request(
@@ -1242,6 +1250,7 @@ You are an INTJ: analytical, strategic, independent, and future-focused. You thi
 - If a request is in objection with a memory; follow it anyway but mention it.
 - Use FastReplies for obvious next steps, undo, confirmations.
 - If the response contains 3 or more repeated items with shared fields, display them in a markdown table instead of separate paragraphs.
+- Return exactly one JSON object and nothing else: {"state":"RUNNING|WAITING|DONE","message":"user-facing text only"}
 
 ## If asked to Redo/Undo/Bring Back/Recreate/Restore:
 1. look back in your context.
@@ -1263,13 +1272,12 @@ You are an INTJ: analytical, strategic, independent, and future-focused. You thi
 - RUNNING = Operating Tools/Thinking
 - WAITING = Waiting for User Input
 - DONE = When totally finished your task
-- MUST BE in the format: {"state": "RUNNING|WAITING|DONE", "message": "..."}
 
 ## For vaugue delete/remove/edit requests:
 - Use chat history and relevant Get/Search tools silently to identify the target. Then:
-    1. If exactly one matching item exists, act immediately.
-    2. If multiple matching items exist, act but offer Undo FastReply.
-    3. If no matching item exists, say none was found and ask for detail.
+    1. If exactly one matching item exists; act immediately.
+    2. If multiple matching items exist; act but offer Undo FastReply.
+    3. If no matching item exists; Mention this to user, AND offer FastReplys for other possibily relevant tools/places you can search in.
 - Do not explain lookup safety reasoning unless asked.
 
 ## FastReplys:
@@ -1283,7 +1291,7 @@ system_prompt = concise_prompt + """
 # Memory 
 ## Rules
 - NEVER classify a one-time future instruction as a Preference.
-- Respond naturally after saving, editing, or deleting a memory.
+- Your 'message' should be a concise non technical acknowledgment after Saving, Editing, or Deleting a memory.
 - Edit an existing memory instead of creating a duplicate when possible. 
 - Do not display tool details when saving a memory unless the user asks.
 - NEVER Delete, Edit, or affect ANY part of a memory that's unrelated to the user's input.
@@ -1320,6 +1328,7 @@ system_prompt = concise_prompt + """
 - When a tool creates resources and returns IDs/UIDs, assume those returned IDs will be visible in conversation context after the batched tool results complete. Therefore, batch independent create calls together. Only serialize calls when the next call requires a value produced by a previous call.
 - If given a City to ReadWeather for; default to using the Co-Ordinates (Lat/Long) of that City's Center. 
 - apply extra reasoning scrutiny around meridians (AM/PM), especially 12:00 times.
+- If told to remeber going forwards/onwards: Always add appropriate persistent memory.
 - Use AddMemory when the user explicitly asks you to remember something, or when a durable memory is worth retaining for future conversations.
 - Use SearchMemory, EditMemory, and DeleteMemory when the user asks to inspect, update, or remove stored memories.
 - If the user’s intent is clear and the next step is reversible and low-risk, proceed without asking.
@@ -1328,10 +1337,10 @@ system_prompt = concise_prompt + """
 
 ## Display:
 - headers
-- **bold**, *italics* 
+- bold, italics
 - bullet lists
-- inline `code`, fenced ```code``` 
-- pipe tables | a | b |)
+- inline code, fenced code 
+- pipe tables
 - Display multipile events in a markdown time table 
 - Never use nested bullets. Keep lists flat (single level). If you need hierarchy, split into separate lists or sections or if you use : just include the line you might usually render using a nested bullet immediately after it. For numbered lists, only use the `1. 2. 3.` style markers (with a period), never `1)`.
 """ 
@@ -1542,7 +1551,11 @@ tools = [
                 },
                 "due": {
                     "type": "string",
-                    "description": "Card due datetime in ISO-8601; empty string clears it for edit_card.",
+                    "description": "Card due datetime in ISO-8601.",
+                },
+                "pos": {
+                    "type": ["string", "number"],
+                    "description": "Trello position for create_card/edit_card. Use 'top' or 'bottom' for single-card placement only. For ordering/reordering multiple cards, use numeric positions spaced by 1000 so updates can be done in parallel. For edit_card, include only to move/reorder the card. Omit to leave unchanged."
                 },
             },
             "required": ["action"],
@@ -2283,6 +2296,7 @@ def ToolUse(name, args, user_id=None, log_tool_deploy=True):
         description_value = args.get("description") if "description" in args else None
         due_value = valid_string(args.get("due"))
         list_id_value = valid_string(args.get("list_id"))
+        pos_value = args.get("pos") if "pos" in args else None
 
         if name_value is not None:
             kwargs["name"] = name_value
@@ -2295,6 +2309,10 @@ def ToolUse(name, args, user_id=None, log_tool_deploy=True):
 
         if list_id_value is not None:
             kwargs["list_id"] = _resolve_trello_id_for_user(int(user_id), "list", list_id_value)
+        if pos_value is not None:
+            pos_text = str(pos_value).strip()
+            if pos_text:
+                kwargs["pos"] = pos_text
 
         try:
             output = _edit_trello_card_for_user(
@@ -2372,6 +2390,7 @@ def ToolUse(name, args, user_id=None, log_tool_deploy=True):
         name_value = str(args.get("name", "")).strip()
         description_value = args["description"] if "description" in args else None
         due_value = args["due"] if "due" in args else None
+        pos_value = args["pos"] if "pos" in args else None
         try:
             output = _create_trello_card_for_user(
                 int(user_id),
@@ -2379,6 +2398,7 @@ def ToolUse(name, args, user_id=None, log_tool_deploy=True):
                 name=name_value,
                 description=description_value,
                 due=due_value,
+                pos=str(pos_value).strip() if pos_value is not None and str(pos_value).strip() else None,
             )
             return {
                 "status": "success",
