@@ -48,6 +48,8 @@ function getCssRootNumberVar(name, fallback) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 const MAX_PROMPT_HEIGHT = 180;
+const SEND_BUTTON_TEXT = "\u21AA\uFE0E";
+const MIC_BUTTON_TEXT = "\uD83C\uDFA4";
 // Adjust this to control how long (ms) a quick reply must be hovered before it switches to edit mode.
 const QUICK_REPLY_EDIT_HOVER_MS = 1500;
 const STREAM_INPUT_MIN_DISPLAY_MS = 1000;
@@ -119,6 +121,93 @@ const THEME_STORAGE_KEY = "secretariat-theme";
 const STICKY_NOTES_ENABLED_STORAGE_KEY = "secretariat-sticky-notes-enabled";
 const STICKY_NOTE_LAYOUT_STORAGE_KEY = "secretariat-sticky-layout";
 const quickReplyHoverTimers = new WeakMap();
+const supportsSpeechRecognition = typeof window !== "undefined" && (
+  "SpeechRecognition" in window || "webkitSpeechRecognition" in window
+);
+let speechRecognition = null;
+let speechRecording = false;
+let suppressNextSendClick = false;
+
+function isMobileComposerMode() {
+  return window.matchMedia("(max-width: 768px) and (pointer: coarse)").matches;
+}
+
+function getSpeechRecognitionCtor() {
+  if ("SpeechRecognition" in window) return window.SpeechRecognition;
+  if ("webkitSpeechRecognition" in window) return window.webkitSpeechRecognition;
+  return null;
+}
+
+function isSecureSpeechContext() {
+  if (window.isSecureContext) return true;
+  const host = String(window.location.hostname || "").toLowerCase();
+  return host === "localhost" || host === "127.0.0.1" || host === "::1";
+}
+
+function stopSpeechCapture() {
+  if (!speechRecognition || !speechRecording) return;
+  try {
+    speechRecognition.stop();
+  } catch (_) {
+    speechRecording = false;
+    speechRecognition = null;
+  }
+}
+
+function startSpeechCapture(triggerEvent = null) {
+  if (!isMobileComposerMode() || hasValidPromptMessage()) return;
+  if (!triggerEvent || triggerEvent.isTrusted !== true) return;
+  if (!isSecureSpeechContext()) {
+    setMetaStatus("Voice input requires HTTPS.");
+    return;
+  }
+  if (!supportsSpeechRecognition) {
+    setMetaStatus("Voice input is not supported on this device/browser.");
+    return;
+  }
+
+  const SpeechRecognitionCtor = getSpeechRecognitionCtor();
+  if (!SpeechRecognitionCtor) return;
+
+  speechRecognition = new SpeechRecognitionCtor();
+  speechRecording = true;
+  speechRecognition.lang = navigator.language || "en-US";
+  speechRecognition.interimResults = true;
+  speechRecognition.continuous = false;
+
+  speechRecognition.onresult = (event) => {
+    let transcript = "";
+    for (let i = 0; i < event.results.length; i += 1) {
+      const segment = event.results[i];
+      if (!segment || !segment[0]) continue;
+      transcript += segment[0].transcript;
+    }
+    promptInput.value = transcript.trim();
+    autoSizePrompt();
+    updateSendButtonState();
+  };
+
+  speechRecognition.onerror = () => {
+    speechRecording = false;
+    speechRecognition = null;
+    sendBtn?.classList.remove("is-pressing");
+  };
+
+  speechRecognition.onend = () => {
+    speechRecording = false;
+    speechRecognition = null;
+    sendBtn?.classList.remove("is-pressing");
+    updateSendButtonState();
+  };
+
+  try {
+    speechRecognition.start();
+  } catch (_) {
+    speechRecording = false;
+    speechRecognition = null;
+    sendBtn?.classList.remove("is-pressing");
+  }
+}
 
 function isStickyNotesEnabled() {
   return !stickyNotesToggleEl || stickyNotesToggleEl.checked;
@@ -1706,8 +1795,23 @@ function hasValidPromptMessage() {
 function updateSendButtonState() {
   if (!(sendBtn instanceof HTMLButtonElement)) return;
   const isValid = hasValidPromptMessage();
+  if (isMobileComposerMode()) {
+    const showMic = !isValid;
+    sendBtn.disabled = false;
+    sendBtn.classList.toggle("is-inactive", false);
+    sendBtn.classList.toggle("is-mic-mode", showMic);
+    if (!showMic) {
+      sendBtn.classList.remove("is-pressing");
+    }
+    sendBtn.textContent = showMic ? MIC_BUTTON_TEXT : SEND_BUTTON_TEXT;
+    sendBtn.setAttribute("aria-label", showMic ? "Hold to talk" : "Send");
+    return;
+  }
   sendBtn.disabled = !isValid;
   sendBtn.classList.toggle("is-inactive", !isValid);
+  sendBtn.classList.remove("is-mic-mode", "is-pressing");
+  sendBtn.textContent = SEND_BUTTON_TEXT;
+  sendBtn.setAttribute("aria-label", "Send");
 }
 
 function scrollFeedToBottom() {
@@ -2420,6 +2524,70 @@ form.addEventListener("submit", async (event) => {
   if (!prompt) return;
   await submitPromptText(prompt);
 });
+
+if (sendBtn instanceof HTMLButtonElement) {
+  const setMicPressedVisual = (isPressed) => {
+    if (!isMobileComposerMode() || hasValidPromptMessage()) return;
+    sendBtn.classList.toggle("is-pressing", Boolean(isPressed));
+  };
+
+  sendBtn.addEventListener("pointerdown", (event) => {
+    if (!isMobileComposerMode() || hasValidPromptMessage()) return;
+    suppressNextSendClick = true;
+    event.preventDefault();
+    setMicPressedVisual(true);
+    startSpeechCapture(event);
+    dockComposer();
+    try {
+      sendBtn.setPointerCapture(event.pointerId);
+    } catch (_) {
+      // Ignore pointer-capture errors on unsupported browsers.
+    }
+  });
+
+  const endSpeechFromPointer = () => {
+    if (!isMobileComposerMode()) return;
+    setMicPressedVisual(false);
+    stopSpeechCapture();
+  };
+
+  sendBtn.addEventListener("pointerup", endSpeechFromPointer);
+  sendBtn.addEventListener("pointercancel", endSpeechFromPointer);
+  sendBtn.addEventListener("lostpointercapture", endSpeechFromPointer);
+
+  if (!("PointerEvent" in window)) {
+    sendBtn.addEventListener("touchstart", (event) => {
+      if (!isMobileComposerMode() || hasValidPromptMessage()) return;
+      suppressNextSendClick = true;
+      event.preventDefault();
+      setMicPressedVisual(true);
+      startSpeechCapture(event);
+      dockComposer();
+    }, { passive: false });
+    sendBtn.addEventListener("touchend", endSpeechFromPointer);
+    sendBtn.addEventListener("touchcancel", endSpeechFromPointer);
+  }
+
+  sendBtn.addEventListener("click", (event) => {
+    if (!isMobileComposerMode()) return;
+    sendBtn.classList.remove("is-pressing");
+    if (suppressNextSendClick) {
+      suppressNextSendClick = false;
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+    if (!hasValidPromptMessage()) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+  });
+
+  sendBtn.addEventListener("contextmenu", (event) => {
+    if (!isMobileComposerMode() || hasValidPromptMessage()) return;
+    event.preventDefault();
+  });
+}
 
 feedEl.addEventListener("click", async (event) => {
   const target = event.target;

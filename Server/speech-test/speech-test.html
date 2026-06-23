@@ -1,0 +1,101 @@
+<!doctype html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Speech Test</title>
+  <style>
+    body { font-family: system-ui; padding: 20px; }
+    button { font-size: 20px; padding: 14px 18px; margin: 6px; }
+    textarea { width: 100%; height: 180px; font-size: 18px; margin-top: 16px; }
+    label { display: block; margin-top: 12px; }
+  </style>
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#111111">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Speech Test">
+</head>
+<body>
+  <script>
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.register("/service-worker.js");
+  }
+  </script>
+  <h1>Speech Recognition Test</h1>
+
+  <button id="start">Start recognition</button>
+  <button id="stop">Stop recognition</button>
+
+  <label>
+    <input id="interim" type="checkbox" checked>
+    Show interim results
+  </label>
+
+  <textarea id="output" placeholder="Speech appears here..."></textarea>
+
+  <pre id="log"></pre>
+
+  <script>
+    const SpeechRecognition =
+      window.SpeechRecognition || window.webkitSpeechRecognition;
+
+    const log = (msg) => {
+      document.querySelector("#log").textContent += msg + "\n";
+    };
+
+    if (!SpeechRecognition) {
+      log("SpeechRecognition not supported");
+      throw new Error("SpeechRecognition not supported");
+    }
+
+    const recognition = new SpeechRecognition();
+
+    recognition.lang = "en-US";
+    recognition.continuous = false;
+    recognition.interimResults = true;
+
+    let finalTranscript = "";
+
+    recognition.onstart = () => log("started");
+
+    recognition.onresult = (event) => {
+      let interimTranscript = "";
+
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const transcript = event.results[i][0].transcript;
+
+        if (event.results[i].isFinal) {
+          finalTranscript += transcript + " ";
+        } else if (document.querySelector("#interim").checked) {
+          interimTranscript += transcript;
+        }
+      }
+
+      document.querySelector("#output").value =
+        finalTranscript + interimTranscript;
+    };
+
+    recognition.onerror = (event) => {
+      log("error: " + event.error);
+    };
+
+    recognition.onend = () => {
+      log("ended");
+    };
+
+    document.querySelector("#start").onclick = () => {
+      finalTranscript = "";
+      document.querySelector("#output").value = "";
+      document.querySelector("#log").textContent = "";
+
+      recognition.interimResults =
+        document.querySelector("#interim").checked;
+
+      recognition.start();
+    };
+
+    document.querySelector("#stop").onclick = () => {
+      recognition.stop();
+    };
+  </script>
+</body>
+</html>
