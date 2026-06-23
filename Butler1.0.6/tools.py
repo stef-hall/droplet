@@ -13,7 +13,7 @@ import sqlite3
 
 
 _get_user_caldav_calendars_fn = None
-_lists_dir = Path(__file__).resolve().parent / "lists"
+_sticky_notes_dir = Path(__file__).resolve().parent / "StickyNotes"
 _uid_alias_store: dict[int, dict[str, object]] = {}
 _uid_alias_lock = Lock()
 _memory_lock = Lock()
@@ -160,11 +160,11 @@ def z_to_offset(z, offset):
     return local.strftime("%Y%m%dT%H%M%S") + offset
 
 
-def configure_tools(get_user_caldav_calendars, lists_dir: Path | None = None):
-    global _get_user_caldav_calendars_fn, _lists_dir
+def configure_tools(get_user_caldav_calendars, sticky_notes_dir: Path | None = None):
+    global _get_user_caldav_calendars_fn, _sticky_notes_dir
     _get_user_caldav_calendars_fn = get_user_caldav_calendars
-    if lists_dir is not None:
-        _lists_dir = Path(lists_dir)
+    if sticky_notes_dir is not None:
+        _sticky_notes_dir = Path(sticky_notes_dir)
 
 
 def _get_memory_collection():
@@ -565,9 +565,9 @@ def _get_user_caldav_calendars(user_id: int):
     return _get_user_caldav_calendars_fn(user_id)
 
 
-def _user_lists_dir(user_id):
+def _user_sticky_notes_dir(user_id):
     safe_user = str(int(user_id))
-    return _lists_dir / safe_user
+    return _sticky_notes_dir / safe_user
 
 
 WEATHER_CODE_DESCRIPTIONS = {
@@ -752,49 +752,49 @@ def ReadCalendar(user_id, action, times=None):
     raise ValueError(f"Unknown ReadCalendar action: {action}")
 
 
-def ReadList(user_id, list_name):
-    safe_name = str(list_name).strip()
+def ReadStickyNotes(user_id, sticky_note_name):
+    safe_name = str(sticky_note_name).strip()
     if not safe_name:
-        return {"status": "failed", "error": "List name is required."}
-    list_path = _user_lists_dir(user_id) / f"{safe_name}.txt"
+        return {"status": "failed", "error": "StickyNotes name is required."}
+    list_path = _user_sticky_notes_dir(user_id) / f"{safe_name}.txt"
     if not list_path.exists() or not list_path.is_file():
-        return {"status": "not_found", "list_name": safe_name}
+        return {"status": "not_found", "sticky_note_name": safe_name}
     with open(list_path, "r", encoding="utf-8") as f:
         content = f.read()
-    return {"status": "success", "list_name": safe_name, "content": content}
+    return {"status": "success", "sticky_note_name": safe_name, "content": content}
 
 
-def EditList(user_id, list_name, content):
-    safe_name = str(list_name).strip()
+def EditStickyNotes(user_id, sticky_note_name, content):
+    safe_name = str(sticky_note_name).strip()
     if not safe_name:
-        return {"status": "failed", "error": "List name is required."}
-    user_dir = _user_lists_dir(user_id)
+        return {"status": "failed", "error": "StickyNotes name is required."}
+    user_dir = _user_sticky_notes_dir(user_id)
     user_dir.mkdir(parents=True, exist_ok=True)
     list_path = user_dir / f"{safe_name}.txt"
     existed_before = list_path.exists()
     with open(list_path, "w", encoding="utf-8") as f:
         f.write("" if content is None else str(content))
-    return {"status": "success", "list_name": safe_name, "created": not existed_before}
+    return {"status": "success", "sticky_note_name": safe_name, "created": not existed_before}
 
 
-def DeleteList(user_id, list_name):
-    safe_name = str(list_name).strip()
+def DeleteStickyNotes(user_id, sticky_note_name):
+    safe_name = str(sticky_note_name).strip()
     if not safe_name:
-        return {"status": "failed", "error": "List name is required."}
-    list_path = _user_lists_dir(user_id) / f"{safe_name}.txt"
+        return {"status": "failed", "error": "StickyNotes name is required."}
+    list_path = _user_sticky_notes_dir(user_id) / f"{safe_name}.txt"
     if not list_path.exists() or not list_path.is_file():
-        return {"status": "not_found", "list_name": safe_name}
+        return {"status": "not_found", "sticky_note_name": safe_name}
     list_path.unlink()
-    return {"status": "deleted", "list_name": safe_name}
+    return {"status": "deleted", "sticky_note_name": safe_name}
 
 
-def WriteList(user_id, action, list_name, content=None):
+def WriteStickyNotes(user_id, action, sticky_note_name, content=None):
     action = str(action or "").strip().lower()
     if action == "edit":
-        return EditList(user_id=user_id, list_name=list_name, content=content)
+        return EditStickyNotes(user_id=user_id, sticky_note_name=sticky_note_name, content=content)
     if action == "delete":
-        return DeleteList(user_id=user_id, list_name=list_name)
-    raise ValueError(f"Unknown WriteList action: {action}")
+        return DeleteStickyNotes(user_id=user_id, sticky_note_name=sticky_note_name)
+    raise ValueError(f"Unknown WriteStickyNotes action: {action}")
 
 
 def _to_utc_ics(value):
@@ -1096,9 +1096,9 @@ def ReadWeather(latitude, longitude, times=None, field_names=None):
 
 if __name__ == "__main__":
     import server
-    from server import LISTS_DIR, _get_user_caldav_calendars
+    from server import STICKY_NOTES_DIR, _get_user_caldav_calendars
     from server import compress_tool_output as compress
-    configure_tools(_get_user_caldav_calendars, LISTS_DIR)
+    configure_tools(_get_user_caldav_calendars, STICKY_NOTES_DIR)
 
     response = SearchMemories(3, "User's Pets Name", 10)
     print(response, "\n")
@@ -1148,3 +1148,4 @@ if __name__ == "__main__":
     rrule=""
 )
     print(response)
+

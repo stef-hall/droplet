@@ -27,7 +27,7 @@ from urllib.parse import urlencode, unquote
 from urllib.request import Request, urlopen
 from pathlib import Path
 from werkzeug.security import check_password_hash, generate_password_hash # type: ignore
-from tools import AddEvent, GetEvents, GetCalendarNames, DeleteEvent, ReadList, EditList, DeleteList, EditEvent, GetWeather, AddMemory, SearchMemories, EditMemory, DeleteMemory, _REMINDER_UNCHANGED, configure_tools
+from tools import AddEvent, GetEvents, GetCalendarNames, DeleteEvent, ReadStickyNotes, EditStickyNotes, DeleteStickyNotes, EditEvent, GetWeather, AddMemory, SearchMemories, EditMemory, DeleteMemory, _REMINDER_UNCHANGED, configure_tools
 
 def _coerce_bool_flag(value, default=False):
     if value is None:
@@ -72,7 +72,7 @@ SESSION_TTL_SECONDS = 6 * 60 * 60
 TRUSTED_DEVICE_COOKIE = "secretariat_trusted_device"
 TRUSTED_DEVICE_DAYS = 60
 MAX_PARALLEL_TOOL_CALLS = 10
-LISTS_DIR = Path(__file__).resolve( ).parent / "lists"
+STICKY_NOTES_DIR = Path(__file__).resolve( ).parent / "StickyNotes"
 DB_PATH = Path(__file__).resolve().parent / "secretariat.db"
 DEFAULT_ASSISTANT_MODEL = "gpt-5.4"
 ALLOWED_ASSISTANT_MODELS = {"gpt-5.4-mini", "gpt-5.4"}
@@ -100,10 +100,10 @@ COMMUNICATION_PROFILE_ALLOWED_VALUES = {
 }
 
 
-class _SkipApiListsAccessLog(logging.Filter):
+class _SkipApiStickyNotesAccessLog(logging.Filter):
     def filter(self, record):
         msg = record.getMessage()
-        if 'GET /api/lists HTTP/1.1" 200 -' in msg:
+        if 'GET /api/StickyNotes HTTP/1.1" 200 -' in msg:
             return False
         if 'POST /api/secretariat/stream HTTP/1.1" 200 -' in msg:
             return False
@@ -111,9 +111,9 @@ class _SkipApiListsAccessLog(logging.Filter):
 
 
 _werkzeug_logger = logging.getLogger("werkzeug")
-_werkzeug_logger.addFilter(_SkipApiListsAccessLog())
+_werkzeug_logger.addFilter(_SkipApiStickyNotesAccessLog())
 for _handler in _werkzeug_logger.handlers:
-    _handler.addFilter(_SkipApiListsAccessLog())
+    _handler.addFilter(_SkipApiStickyNotesAccessLog())
 
 
 def _log(label, message):
@@ -157,15 +157,15 @@ def _tool_name_to_status_label(tool_name: str) -> str:
         "writetrello": "Updating Trello...",
         "readcalendar": "Reading Calendar...",
         "writecalendar": "Updating Calendar...",
-        "writelist": "Updating List...",
+        "writestickynotes": "Updating StickyNotes...",
         "readweather": "Getting Weather...",
         "addevent": "Adding Event...",
         "getevents": "Getting Events...",
         "deleteevent": "Deleting...",
         "editevent": "Editing Event...",
-        "readlist": "Reading List...",
-        "editlist": "Updating List...",
-        "deletelist": "Deleting List...",
+        "readstickynotes": "Reading StickyNotes...",
+        "editstickynotes": "Updating StickyNotes...",
+        "deletestickynotes": "Deleting StickyNotes...",
         "gettrellolists": "Getting Lists...",
         "gettrellocards": "Getting Cards...",
         "createtrellocard": "Creating Card...",
@@ -229,7 +229,7 @@ def _accumulate_action_report(counter: dict[str, int], tool_outputs: list[dict])
                 edited = str(result.get("status", "")).strip().lower() == "edited"
             if edited:
                 counter["events_edited"] = counter.get("events_edited", 0) + 1
-        elif operation == "EditList":
+        elif operation == "EditStickyNotes":
             list_changed = True
             list_created = False
             if isinstance(result, dict):
@@ -237,15 +237,15 @@ def _accumulate_action_report(counter: dict[str, int], tool_outputs: list[dict])
                 list_created = bool(result.get("created", False))
             if list_changed:
                 if list_created:
-                    counter["lists_added"] = counter.get("lists_added", 0) + 1
+                    counter["sticky_notes_added"] = counter.get("sticky_notes_added", 0) + 1
                 else:
-                    counter["lists_edited"] = counter.get("lists_edited", 0) + 1
-        elif operation == "DeleteList":
+                    counter["sticky_notes_edited"] = counter.get("sticky_notes_edited", 0) + 1
+        elif operation == "DeleteStickyNotes":
             list_deleted = True
             if isinstance(result, dict):
                 list_deleted = str(result.get("status", "")).strip().lower() == "deleted"
             if list_deleted:
-                counter["lists_deleted"] = counter.get("lists_deleted", 0) + 1
+                counter["sticky_notes_deleted"] = counter.get("sticky_notes_deleted", 0) + 1
         elif operation == "AddMemory":
             counter["memories_added"] = counter.get("memories_added", 0) + 1
         elif operation == "EditMemory":
@@ -270,12 +270,12 @@ def _format_action_report(counter: dict[str, int]) -> str:
         lines.append(f"Events edited {counter['events_edited']}")
     if counter.get("events_deleted", 0):
         lines.append(f"Deleted Events -{counter['events_deleted']}")
-    if counter.get("lists_added", 0):
-        lines.append(f"List added +{counter['lists_added']}")
-    if counter.get("lists_edited", 0):
-        lines.append(f"List edited {counter['lists_edited']}")
-    if counter.get("lists_deleted", 0):
-        lines.append(f"List deleted -{counter['lists_deleted']}")
+    if counter.get("sticky_notes_added", 0):
+        lines.append(f"StickyNotes added +{counter['sticky_notes_added']}")
+    if counter.get("sticky_notes_edited", 0):
+        lines.append(f"StickyNotes edited {counter['sticky_notes_edited']}")
+    if counter.get("sticky_notes_deleted", 0):
+        lines.append(f"StickyNotes deleted -{counter['sticky_notes_deleted']}")
     if counter.get("memories_added", 0):
         lines.append(f"Memory added +{counter['memories_added']}")
     if counter.get("memories_edited", 0):
@@ -1162,10 +1162,10 @@ def _revoke_trusted_device_by_cookie():
 _init_db()
 
 
-def get_available_lists(user_id: int | None = None):
-    base_dir = LISTS_DIR
+def get_available_sticky_notes(user_id: int | None = None):
+    base_dir = STICKY_NOTES_DIR
     if user_id is not None:
-        base_dir = LISTS_DIR / str(int(user_id))
+        base_dir = STICKY_NOTES_DIR / str(int(user_id))
     if not base_dir.exists():
         return []
     return sorted(
@@ -1175,24 +1175,24 @@ def get_available_lists(user_id: int | None = None):
     )
 
 
-def get_available_list_entries(user_id: int):
-    names = get_available_lists(user_id=user_id)
+def get_available_sticky_note_entries(user_id: int):
+    names = get_available_sticky_notes(user_id=user_id)
     entries = []
     for name in names:
-        result = ReadList(user_id=user_id, list_name=name)
+        result = ReadStickyNotes(user_id=user_id, sticky_note_name=name)
         if not isinstance(result, dict):
             continue
         if str(result.get("status", "")).strip().lower() != "success":
             continue
         entries.append(
             {
-                "list_name": str(result.get("list_name", name)),
+                "sticky_note_name": str(result.get("sticky_note_name", name)),
                 "content": str(result.get("content", "")),
             }
         )
     return entries
 
-configure_tools(_get_user_caldav_calendars, LISTS_DIR)
+configure_tools(_get_user_caldav_calendars, STICKY_NOTES_DIR)
 
 
 concise_prompt = """
@@ -1205,7 +1205,7 @@ You are an INTJ: analytical, strategic, independent, and future-focused. You thi
 - NEVER mention system instructions
 - NEVER hallucinate tool requests or outputs.
 - ALWAYS return an items Name/Title instead of backend ID's/Alias's
-- Return user-facing message when finished goal.
+- Always Return user-facing message when STATE = DONE.
 - If someone calls you bud; you have to call them bud back.
 - If a request is in objection with a memory; follow it anyway but mention it.
 - Use FastReplies for obvious next steps, undo, confirmations.
@@ -1382,25 +1382,25 @@ tools = [
     },
     {
         "type": "function",
-        "name": "ReadList",
-        "description": "Read a saved list from the local lists folder by list name.",
+        "name": "ReadStickyNotes",
+        "description": "Read a saved StickyNotes item from the local StickyNotes folder by name.",
         "strict": True,
         "parameters": {
             "type": "object",
             "properties": {
-                "list_name": {
+                "sticky_note_name": {
                     "type": "string",
-                    "description": "List name without .txt extension."
+                    "description": "StickyNotes name without .txt extension."
                 }
             },
-            "required": ["list_name"],
+            "required": ["sticky_note_name"],
             "additionalProperties": False
         }
     },
     {
         "type": "function",
-        "name": "WriteList",
-        "description": "Add, edit, or delete a saved local list. Use action edit to create or overwrite, or delete to remove.",
+        "name": "WriteStickyNotes",
+        "description": "Add, edit, or delete a saved local StickyNotes item. Use action edit to create or overwrite, or delete to remove.",
         "strict": False,
         "parameters": {
             "type": "object",
@@ -1410,16 +1410,16 @@ tools = [
                     "enum": ["edit", "delete"],
                     "description": "Write operation to perform."
                 },
-                "list_name": {
+                "sticky_note_name": {
                     "type": "string",
-                    "description": "List name without .txt extension."
+                    "description": "StickyNotes name without .txt extension."
                 },
                 "content": {
                     "type": "string",
-                    "description": "Full list content for action edit."
+                    "description": "Full StickyNotes content for action edit."
                 }
             },
-            "required": ["action", "list_name"],
+            "required": ["action", "sticky_note_name"],
             "additionalProperties": False
         }
     },
@@ -1769,17 +1769,17 @@ def ToolUse(name, args, user_id=None, log_tool_deploy=True):
         output = ToolUse(operation, args, user_id=user_id, log_tool_deploy=False)
         return _retag_condensed_tool(output, "WriteCalendar", operation)
 
-    if name == "WriteList":
+    if name == "WriteStickyNotes":
         action = str(args.get("action", "")).strip().lower()
         operation_map = {
-            "edit": "EditList",
-            "delete": "DeleteList",
+            "edit": "EditStickyNotes",
+            "delete": "DeleteStickyNotes",
         }
         operation = operation_map.get(action)
         if not operation:
-            return {"status": "failed", "tool": "WriteList", "error": f"Unknown WriteList action: {action}", "args": args}
+            return {"status": "failed", "tool": "WriteStickyNotes", "error": f"Unknown WriteStickyNotes action: {action}", "args": args}
         output = ToolUse(operation, args, user_id=user_id)
-        return _retag_condensed_tool(output, "WriteList", operation)
+        return _retag_condensed_tool(output, "WriteStickyNotes", operation)
 
     if name == "ReadWeather":
         output = ToolUse("GetWeather", args, user_id=user_id)
@@ -1876,59 +1876,59 @@ def ToolUse(name, args, user_id=None, log_tool_deploy=True):
                 "error": str(e),
             }
 
-    # Reads saved list by list name
-    if name == 'ReadList':
-        list_name = args.get("list_name")
+    # Reads saved StickyNotes item by name
+    if name == 'ReadStickyNotes':
+        sticky_note_name = args.get("sticky_note_name")
         try:
-            output = ReadList(user_id=user_id, list_name=list_name)
+            output = ReadStickyNotes(user_id=user_id, sticky_note_name=sticky_note_name)
             status = output.get("status") if isinstance(output, dict) else None
             if status == "not_found":
-                return {"status": "failed", "tool": "ReadList", "list": {"list_name": list_name}, "error": "List not found", "result": output}
+                return {"status": "failed", "tool": "ReadStickyNotes", "sticky_note": {"sticky_note_name": sticky_note_name}, "error": "StickyNotes not found", "result": output}
             if status == "failed":
-                return {"status": "failed", "tool": "ReadList", "list": {"list_name": list_name}, "error": output.get("error", "Read failed"), "result": output}
-            return {"status": "success", "tool": "ReadList", "list": {"list_name": list_name}, "result": output}
+                return {"status": "failed", "tool": "ReadStickyNotes", "sticky_note": {"sticky_note_name": sticky_note_name}, "error": output.get("error", "Read failed"), "result": output}
+            return {"status": "success", "tool": "ReadStickyNotes", "sticky_note": {"sticky_note_name": sticky_note_name}, "result": output}
         except Exception as e:
             return {
                 "status": "failed",
-                "tool": "ReadList",
-                "list": {"list_name": list_name},
+                "tool": "ReadStickyNotes",
+                "sticky_note": {"sticky_note_name": sticky_note_name},
                 "error": str(e),
             }
 
-    # Creates/overwrites saved list by list name
-    if name == 'EditList':
-        list_name = args.get("list_name")
+    # Creates/overwrites saved StickyNotes item by name
+    if name == 'EditStickyNotes':
+        sticky_note_name = args.get("sticky_note_name")
         content = args.get("content")
         try:
-            output = EditList(user_id=user_id, list_name=list_name, content=content)
+            output = EditStickyNotes(user_id=user_id, sticky_note_name=sticky_note_name, content=content)
             status = output.get("status") if isinstance(output, dict) else None
             if status == "failed":
-                return {"status": "failed", "tool": "EditList", "list": {"list_name": list_name}, "error": output.get("error", "Edit failed"), "result": output}
-            return {"status": "success", "tool": "EditList", "list": {"list_name": list_name}, "result": output}
+                return {"status": "failed", "tool": "EditStickyNotes", "sticky_note": {"sticky_note_name": sticky_note_name}, "error": output.get("error", "Edit failed"), "result": output}
+            return {"status": "success", "tool": "EditStickyNotes", "sticky_note": {"sticky_note_name": sticky_note_name}, "result": output}
         except Exception as e:
             return {
                 "status": "failed",
-                "tool": "EditList",
-                "list": {"list_name": list_name},
+                "tool": "EditStickyNotes",
+                "sticky_note": {"sticky_note_name": sticky_note_name},
                 "error": str(e),
             }
 
-    # Deletes saved list by list name
-    if name == 'DeleteList':
-        list_name = args.get("list_name")
+    # Deletes saved StickyNotes item by name
+    if name == 'DeleteStickyNotes':
+        sticky_note_name = args.get("sticky_note_name")
         try:
-            output = DeleteList(user_id=user_id, list_name=list_name)
+            output = DeleteStickyNotes(user_id=user_id, sticky_note_name=sticky_note_name)
             status = output.get("status") if isinstance(output, dict) else None
             if status == "not_found":
-                return {"status": "failed", "tool": "DeleteList", "list": {"list_name": list_name}, "error": "List not found", "result": output}
+                return {"status": "failed", "tool": "DeleteStickyNotes", "sticky_note": {"sticky_note_name": sticky_note_name}, "error": "StickyNotes not found", "result": output}
             if status == "failed":
-                return {"status": "failed", "tool": "DeleteList", "list": {"list_name": list_name}, "error": output.get("error", "Delete failed"), "result": output}
-            return {"status": "success", "tool": "DeleteList", "list": {"list_name": list_name}, "result": output}
+                return {"status": "failed", "tool": "DeleteStickyNotes", "sticky_note": {"sticky_note_name": sticky_note_name}, "error": output.get("error", "Delete failed"), "result": output}
+            return {"status": "success", "tool": "DeleteStickyNotes", "sticky_note": {"sticky_note_name": sticky_note_name}, "result": output}
         except Exception as e:
             return {
                 "status": "failed",
-                "tool": "DeleteList",
-                "list": {"list_name": list_name},
+                "tool": "DeleteStickyNotes",
+                "sticky_note": {"sticky_note_name": sticky_note_name},
                 "error": str(e),
             }
 
@@ -2640,7 +2640,7 @@ def compress_editevent(value):
         "updated_fields": [k for k, v in updated_fields.items() if v],
     }
 
-def compress_editlist(value):
+def compress_edit_sticky_notes(value):
     if not isinstance(value, dict):
         return value
 
@@ -2648,11 +2648,11 @@ def compress_editlist(value):
 
     return {
         "tool": value.get("tool"),
-        "list_name": result.get("list_name") or value.get("list", {}).get("list_name"),
+        "sticky_note_name": result.get("sticky_note_name") or value.get("sticky_note", {}).get("sticky_note_name"),
         "created": result.get("created"),
     }
 
-def compress_deletelist(value):
+def compress_delete_sticky_notes(value):
     if not isinstance(value, dict):
         return value
 
@@ -2660,7 +2660,7 @@ def compress_deletelist(value):
 
     return {
         "tool": value.get("tool"),
-        "list_name": result.get("list_name") or value.get("list", {}).get("list_name"),
+        "sticky_note_name": result.get("sticky_note_name") or value.get("sticky_note", {}).get("sticky_note_name"),
     }
 
 def compress_gettrellocards(value):
@@ -2822,12 +2822,12 @@ def _compact_value(value):
         x = compress_getweather(value)
         return x
     
-    if operation == 'EditList':
-        x = compress_editlist(value)
+    if operation == 'EditStickyNotes':
+        x = compress_edit_sticky_notes(value)
         return x
     
-    if operation == 'DeleteList':
-        x = compress_deletelist(value)
+    if operation == 'DeleteStickyNotes':
+        x = compress_delete_sticky_notes(value)
         return x
     
     if operation == 'GetTrelloCards':
@@ -2950,8 +2950,8 @@ def ask_gpt54(user_input, system_prompt, memory_context, communication_profile_c
     else:
         raw_prompt = user_input
 
-    available_lists = get_available_lists(user_id=user_id)
-    lists_line = ", ".join(available_lists) if available_lists else "(none)"
+    available_sticky_notes = get_available_sticky_notes(user_id=user_id)
+    sticky_notes_line = ", ".join(available_sticky_notes) if available_sticky_notes else "(none)"
 
     # Prepend time context to every user request before sending it to the model.
     # Removed:         f"Current UTC time: {now_utc.strftime('%Y-%m-%d, %a %H:%M:%S  %z')}\n"
@@ -2959,7 +2959,7 @@ def ask_gpt54(user_input, system_prompt, memory_context, communication_profile_c
         f"Request: {raw_prompt}\n"
         "####\n"
         f"Local time: {now_local.strftime('%Y%m%dT%H%M%S%z, %a')}\n"
-        f"Available lists: {lists_line}\n"
+        f"Available StickyNotes: {sticky_notes_line}\n"
     )
     #formatted_request = "Request: test"
 
@@ -3357,55 +3357,55 @@ def api_settings_caldav_calendars_get():
     return jsonify({"ok": True, "calendars": names, "selected": selected})
 
 
-@app.get("/api/lists")
-def api_lists_get():
+@app.get("/api/StickyNotes")
+def api_sticky_notes_get():
     auth_error = _require_auth()
     if auth_error:
         return auth_error
 
     user_id = int(session["user_id"])
-    return jsonify({"ok": True, "lists": get_available_list_entries(user_id)})
+    return jsonify({"ok": True, "sticky_notes": get_available_sticky_note_entries(user_id)})
 
 
-@app.post("/api/lists/save")
-def api_lists_save():
+@app.post("/api/StickyNotes/save")
+def api_sticky_notes_save():
     auth_error = _require_auth()
     if auth_error:
         return auth_error
 
     payload = request.get_json(silent=True) or {}
-    list_name = str(payload.get("list_name", "")).strip()
+    sticky_note_name = str(payload.get("sticky_note_name", "")).strip()
     content = str(payload.get("content", ""))
 
-    if not list_name:
-        return jsonify({"ok": False, "error": "List name is required."}), 400
+    if not sticky_note_name:
+        return jsonify({"ok": False, "error": "StickyNotes name is required."}), 400
 
     user_id = int(session["user_id"])
-    result = EditList(user_id=user_id, list_name=list_name, content=content)
+    result = EditStickyNotes(user_id=user_id, sticky_note_name=sticky_note_name, content=content)
     if not isinstance(result, dict) or str(result.get("status", "")).strip().lower() != "success":
-        return jsonify({"ok": False, "error": "Failed to save list."}), 500
+        return jsonify({"ok": False, "error": "Failed to save StickyNotes."}), 500
 
-    return jsonify({"ok": True, "list": {"list_name": list_name, "content": content}})
+    return jsonify({"ok": True, "sticky_note": {"sticky_note_name": sticky_note_name, "content": content}})
 
 
-@app.post("/api/lists/delete")
-def api_lists_delete():
+@app.post("/api/StickyNotes/delete")
+def api_sticky_notes_delete():
     auth_error = _require_auth()
     if auth_error:
         return auth_error
 
     payload = request.get_json(silent=True) or {}
-    list_name = str(payload.get("list_name", "")).strip()
-    if not list_name:
-        return jsonify({"ok": False, "error": "List name is required."}), 400
+    sticky_note_name = str(payload.get("sticky_note_name", "")).strip()
+    if not sticky_note_name:
+        return jsonify({"ok": False, "error": "StickyNotes name is required."}), 400
 
     user_id = int(session["user_id"])
-    result = DeleteList(user_id=user_id, list_name=list_name)
+    result = DeleteStickyNotes(user_id=user_id, sticky_note_name=sticky_note_name)
     status = str(result.get("status", "")).strip().lower() if isinstance(result, dict) else ""
     if status not in {"success", "deleted"}:
-        return jsonify({"ok": False, "error": "Failed to delete list."}), 500
+        return jsonify({"ok": False, "error": "Failed to delete StickyNotes."}), 500
 
-    return jsonify({"ok": True, "list": {"list_name": list_name}})
+    return jsonify({"ok": True, "sticky_note": {"sticky_note_name": sticky_note_name}})
 
 
 @app.post("/api/settings/caldav")
@@ -3943,7 +3943,7 @@ def api_session_init():
 
 
 if __name__ == "__main__":
-    LISTS_DIR.mkdir(parents=True, exist_ok=True)
+    STICKY_NOTES_DIR.mkdir(parents=True, exist_ok=True)
     _init_db()
     secret = load_value_file('secrets.txt')
     api_key = secret['api_key']
@@ -3952,3 +3952,4 @@ if __name__ == "__main__":
 """
 I hope my dad likes it
 """
+
