@@ -8,6 +8,7 @@ const imageUploadInput = document.getElementById("image-upload");
 const attachmentPill = document.getElementById("attachment-pill");
 const clearAttachmentBtn = document.getElementById("clear-attachment");
 const composerEl = document.getElementById("secretariat-form");
+const dictationLiveIndicatorEl = document.getElementById("dictation-live-indicator");
 const initialAssistantMessageEl = document.getElementById("initial-assistant-message");
 const authOverlayEl = document.getElementById("auth-overlay");
 const authFormEl = document.getElementById("auth-form");
@@ -132,6 +133,7 @@ let speechPressActive = false;
 let speechPressTranscript = "";
 let speechSessionTranscript = "";
 let suppressNextSendClick = false;
+let promptMeasureMirrorEl = null;
 
 function isMobileComposerMode() {
   return window.matchMedia("(max-width: 768px) and (pointer: coarse)").matches;
@@ -154,6 +156,7 @@ function stopSpeechCapture() {
   if (promptInput) {
     promptInput.placeholder = DEFAULT_PROMPT_PLACEHOLDER;
   }
+  updateDictationLiveIndicator();
   if (!speechRecognition || !speechRecording) {
     sendBtn?.classList.remove("is-pressing");
     updateSendButtonState();
@@ -165,6 +168,7 @@ function stopSpeechCapture() {
     speechRecording = false;
     speechRecognition = null;
     sendBtn?.classList.remove("is-pressing");
+    updateDictationLiveIndicator();
     updateSendButtonState();
   }
 }
@@ -177,10 +181,70 @@ function mergeSpeechText(baseText, nextText) {
   return `${a} ${b}`;
 }
 
+function getPromptMeasureMirror() {
+  if (promptMeasureMirrorEl) return promptMeasureMirrorEl;
+  const mirror = document.createElement("div");
+  mirror.style.position = "absolute";
+  mirror.style.visibility = "hidden";
+  mirror.style.pointerEvents = "none";
+  mirror.style.whiteSpace = "pre-wrap";
+  mirror.style.wordWrap = "break-word";
+  mirror.style.overflowWrap = "break-word";
+  mirror.style.top = "-99999px";
+  mirror.style.left = "0";
+  document.body.appendChild(mirror);
+  promptMeasureMirrorEl = mirror;
+  return mirror;
+}
+
+function updateDictationLiveIndicator() {
+  if (!(dictationLiveIndicatorEl instanceof HTMLElement) || !(promptInput instanceof HTMLTextAreaElement)) return;
+  const activeText = mergeSpeechText(speechPressTranscript, speechSessionTranscript);
+  const shouldShow = speechPressActive && Boolean(String(activeText || "").trim());
+  if (!shouldShow) {
+    dictationLiveIndicatorEl.classList.add("hidden");
+    return;
+  }
+
+  const mirror = getPromptMeasureMirror();
+  const styles = getComputedStyle(promptInput);
+  mirror.style.font = styles.font;
+  mirror.style.fontSize = styles.fontSize;
+  mirror.style.fontFamily = styles.fontFamily;
+  mirror.style.fontWeight = styles.fontWeight;
+  mirror.style.letterSpacing = styles.letterSpacing;
+  mirror.style.lineHeight = styles.lineHeight;
+  mirror.style.padding = styles.padding;
+  mirror.style.border = styles.border;
+  mirror.style.boxSizing = styles.boxSizing;
+  mirror.style.width = `${promptInput.clientWidth}px`;
+  mirror.textContent = String(promptInput.value || "");
+  const caretMarker = document.createElement("span");
+  caretMarker.textContent = "\u200B";
+  mirror.appendChild(caretMarker);
+
+  const markerRect = caretMarker.getBoundingClientRect();
+  const mirrorRect = mirror.getBoundingClientRect();
+  mirror.removeChild(caretMarker);
+
+  const x = Math.max(0, markerRect.left - mirrorRect.left - promptInput.scrollLeft);
+  const y = Math.max(0, markerRect.top - mirrorRect.top - promptInput.scrollTop);
+  const promptRect = promptInput.getBoundingClientRect();
+  const composerRect = composerEl.getBoundingClientRect();
+  const indicatorSize = 16;
+  const baseLeft = (promptRect.left - composerRect.left) + x + 4;
+  const baseTop = (promptRect.top - composerRect.top) + y + (Math.max(0, markerRect.height - indicatorSize) / 2);
+  const maxLeft = Math.max(0, promptRect.right - composerRect.left - indicatorSize - 6);
+  dictationLiveIndicatorEl.style.left = `${Math.min(baseLeft, maxLeft)}px`;
+  dictationLiveIndicatorEl.style.top = `${Math.max(0, baseTop)}px`;
+  dictationLiveIndicatorEl.classList.remove("hidden");
+}
+
 function updatePromptFromSpeechState() {
   if (!promptInput) return;
   promptInput.value = mergeSpeechText(speechPressTranscript, speechSessionTranscript);
   autoSizePrompt();
+  updateDictationLiveIndicator();
   updateSendButtonState();
 }
 
@@ -224,6 +288,7 @@ function startSpeechRecognitionSession() {
     if (!speechPressActive) {
       sendBtn?.classList.remove("is-pressing");
     }
+    updateDictationLiveIndicator();
     updateSendButtonState();
   };
 
@@ -242,6 +307,7 @@ function startSpeechRecognitionSession() {
       promptInput.placeholder = DEFAULT_PROMPT_PLACEHOLDER;
     }
     sendBtn?.classList.remove("is-pressing");
+    updateDictationLiveIndicator();
     updateSendButtonState();
   };
 
@@ -2241,6 +2307,7 @@ async function submitPromptText(prompt) {
   appendMessage("user", prompt, { hadAttachment });
   promptInput.value = "";
   autoSizePrompt();
+  updateDictationLiveIndicator();
   updateSendButtonState();
   const imageDataUrlForRequest = attachedImageDataUrl;
   if (imageDataUrlForRequest) {
@@ -2539,7 +2606,11 @@ checkAuth().then(() => {
 
 promptInput.addEventListener("input", () => {
   autoSizePrompt();
+  updateDictationLiveIndicator();
   updateSendButtonState();
+});
+promptInput.addEventListener("scroll", () => {
+  updateDictationLiveIndicator();
 });
 promptInput.addEventListener("focus", () => {
   dockComposer();
@@ -2779,6 +2850,7 @@ function dockComposer() {
 window.addEventListener("resize", () => {
   if (isTouchDevice) return;
   updateComposerFloatOffset();
+  updateDictationLiveIndicator();
 });
 composerEl.addEventListener("pointerdown", (event) => {
   dockComposer();

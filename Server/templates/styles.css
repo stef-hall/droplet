@@ -1096,6 +1096,37 @@ textarea {
   color: #999;
 }
 
+.dictation-live-indicator {
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 3;
+}
+
+.dictation-live-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, #424242 0%, #6d6d6d 70%);
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.72);
+}
+
+.dictation-live-dot::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.9) 48%, transparent 100%);
+  transform: translateX(-120%);
+  animation: riffle 1.1s linear infinite;
+}
+
 .meta {
   height: 40px;
   min-height: 40px;
