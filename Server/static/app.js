@@ -50,6 +50,8 @@ function getCssRootNumberVar(name, fallback) {
 const MAX_PROMPT_HEIGHT = 180;
 const SEND_BUTTON_TEXT = "\u21AA\uFE0E";
 const MIC_BUTTON_TEXT = "\uD83C\uDFA4";
+const DEFAULT_PROMPT_PLACEHOLDER = "Ask Secretariat";
+const LISTENING_PROMPT_PLACEHOLDER = "Listening...";
 // Adjust this to control how long (ms) a quick reply must be hovered before it switches to edit mode.
 const QUICK_REPLY_EDIT_HOVER_MS = 1500;
 const STREAM_INPUT_MIN_DISPLAY_MS = 1000;
@@ -126,6 +128,9 @@ const supportsSpeechRecognition = typeof window !== "undefined" && (
 );
 let speechRecognition = null;
 let speechRecording = false;
+let speechPressActive = false;
+let speechPressTranscript = "";
+let speechSessionTranscript = "";
 let suppressNextSendClick = false;
 
 function isMobileComposerMode() {
@@ -145,12 +150,108 @@ function isSecureSpeechContext() {
 }
 
 function stopSpeechCapture() {
-  if (!speechRecognition || !speechRecording) return;
+  speechPressActive = false;
+  if (promptInput) {
+    promptInput.placeholder = DEFAULT_PROMPT_PLACEHOLDER;
+  }
+  if (!speechRecognition || !speechRecording) {
+    sendBtn?.classList.remove("is-pressing");
+    updateSendButtonState();
+    return;
+  }
   try {
     speechRecognition.stop();
   } catch (_) {
     speechRecording = false;
     speechRecognition = null;
+    sendBtn?.classList.remove("is-pressing");
+    updateSendButtonState();
+  }
+}
+
+function mergeSpeechText(baseText, nextText) {
+  const a = String(baseText || "").trim();
+  const b = String(nextText || "").trim();
+  if (!a) return b;
+  if (!b) return a;
+  return `${a} ${b}`;
+}
+
+function updatePromptFromSpeechState() {
+  if (!promptInput) return;
+  promptInput.value = mergeSpeechText(speechPressTranscript, speechSessionTranscript);
+  autoSizePrompt();
+  updateSendButtonState();
+}
+
+function startSpeechRecognitionSession() {
+  const SpeechRecognitionCtor = getSpeechRecognitionCtor();
+  if (!SpeechRecognitionCtor) return false;
+
+  speechRecognition = new SpeechRecognitionCtor();
+  speechRecording = true;
+  if (promptInput) {
+    promptInput.placeholder = LISTENING_PROMPT_PLACEHOLDER;
+  }
+  speechRecognition.lang = navigator.language || "en-US";
+  speechRecognition.interimResults = true;
+  speechRecognition.continuous = false;
+
+  speechRecognition.onresult = (event) => {
+    let finalized = "";
+    let interim = "";
+    for (let i = 0; i < event.results.length; i += 1) {
+      const segment = event.results[i];
+      if (!segment || !segment[0]) continue;
+      if (segment.isFinal) {
+        finalized += segment[0].transcript;
+      } else {
+        interim += segment[0].transcript;
+      }
+    }
+    speechSessionTranscript = mergeSpeechText(finalized, interim);
+    updatePromptFromSpeechState();
+  };
+
+  speechRecognition.onerror = () => {
+    speechPressTranscript = mergeSpeechText(speechPressTranscript, speechSessionTranscript);
+    speechSessionTranscript = "";
+    speechRecording = false;
+    speechRecognition = null;
+    if (!speechPressActive && promptInput) {
+      promptInput.placeholder = DEFAULT_PROMPT_PLACEHOLDER;
+    }
+    if (!speechPressActive) {
+      sendBtn?.classList.remove("is-pressing");
+    }
+    updateSendButtonState();
+  };
+
+  speechRecognition.onend = () => {
+    speechPressTranscript = mergeSpeechText(speechPressTranscript, speechSessionTranscript);
+    speechSessionTranscript = "";
+    speechRecording = false;
+    speechRecognition = null;
+    if (speechPressActive) {
+      updatePromptFromSpeechState();
+      if (startSpeechRecognitionSession()) return;
+      speechPressActive = false;
+    }
+    updatePromptFromSpeechState();
+    if (promptInput) {
+      promptInput.placeholder = DEFAULT_PROMPT_PLACEHOLDER;
+    }
+    sendBtn?.classList.remove("is-pressing");
+    updateSendButtonState();
+  };
+
+  try {
+    speechRecognition.start();
+    return true;
+  } catch (_) {
+    speechRecording = false;
+    speechRecognition = null;
+    return false;
   }
 }
 
@@ -165,47 +266,18 @@ function startSpeechCapture(triggerEvent = null) {
     setMetaStatus("Voice input is not supported on this device/browser.");
     return;
   }
-
-  const SpeechRecognitionCtor = getSpeechRecognitionCtor();
-  if (!SpeechRecognitionCtor) return;
-
-  speechRecognition = new SpeechRecognitionCtor();
-  speechRecording = true;
-  speechRecognition.lang = navigator.language || "en-US";
-  speechRecognition.interimResults = true;
-  speechRecognition.continuous = false;
-
-  speechRecognition.onresult = (event) => {
-    let transcript = "";
-    for (let i = 0; i < event.results.length; i += 1) {
-      const segment = event.results[i];
-      if (!segment || !segment[0]) continue;
-      transcript += segment[0].transcript;
+  speechPressActive = true;
+  speechPressTranscript = String(promptInput?.value || "").trim();
+  speechSessionTranscript = "";
+  if (speechRecording) return;
+  if (!startSpeechRecognitionSession()) {
+    speechPressActive = false;
+    if (promptInput) {
+      promptInput.placeholder = DEFAULT_PROMPT_PLACEHOLDER;
     }
-    promptInput.value = transcript.trim();
-    autoSizePrompt();
+    sendBtn?.classList.remove("is-pressing");
+    updatePromptFromSpeechState();
     updateSendButtonState();
-  };
-
-  speechRecognition.onerror = () => {
-    speechRecording = false;
-    speechRecognition = null;
-    sendBtn?.classList.remove("is-pressing");
-  };
-
-  speechRecognition.onend = () => {
-    speechRecording = false;
-    speechRecognition = null;
-    sendBtn?.classList.remove("is-pressing");
-    updateSendButtonState();
-  };
-
-  try {
-    speechRecognition.start();
-  } catch (_) {
-    speechRecording = false;
-    speechRecognition = null;
-    sendBtn?.classList.remove("is-pressing");
   }
 }
 
@@ -1796,7 +1868,7 @@ function updateSendButtonState() {
   if (!(sendBtn instanceof HTMLButtonElement)) return;
   const isValid = hasValidPromptMessage();
   if (isMobileComposerMode()) {
-    const showMic = !isValid;
+    const showMic = speechPressActive || !isValid;
     sendBtn.disabled = false;
     sendBtn.classList.toggle("is-inactive", false);
     sendBtn.classList.toggle("is-mic-mode", showMic);
@@ -2527,8 +2599,9 @@ form.addEventListener("submit", async (event) => {
 
 if (sendBtn instanceof HTMLButtonElement) {
   const setMicPressedVisual = (isPressed) => {
-    if (!isMobileComposerMode() || hasValidPromptMessage()) return;
-    sendBtn.classList.toggle("is-pressing", Boolean(isPressed));
+    if (!isMobileComposerMode()) return;
+    const shouldShowPressed = Boolean(isPressed) && (speechPressActive || !hasValidPromptMessage());
+    sendBtn.classList.toggle("is-pressing", shouldShowPressed);
   };
 
   sendBtn.addEventListener("pointerdown", (event) => {

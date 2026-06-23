@@ -1937,6 +1937,24 @@ textarea {
   cursor: pointer;
 }
 
+#trello-board-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+#trello-board-summary::after {
+  content: "▼";
+  font-size: 0.72rem;
+  line-height: 1;
+  color: #666;
+  flex-shrink: 0;
+}
+
+#trello-board-dropdown.is-open #trello-board-summary::after {
+  content: "▲";
+}
+
 .settings-multi-select.is-open .settings-multi-select-trigger,
 .settings-multi-select-trigger:focus {
   outline: none;
