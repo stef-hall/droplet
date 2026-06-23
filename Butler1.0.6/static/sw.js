@@ -1,12 +1,12 @@
-﻿const CACHE_NAME = "secretariat-v4";
+﻿const CACHE_NAME = "secretariat-v5";
 const OFFLINE_URL = "/static/offline.html";
 const ASSETS = [
   "/",
   "/templates/styles.css",
   "/static/app.js",
   "/static/manifest.webmanifest",
-  "/static/icons/icon-192.svg",
-  "/static/icons/icon-512.svg",
+  "/static/icons/Secretariat192.png",
+  "/static/icons/Secretariat512.png",
   OFFLINE_URL
 ];
 
