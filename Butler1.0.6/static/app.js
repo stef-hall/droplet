@@ -50,6 +50,8 @@ function getCssRootNumberVar(name, fallback) {
 const MAX_PROMPT_HEIGHT = 180;
 const SEND_BUTTON_TEXT = "\u21AA\uFE0E";
 const MIC_BUTTON_TEXT = "\uD83C\uDFA4";
+const DEFAULT_PROMPT_PLACEHOLDER = "Ask Secretariat";
+const LISTENING_PROMPT_PLACEHOLDER = "Listening...";
 // Adjust this to control how long (ms) a quick reply must be hovered before it switches to edit mode.
 const QUICK_REPLY_EDIT_HOVER_MS = 1500;
 const STREAM_INPUT_MIN_DISPLAY_MS = 1000;
@@ -145,6 +147,9 @@ function isSecureSpeechContext() {
 }
 
 function stopSpeechCapture() {
+  if (promptInput) {
+    promptInput.placeholder = DEFAULT_PROMPT_PLACEHOLDER;
+  }
   if (!speechRecognition || !speechRecording) return;
   try {
     speechRecognition.stop();
@@ -171,6 +176,9 @@ function startSpeechCapture(triggerEvent = null) {
 
   speechRecognition = new SpeechRecognitionCtor();
   speechRecording = true;
+  if (promptInput) {
+    promptInput.placeholder = LISTENING_PROMPT_PLACEHOLDER;
+  }
   speechRecognition.lang = navigator.language || "en-US";
   speechRecognition.interimResults = true;
   speechRecognition.continuous = false;
@@ -190,12 +198,18 @@ function startSpeechCapture(triggerEvent = null) {
   speechRecognition.onerror = () => {
     speechRecording = false;
     speechRecognition = null;
+    if (promptInput) {
+      promptInput.placeholder = DEFAULT_PROMPT_PLACEHOLDER;
+    }
     sendBtn?.classList.remove("is-pressing");
   };
 
   speechRecognition.onend = () => {
     speechRecording = false;
     speechRecognition = null;
+    if (promptInput) {
+      promptInput.placeholder = DEFAULT_PROMPT_PLACEHOLDER;
+    }
     sendBtn?.classList.remove("is-pressing");
     updateSendButtonState();
   };
@@ -205,6 +219,9 @@ function startSpeechCapture(triggerEvent = null) {
   } catch (_) {
     speechRecording = false;
     speechRecognition = null;
+    if (promptInput) {
+      promptInput.placeholder = DEFAULT_PROMPT_PLACEHOLDER;
+    }
     sendBtn?.classList.remove("is-pressing");
   }
 }
