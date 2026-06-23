@@ -43,6 +43,17 @@ def _coerce_bool_flag(value, default=False):
         return False
     return bool(default)
 
+def _current_app_version_label() -> str:
+    root = Path(__file__).resolve().parent
+    version_files = sorted(
+        (p for p in root.iterdir() if p.is_file() and p.suffix.lower() == ".v"),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+    if not version_files:
+        return "unknown"
+    return version_files[0].name
+
 
 RAGenable = 1
 
@@ -3089,7 +3100,7 @@ def settings_page():
     _restore_auth_from_trusted_device()
     if not session.get("user_id"):
         return redirect("/")
-    return render_template("settings.html")
+    return render_template("settings.html", current_version=_current_app_version_label())
 
 
 @app.get("/templates/styles.css")
