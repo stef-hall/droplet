@@ -260,6 +260,28 @@ def _accumulate_action_report(counter: dict[str, int], tool_outputs: list[dict])
                 memory_deleted = str(result.get("status", "")).strip().lower() == "deleted"
             if memory_deleted:
                 counter["memories_deleted"] = counter.get("memories_deleted", 0) + 1
+        elif operation == "CreateTrelloCard":
+            counter["trello_cards_added"] = counter.get("trello_cards_added", 0) + 1
+        elif operation == "EditTrelloCard":
+            card_edited = True
+            if isinstance(result, dict):
+                card_edited = str(result.get("status", "")).strip().lower() == "edited"
+            if card_edited:
+                counter["trello_cards_edited"] = counter.get("trello_cards_edited", 0) + 1
+        elif operation == "DeleteTrelloCard":
+            card_deleted = True
+            if isinstance(result, dict):
+                card_deleted = str(result.get("status", "")).strip().lower() == "deleted"
+            if card_deleted:
+                counter["trello_cards_deleted"] = counter.get("trello_cards_deleted", 0) + 1
+        elif operation == "CreateTrelloList":
+            counter["trello_lists_added"] = counter.get("trello_lists_added", 0) + 1
+        elif operation == "DeleteTrelloList":
+            list_deleted = True
+            if isinstance(result, dict):
+                list_deleted = str(result.get("status", "")).strip().lower() == "deleted"
+            if list_deleted:
+                counter["trello_lists_deleted"] = counter.get("trello_lists_deleted", 0) + 1
 
 
 def _format_action_report(counter: dict[str, int]) -> str:
@@ -282,6 +304,16 @@ def _format_action_report(counter: dict[str, int]) -> str:
         lines.append(f"Memory edited {counter['memories_edited']}")
     if counter.get("memories_deleted", 0):
         lines.append(f"Memory deleted -{counter['memories_deleted']}")
+    if counter.get("trello_cards_added", 0):
+        lines.append(f"Trello cards added +{counter['trello_cards_added']}")
+    if counter.get("trello_cards_edited", 0):
+        lines.append(f"Trello cards edited {counter['trello_cards_edited']}")
+    if counter.get("trello_cards_deleted", 0):
+        lines.append(f"Trello cards deleted -{counter['trello_cards_deleted']}")
+    if counter.get("trello_lists_added", 0):
+        lines.append(f"Trello lists added +{counter['trello_lists_added']}")
+    if counter.get("trello_lists_deleted", 0):
+        lines.append(f"Trello lists deleted -{counter['trello_lists_deleted']}")
     if not lines:
         return ""
     return "\n\n```summary\n" + "\n".join(lines) + "\n```"
