@@ -1,4 +1,4 @@
-﻿const form = document.getElementById("secretariat-form");
+const form = document.getElementById("secretariat-form");
 const promptInput = document.getElementById("prompt");
 const sendBtn = form ? form.querySelector(".send-btn") : null;
 const feedEl = document.getElementById("chat-feed");
@@ -513,19 +513,19 @@ function saveStickyNoteLayoutState(layoutState) {
 }
 
 function getStickyNoteLayoutEntry(noteEl) {
-  const listName = String(noteEl?.dataset?.listName || "").trim();
-  if (!listName) return null;
+  const stickyNoteName = String(noteEl?.dataset?.stickyNoteName || "").trim();
+  if (!stickyNoteName) return null;
   const layoutState = loadStickyNoteLayoutState();
-  const entry = layoutState[listName];
+  const entry = layoutState[stickyNoteName];
   return entry && typeof entry === "object" ? entry : null;
 }
 
 function saveStickyNoteLayoutEntry(noteEl, partialEntry = {}) {
-  const listName = String(noteEl?.dataset?.listName || "").trim();
-  if (!listName) return;
+  const stickyNoteName = String(noteEl?.dataset?.stickyNoteName || "").trim();
+  if (!stickyNoteName) return;
   const layoutState = loadStickyNoteLayoutState();
-  const previous = layoutState[listName];
-  layoutState[listName] = {
+  const previous = layoutState[stickyNoteName];
+  layoutState[stickyNoteName] = {
     ...(previous && typeof previous === "object" ? previous : {}),
     ...partialEntry
   };
@@ -542,9 +542,9 @@ function syncStickyNoteLayoutState() {
   const stowedNotes = [];
 
   getStickyNotes().forEach((noteEl) => {
-    const listName = String(noteEl.dataset.listName || "").trim();
-    if (!listName) return;
-    liveNames.add(listName);
+    const stickyNoteName = String(noteEl.dataset.stickyNoteName || "").trim();
+    if (!stickyNoteName) return;
+    liveNames.add(stickyNoteName);
 
     const left = Number.parseFloat(noteEl.style.left);
     const top = Number.parseFloat(noteEl.style.top);
@@ -557,8 +557,8 @@ function syncStickyNoteLayoutState() {
     if (Number.isFinite(top)) entry.top = Math.round(top);
     if (Number.isFinite(width)) entry.width = Math.round(width);
     if (Number.isFinite(height)) entry.height = Math.round(height);
-    layoutState[listName] = {
-      ...(layoutState[listName] && typeof layoutState[listName] === "object" ? layoutState[listName] : {}),
+    layoutState[stickyNoteName] = {
+      ...(layoutState[stickyNoteName] && typeof layoutState[stickyNoteName] === "object" ? layoutState[stickyNoteName] : {}),
       ...entry
     };
     if (entry.isStowed) {
@@ -567,14 +567,14 @@ function syncStickyNoteLayoutState() {
   });
 
   stowedNotes.forEach((noteEl, index) => {
-    const listName = String(noteEl.dataset.listName || "").trim();
-    if (!listName || !layoutState[listName]) return;
-    layoutState[listName].order = index;
+    const stickyNoteName = String(noteEl.dataset.stickyNoteName || "").trim();
+    if (!stickyNoteName || !layoutState[stickyNoteName]) return;
+    layoutState[stickyNoteName].order = index;
   });
 
-  Object.keys(layoutState).forEach((listName) => {
-    if (!liveNames.has(listName)) {
-      delete layoutState[listName];
+  Object.keys(layoutState).forEach((stickyNoteName) => {
+    if (!liveNames.has(stickyNoteName)) {
+      delete layoutState[stickyNoteName];
     }
   });
 
@@ -780,23 +780,23 @@ function isStickyNoteTouchingDeleteTarget(noteEl) {
 }
 
 function removeStickyNoteLayoutEntry(noteEl) {
-  const listName = String(noteEl?.dataset?.listName || "").trim();
-  if (!listName) return;
+  const stickyNoteName = String(noteEl?.dataset?.stickyNoteName || "").trim();
+  if (!stickyNoteName) return;
   const layoutState = loadStickyNoteLayoutState();
-  if (layoutState[listName]) {
-    delete layoutState[listName];
+  if (layoutState[stickyNoteName]) {
+    delete layoutState[stickyNoteName];
     saveStickyNoteLayoutState(layoutState);
   }
 }
 
 async function deleteStickyNote(noteEl) {
-  const listName = String(noteEl?.dataset?.listName || "").trim();
-  if (!listName || !isAuthenticated) return false;
+  const stickyNoteName = String(noteEl?.dataset?.stickyNoteName || "").trim();
+  if (!stickyNoteName || !isAuthenticated) return false;
   try {
-    const response = await fetch("/api/lists/delete", {
+    const response = await fetch("/api/StickyNotes/delete", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ list_name: listName })
+      body: JSON.stringify({ sticky_note_name: stickyNoteName })
     });
     const data = await response.json();
     if (response.status === 401) {
@@ -1002,16 +1002,16 @@ function commitStickyNoteDockOrder(noteEl, insertIndex) {
 
 async function saveStickyNote(noteEl) {
   const inputEl = noteEl.querySelector(".sticky-note-input");
-  const listName = String(noteEl.dataset.listName || "").trim();
-  if (!(inputEl instanceof HTMLTextAreaElement) || !listName || !isAuthenticated) return;
+  const stickyNoteName = String(noteEl.dataset.stickyNoteName || "").trim();
+  if (!(inputEl instanceof HTMLTextAreaElement) || !stickyNoteName || !isAuthenticated) return;
 
   noteEl.dataset.saveState = "saving";
   try {
-    const response = await fetch("/api/lists/save", {
+    const response = await fetch("/api/StickyNotes/save", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        list_name: listName,
+        sticky_note_name: stickyNoteName,
         content: inputEl.value
       })
     });
@@ -1033,7 +1033,7 @@ async function saveStickyNote(noteEl) {
 }
 
 function queueStickyNoteSave(noteEl) {
-  const key = String(noteEl.dataset.listName || "");
+  const key = String(noteEl.dataset.stickyNoteName || "");
   if (!key) return;
   const existingTimer = stickyNoteSaveTimers.get(key);
   if (existingTimer) {
@@ -1049,13 +1049,13 @@ function queueStickyNoteSave(noteEl) {
 
 function createStickyNote(listEntry, colorClassName) {
   const noteEl = document.createElement("article");
-  const savedLayoutEntry = loadStickyNoteLayoutState()[String(listEntry.list_name || "")] || null;
+  const savedLayoutEntry = loadStickyNoteLayoutState()[String(listEntry.sticky_note_name || "")] || null;
   const startsStowed = !savedLayoutEntry || savedLayoutEntry.isStowed !== false;
   const persistedColorClass = normalizeStickyNoteColorClass(savedLayoutEntry?.colorClass);
   const appliedColorClass = persistedColorClass || normalizeStickyNoteColorClass(colorClassName) || STICKY_NOTE_COLOR_CLASSES[0];
   noteEl.className = `sticky-note ${startsStowed ? "is-stowed" : ""} ${appliedColorClass}`.trim();
-  noteEl.setAttribute("aria-label", `Draggable note for ${listEntry.list_name}`);
-  noteEl.dataset.listName = String(listEntry.list_name || "");
+  noteEl.setAttribute("aria-label", `Draggable note for ${listEntry.sticky_note_name}`);
+  noteEl.dataset.stickyNoteName = String(listEntry.sticky_note_name || "");
 
   noteEl.innerHTML = `
     <div class="sticky-note-tape" aria-hidden="true"></div>
@@ -1070,7 +1070,7 @@ function createStickyNote(listEntry, colorClassName) {
   const inputEl = noteEl.querySelector(".sticky-note-input");
   const resizeHandleEl = noteEl.querySelector(".sticky-note-resize-handle");
   if (titleEl) {
-    titleEl.textContent = String(listEntry.list_name || "");
+    titleEl.textContent = String(listEntry.sticky_note_name || "");
   }
   if (inputEl instanceof HTMLTextAreaElement) {
     inputEl.value = String(listEntry.content || "");
@@ -1406,7 +1406,7 @@ function createStickyNote(listEntry, colorClassName) {
     setStickyNoteDragLayerActive(false);
 
     if (shouldDelete) {
-      const key = String(noteEl.dataset.listName || "");
+      const key = String(noteEl.dataset.stickyNoteName || "");
       const timerId = key ? stickyNoteSaveTimers.get(key) : null;
       if (timerId) {
         clearTimeout(timerId);
@@ -1529,21 +1529,21 @@ function renderStickyNotes(listEntries) {
   const layoutState = loadStickyNoteLayoutState();
   let didMutateLayoutState = false;
   const sortedEntries = [...listEntries].sort((a, b) => {
-    const aEntry = layoutState[String(a?.list_name || "")];
-    const bEntry = layoutState[String(b?.list_name || "")];
+    const aEntry = layoutState[String(a?.sticky_note_name || "")];
+    const bEntry = layoutState[String(b?.sticky_note_name || "")];
     const aOrder = Number.isFinite(Number(aEntry?.order)) ? Number(aEntry.order) : Number.MAX_SAFE_INTEGER;
     const bOrder = Number.isFinite(Number(bEntry?.order)) ? Number(bEntry.order) : Number.MAX_SAFE_INTEGER;
     if (aOrder !== bOrder) return aOrder - bOrder;
-    return String(a?.list_name || "").localeCompare(String(b?.list_name || ""));
+    return String(a?.sticky_note_name || "").localeCompare(String(b?.sticky_note_name || ""));
   });
 
   sortedEntries.forEach((listEntry, index) => {
-    const listName = String(listEntry?.list_name || "");
-    const existingEntry = layoutState[listName] && typeof layoutState[listName] === "object" ? layoutState[listName] : {};
+    const stickyNoteName = String(listEntry?.sticky_note_name || "");
+    const existingEntry = layoutState[stickyNoteName] && typeof layoutState[stickyNoteName] === "object" ? layoutState[stickyNoteName] : {};
     const persistedColorClass = normalizeStickyNoteColorClass(existingEntry.colorClass);
     const colorClassName = persistedColorClass || STICKY_NOTE_COLOR_CLASSES[index % STICKY_NOTE_COLOR_CLASSES.length];
-    if (!persistedColorClass && listName) {
-      layoutState[listName] = {
+    if (!persistedColorClass && stickyNoteName) {
+      layoutState[stickyNoteName] = {
         ...existingEntry,
         colorClass: colorClassName
       };
@@ -1566,7 +1566,7 @@ async function loadStickyNotes() {
   }
 
   try {
-    const response = await fetch("/api/lists");
+    const response = await fetch("/api/StickyNotes");
     const data = await response.json();
     if (response.status === 401) {
       isAuthenticated = false;
@@ -1576,9 +1576,9 @@ async function loadStickyNotes() {
       return;
     }
     if (!response.ok || !data.ok) {
-      throw new Error(data.error || "Failed to load lists.");
+      throw new Error(data.error || "Failed to load StickyNotes.");
     }
-    renderStickyNotes(Array.isArray(data.lists) ? data.lists : []);
+    renderStickyNotes(Array.isArray(data.sticky_notes) ? data.sticky_notes : []);
   } catch (_) {
     clearStickyNotes();
   }
@@ -2892,5 +2892,6 @@ window.addEventListener("keydown", (event) => {
     autoSizePrompt();
   }
 });
+
 
 

@@ -28,7 +28,7 @@ from urllib.parse import urlencode, unquote
 from urllib.request import Request, urlopen
 from pathlib import Path
 from werkzeug.security import check_password_hash, generate_password_hash # type: ignore
-from tools import AddEvent, GetEvents, GetCalendarNames, DeleteEvent, ReadList, EditList, DeleteList, EditEvent, GetWeather, AddMemory, SearchMemories, EditMemory, DeleteMemory, _REMINDER_UNCHANGED, configure_tools
+from tools import AddEvent, GetEvents, GetCalendarNames, DeleteEvent, ReadStickyNotes, EditStickyNotes, DeleteStickyNotes, EditEvent, GetWeather, AddMemory, SearchMemories, EditMemory, DeleteMemory, _REMINDER_UNCHANGED, configure_tools
 def _log(label, message):
     print(f"[{label}] {message}", flush=True)
 
@@ -82,3 +82,4 @@ def _retrieve_memory_context(user_id, query, top_k=5):
 
 x = _retrieve_memory_context(3, "hey bud")
 print(x)
+

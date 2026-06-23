@@ -1771,7 +1771,7 @@ def ToolUse(name, args, user_id=None, log_tool_deploy=True):
         operation = operation_map.get(action)
         if not operation:
             return {"status": "failed", "tool": "ReadTrello", "error": f"Unknown ReadTrello action: {action}", "args": args}
-        output = ToolUse(operation, args, user_id=user_id)
+        output = ToolUse(operation, args, user_id=user_id, log_tool_deploy=False)
         return _retag_condensed_tool(output, "ReadTrello", operation)
 
     if name == "WriteTrello":
