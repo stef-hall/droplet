@@ -55,7 +55,7 @@ def _current_app_version_label() -> str:
     return version_files[0].name
 
 
-RAGenable = 1
+RAGenable = 0
 
 global api_key
 warnings.simplefilter("ignore", DeprecationWarning)
@@ -1258,6 +1258,31 @@ system_prompt = concise_prompt + """
 tools = [
     {
         "type": "function",
+        "name": "ReadCalendar",
+        "description": "Read calendar data. Use action get_events for events in a time range, or get_calendar_names for available calendar names.",
+        "strict": False,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["get_events", "get_calendar_names"],
+                    "description": "Read operation to perform."
+                },
+                "times": {
+                    "type": "array",
+                    "description": "Required for get_events. Start date/time, then finish date/time in local timezone using format YYYYMMDDTHHMMSS+XX:XX.",
+                    "items": {"type": "string"},
+                    "minItems": 2,
+                    "maxItems": 2
+                }
+            },
+            "required": ["action"],
+            "additionalProperties": False
+        }
+    },
+    {
+        "type": "function",
         "name": "WriteCalendar",
         "description": "Add, edit, or delete calendar events. Actions: add_event, edit_event, delete_event.",
         "strict": False,
@@ -1441,31 +1466,6 @@ tools = [
             "required": ["action"],
             "additionalProperties": False,
         },
-    },
-    {
-        "type": "function",
-        "name": "ReadCalendar",
-        "description": "Read calendar data. Use action get_events for events in a time range, or get_calendar_names for available calendar names.",
-        "strict": False,
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "action": {
-                    "type": "string",
-                    "enum": ["get_events", "get_calendar_names"],
-                    "description": "Read operation to perform."
-                },
-                "times": {
-                    "type": "array",
-                    "description": "Required for get_events. Start date/time, then finish date/time in local timezone using format YYYYMMDDTHHMMSS+XX:XX.",
-                    "items": {"type": "string"},
-                    "minItems": 2,
-                    "maxItems": 2
-                }
-            },
-            "required": ["action"],
-            "additionalProperties": False
-        }
     },
     {
         "type": "function",
