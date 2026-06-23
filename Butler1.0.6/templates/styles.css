@@ -1837,6 +1837,15 @@ textarea {
   gap: 18px;
 }
 
+.settings-version-text {
+  width: min(100%, 880px);
+  margin: 16px auto 0;
+  text-align: center;
+  font-size: 0.82rem;
+  letter-spacing: 0.06em;
+  color: rgba(0, 0, 0, 0.48);
+}
+
 .settings-card {
   background: rgba(255, 255, 255, 0.94);
   border: 1px solid rgba(0, 0, 0, 0.08);
