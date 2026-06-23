@@ -474,6 +474,19 @@ def _alias_trello_list_rows_for_user(user_id: int, rows: list[dict]) -> list[dic
     return aliased
 
 
+def _alias_trello_board_rows_for_user(user_id: int, rows: list[dict]) -> list[dict]:
+    aliased = []
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        board_real = str(row.get("board_id", "")).strip()
+        clone = dict(row)
+        if board_real:
+            clone["board_id"] = _get_trello_alias(int(user_id), "board", board_real)
+        aliased.append(clone)
+    return aliased
+
+
 def _alias_trello_card_rows_for_user(user_id: int, rows: list[dict]) -> list[dict]:
     aliased = []
     for row in rows or []:
@@ -734,6 +747,43 @@ def _get_trello_lists_for_user(user_id: int, board_id: str | None = None) -> lis
                 }
             )
     return output
+
+
+def _get_selected_trello_boards_for_user(user_id: int) -> list[dict]:
+    row = _get_user_settings(int(user_id))
+    if not row:
+        raise ValueError("Trello settings are missing.")
+
+    boards = _get_trello_boards_for_user(int(user_id))
+    selected_board_ids = _parse_caldav_calendar_names(str(row["trello_board_ids"] or ""))
+    selected_id_set = {bid.lower() for bid in selected_board_ids}
+
+    selected = []
+    if selected_id_set:
+        selected = [
+            {
+                "board_id": str(board.get("id", "")).strip(),
+                "board_name": str(board.get("name", "")).strip(),
+            }
+            for board in boards
+            if str(board.get("id", "")).strip().lower() in selected_id_set
+        ]
+    else:
+        selected_names = {name.lower() for name in _parse_caldav_calendar_names(str(row["trello_boards"] or ""))}
+        if selected_names:
+            selected = [
+                {
+                    "board_id": str(board.get("id", "")).strip(),
+                    "board_name": str(board.get("name", "")).strip(),
+                }
+                for board in boards
+                if str(board.get("name", "")).strip().lower() in selected_names
+            ]
+
+    return sorted(
+        [row for row in selected if row.get("board_id") and row.get("board_name")],
+        key=lambda item: str(item.get("board_name", "")).lower(),
+    )
 
 
 def _get_trello_cards_for_user(user_id: int, list_id: str) -> list[dict]:
@@ -1404,13 +1454,13 @@ tools = [
     {
         "type": "function",
         "name": "ReadTrello",
-        "description": "Read Trello data. Use action get_lists to list Trello lists, or get_cards to list cards in a Trello list.",
+        "description": "Read Trello data. Use action get_boards for allowed boards, get_lists to list Trello lists, or get_cards to list cards in a Trello list.",
         "parameters": {
             "type": "object",
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["get_lists", "get_cards"],
+                    "enum": ["get_boards", "get_lists", "get_cards"],
                     "description": "Read operation to perform.",
                 },
                 "board_id": {
@@ -1669,6 +1719,7 @@ def ToolUse(name, args, user_id=None, log_tool_deploy=True):
     if name == "ReadTrello":
         action = str(args.get("action", "")).strip().lower()
         operation_map = {
+            "get_boards": "GetTrelloBoards",
             "get_lists": "GetTrelloLists",
             "get_cards": "GetTrelloCards",
         }
@@ -2119,6 +2170,23 @@ def ToolUse(name, args, user_id=None, log_tool_deploy=True):
                 "status": "failed",
                 "tool": "DeleteMemory",
                 "memory": {"id": memory_id_input},
+                "error": str(e),
+            }
+
+    # Returns Trello list names for one board, selected boards, or all accessible boards
+    if name == "GetTrelloBoards":
+        try:
+            output = _get_selected_trello_boards_for_user(int(user_id))
+            aliased_output = _alias_trello_board_rows_for_user(int(user_id), output)
+            return {
+                "status": "success",
+                "tool": "GetTrelloBoards",
+                "result": aliased_output,
+            }
+        except Exception as e:
+            return {
+                "status": "failed",
+                "tool": "GetTrelloBoards",
                 "error": str(e),
             }
 
