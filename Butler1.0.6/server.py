@@ -55,7 +55,7 @@ def _current_app_version_label() -> str:
     return version_files[0].name
 
 
-RAGenable = 0
+RAGenable = 1
 
 global api_key
 warnings.simplefilter("ignore", DeprecationWarning)
