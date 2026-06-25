@@ -2709,30 +2709,75 @@ def compress_delete_sticky_notes(value):
         "sticky_note_name": result.get("sticky_note_name") or value.get("sticky_note", {}).get("sticky_note_name"),
     }
 
-def compress_gettrellocards(value):
+def _tableize_records(records, preferred_cols):
+    if isinstance(records, dict):
+        records = [records]
+    if not isinstance(records, list):
+        records = []
+
+    cols = list(preferred_cols)
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        for key in record.keys():
+            if key not in cols:
+                cols.append(key)
+
+    rows = []
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        rows.append([record.get(col) for col in cols])
+
+    return cols, rows
+
+
+def compress_trello(value):
     if not isinstance(value, dict):
         return value
 
-    cards = value.get("result", []) or []
-    cols = ["card_id", "card_name", "description", "due", "url"]
-    rows = []
-    for card in cards:
-        if not isinstance(card, dict):
-            continue
-        rows.append([
-            card.get("card_id", ""),
-            card.get("card_name", ""),
-            card.get("description", ""),
-            card.get("due", ""),
-            card.get("url", ""),
-        ])
-
-    return {
-        "tool": value.get("tool"),
-        "list_id": value.get("list_id", ""),
-        "cols": cols,
-        "rows": rows,
+    operation = value.get("operation") or value.get("tool")
+    preferred_cols_by_operation = {
+        "GetTrelloBoards": ["board_id", "board_name"],
+        "GetTrelloLists": ["board_id", "board_name", "list_id", "list_name"],
+        "GetTrelloCards": ["card_id", "card_name", "description", "due", "url", "list_id"],
+        "CreateTrelloCard": ["status", "card_id", "card_name", "list_id", "url"],
+        "CreateTrelloList": ["status", "list_id", "list_name", "board_id"],
+        "EditTrelloCard": ["status", "card_id", "updated_fields"],
+        "DeleteTrelloCard": ["status", "card_id"],
+        "DeleteTrelloList": ["status", "list_id"],
     }
+    trello_operations = set(preferred_cols_by_operation)
+    if operation not in trello_operations and value.get("tool") not in {"ReadTrello", "WriteTrello"}:
+        return value
+
+    compacted = {
+        "tool": value.get("tool"),
+    }
+    if value.get("operation"):
+        compacted["operation"] = value.get("operation")
+    if value.get("status"):
+        compacted["status"] = value.get("status")
+    for key in ("board_id", "list_id", "card_id", "error"):
+        if key in value:
+            compacted[key] = value.get(key)
+
+    if value.get("status") == "failed":
+        failure_cols = ["status", "error"]
+        for key in ("board_id", "list_id", "card_id", "args"):
+            if key in value:
+                failure_cols.append(key)
+        compacted["cols"] = failure_cols
+        compacted["rows"] = [[value.get(col) for col in failure_cols]]
+        return compacted
+
+    cols, rows = _tableize_records(
+        value.get("result"),
+        preferred_cols_by_operation.get(operation, []),
+    )
+    compacted["cols"] = cols
+    compacted["rows"] = rows
+    return compacted
 
 def compress_addmemory(value):
     if not isinstance(value, dict):
@@ -2876,8 +2921,17 @@ def _compact_value(value):
         x = compress_delete_sticky_notes(value)
         return x
     
-    if operation == 'GetTrelloCards':
-        x = compress_gettrellocards(value)
+    if operation in {
+        'GetTrelloBoards',
+        'GetTrelloLists',
+        'GetTrelloCards',
+        'CreateTrelloCard',
+        'CreateTrelloList',
+        'EditTrelloCard',
+        'DeleteTrelloCard',
+        'DeleteTrelloList',
+    } or value.get("tool") in {"ReadTrello", "WriteTrello"}:
+        x = compress_trello(value)
         return x
 
     if operation == 'AddMemory':
