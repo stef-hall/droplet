@@ -1317,7 +1317,7 @@ system_prompt = concise_prompt + """
 # Reminders:
 - If multiple details are missing, ask for them all in one message.
 - If a duration cannot be reasonably defered, default to *1 hour*.
-- When a tool creates resources and returns IDs/UIDs, assume those returned IDs will be visible in conversation context after the batched tool results complete. Therefore, batch independent create calls together. Only serialize calls when the next call requires a value produced by a previous call.
+- When a tool creates resources and returns IDs/UIDs; Those returned IDs will be visible in conversation context, use them before calling another tool.
 - If given a City to ReadWeather for; default to using the Co-Ordinates (Lat/Long) of that City's Center. 
 - apply extra reasoning scrutiny around meridians (AM/PM), especially 12:00 times.
 - If told to remeber going forwards/onwards: Always add appropriate persistent memory.
