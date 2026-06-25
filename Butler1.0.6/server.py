@@ -376,7 +376,6 @@ def _init_db():
                 caldav_calendar TEXT,
                 trello_token TEXT,
                 trello_boards TEXT,
-                rag_enabled INTEGER,
                 assistant_model TEXT,
                 communication_profile TEXT,
                 updated_at TEXT NOT NULL,
@@ -394,8 +393,6 @@ def _init_db():
             conn.execute("ALTER TABLE user_settings ADD COLUMN trello_boards TEXT")
         if "trello_board_ids" not in existing_column_names:
             conn.execute("ALTER TABLE user_settings ADD COLUMN trello_board_ids TEXT")
-        if "rag_enabled" not in existing_column_names:
-            conn.execute("ALTER TABLE user_settings ADD COLUMN rag_enabled INTEGER")
         if "communication_profile" not in existing_column_names:
             conn.execute("ALTER TABLE user_settings ADD COLUMN communication_profile TEXT")
         conn.commit()
@@ -596,7 +593,7 @@ def _get_user_settings(user_id: int):
     with _db_conn() as conn:
         return conn.execute(
             """
-            SELECT user_id, caldav_url, caldav_username, caldav_password, caldav_calendar, trello_token, trello_boards, trello_board_ids, rag_enabled, assistant_model, communication_profile, updated_at
+            SELECT user_id, caldav_url, caldav_username, caldav_password, caldav_calendar, trello_token, trello_boards, trello_board_ids, assistant_model, communication_profile, updated_at
             FROM user_settings
             WHERE user_id = ?
             """,
@@ -605,12 +602,7 @@ def _get_user_settings(user_id: int):
 
 
 def _rag_enabled_for_user(user_id: int | None) -> bool:
-    if user_id is None:
-        return bool(RAGenable)
-    row = _get_user_settings(int(user_id))
-    if not row:
-        return bool(RAGenable)
-    return _coerce_bool_flag(row["rag_enabled"], default=RAGenable)
+    return bool(RAGenable)
 
 
 def _get_user_caldav_settings(user_id: int) -> dict[str, str]:
@@ -3321,7 +3313,7 @@ def api_settings_caldav_get():
         "caldav_username": str(row["caldav_username"] or "").strip() if row else "",
         "caldav_calendar": str(row["caldav_calendar"] or "").strip() if row else "",
         "caldav_calendars": _parse_caldav_calendar_names(str(row["caldav_calendar"] or "")) if row else [],
-        "rag_enabled": _coerce_bool_flag(row["rag_enabled"], default=RAGenable) if row else bool(RAGenable),
+        "rag_enabled": bool(RAGenable),
         "assistant_model": _normalize_assistant_model(row["assistant_model"] if row else None),
         "has_password": bool(str(row["caldav_password"] or "")) if row else False,
     }
@@ -3501,7 +3493,6 @@ def api_settings_caldav_save():
         )
     else:
         trello_board_ids = str(payload.get("trello_board_ids", "")).strip()
-    rag_enabled = _coerce_bool_flag(payload.get("rag_enabled"), default=RAGenable)
     if trello_token and trello_board_ids:
         try:
             board_ids_set = {value.lower() for value in _parse_caldav_calendar_names(trello_board_ids)}
@@ -3526,18 +3517,18 @@ def api_settings_caldav_save():
             conn.execute(
                 """
                 UPDATE user_settings
-                SET caldav_url = ?, caldav_username = ?, caldav_password = ?, caldav_calendar = ?, trello_token = ?, trello_boards = ?, trello_board_ids = ?, rag_enabled = ?, assistant_model = ?, updated_at = ?
+                SET caldav_url = ?, caldav_username = ?, caldav_password = ?, caldav_calendar = ?, trello_token = ?, trello_boards = ?, trello_board_ids = ?, assistant_model = ?, updated_at = ?
                 WHERE user_id = ?
                 """,
-                (caldav_url, caldav_username, caldav_password, caldav_calendar, trello_token, trello_boards, trello_board_ids, int(rag_enabled), assistant_model, updated_at, user_id),
+                (caldav_url, caldav_username, caldav_password, caldav_calendar, trello_token, trello_boards, trello_board_ids, assistant_model, updated_at, user_id),
             )
         else:
             conn.execute(
                 """
-                INSERT INTO user_settings (user_id, caldav_url, caldav_username, caldav_password, caldav_calendar, trello_token, trello_boards, trello_board_ids, rag_enabled, assistant_model, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO user_settings (user_id, caldav_url, caldav_username, caldav_password, caldav_calendar, trello_token, trello_boards, trello_board_ids, assistant_model, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (user_id, caldav_url, caldav_username, caldav_password, caldav_calendar, trello_token, trello_boards, trello_board_ids, int(rag_enabled), assistant_model, updated_at),
+                (user_id, caldav_url, caldav_username, caldav_password, caldav_calendar, trello_token, trello_boards, trello_board_ids, assistant_model, updated_at),
             )
         conn.commit()
 
@@ -3551,7 +3542,7 @@ def api_settings_caldav_save():
             "trello_token": trello_token,
             "trello_boards": _parse_caldav_calendar_names(trello_boards),
             "trello_board_ids": _parse_caldav_calendar_names(trello_board_ids),
-            "rag_enabled": rag_enabled,
+            "rag_enabled": bool(RAGenable),
             "assistant_model": assistant_model,
             "has_password": bool(caldav_password),
         },
@@ -3602,7 +3593,7 @@ def api_settings_caldav_get_full():
                 "trello_board": trello_boards,
                 "trello_boards": _parse_caldav_calendar_names(trello_boards),
                 "trello_board_ids": _parse_caldav_calendar_names(trello_board_ids),
-                "rag_enabled": _coerce_bool_flag(row["rag_enabled"], default=RAGenable),
+                "rag_enabled": bool(RAGenable),
                 "assistant_model": assistant_model,
                 "has_password": bool(row["caldav_password"]),
             },
