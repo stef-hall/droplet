@@ -20,7 +20,7 @@ r = requests.get(
     params={
         **auth,
         "cards": "open",
-        "card_fields": "name,desc,due,url"
+        "card_fields": "name,desc,due"
     }
 )
 
@@ -39,4 +39,3 @@ for trello_list in lists:
         print(f"- {card['name']}")
         print(f"  Desc: {card.get('desc', '')}")
         print(f"  Due: {card.get('due')}")
-        print(f"  URL: {card.get('url')}")

@@ -826,7 +826,7 @@ def _get_trello_cards_for_user(user_id: int, list_id: str) -> list[dict]:
 
     query = urlencode(
         {
-            "fields": "name,desc,due,url,idList",
+            "fields": "name,desc,due,idList",
             "key": "ac891ffdcf2553ac640f08509636d1c6",
             "token": trello_token,
         }
@@ -851,7 +851,6 @@ def _get_trello_cards_for_user(user_id: int, list_id: str) -> list[dict]:
                 "card_name": card_name,
                 "description": str(item.get("desc", "") or ""),
                 "due": item.get("due"),
-                "url": str(item.get("url", "") or ""),
                 "list_id": str(item.get("idList", "") or safe_list_id),
             }
         )
@@ -1024,7 +1023,6 @@ def _create_trello_card_for_user(
         "card_id": str(payload.get("id", "")),
         "card_name": str(payload.get("name", safe_name)),
         "list_id": str(payload.get("idList", safe_list_id)),
-        "url": str(payload.get("url", "")),
     }
 
 
@@ -2740,8 +2738,8 @@ def compress_trello(value):
     preferred_cols_by_operation = {
         "GetTrelloBoards": ["board_id", "board_name"],
         "GetTrelloLists": ["board_id", "board_name", "list_id", "list_name"],
-        "GetTrelloCards": ["card_id", "card_name", "description", "due", "url", "list_id"],
-        "CreateTrelloCard": ["status", "card_id", "card_name", "list_id", "url"],
+        "GetTrelloCards": ["card_id", "card_name", "description", "due", "list_id"],
+        "CreateTrelloCard": ["status", "card_id", "card_name", "list_id"],
         "CreateTrelloList": ["status", "list_id", "list_name", "board_id"],
         "EditTrelloCard": ["status", "card_id", "updated_fields"],
         "DeleteTrelloCard": ["status", "card_id"],
