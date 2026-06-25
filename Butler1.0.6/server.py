@@ -56,6 +56,8 @@ def _current_app_version_label() -> str:
 
 
 RAGenable = 0
+if Path(__file__).resolve().parent.name == "Server":
+    RAGenable = 1 # Enable RAG if for Server
 
 global api_key
 warnings.simplefilter("ignore", DeprecationWarning)
