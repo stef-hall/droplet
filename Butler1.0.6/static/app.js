@@ -148,7 +148,7 @@ function setComposerMobileResting(isResting) {
 }
 
 function updateComposerMobileResting() {
-  setComposerMobileResting(!(promptKeyboardActive || composerPressActive));
+  setComposerMobileResting(!(promptKeyboardActive || composerPressActive || hasValidPromptMessage()));
 }
 
 function activateComposer() {
@@ -263,6 +263,7 @@ function updatePromptFromSpeechState() {
   autoSizePrompt();
   updateDictationLiveIndicator();
   updateSendButtonState();
+  updateComposerMobileResting();
 }
 
 function startSpeechRecognitionSession() {
@@ -2326,6 +2327,7 @@ async function submitPromptText(prompt) {
   autoSizePrompt();
   updateDictationLiveIndicator();
   updateSendButtonState();
+  updateComposerMobileResting();
   const imageDataUrlForRequest = attachedImageDataUrl;
   if (imageDataUrlForRequest) {
     clearAttachedImage();
@@ -2625,6 +2627,7 @@ promptInput.addEventListener("input", () => {
   autoSizePrompt();
   updateDictationLiveIndicator();
   updateSendButtonState();
+  updateComposerMobileResting();
 });
 promptInput.addEventListener("scroll", () => {
   updateDictationLiveIndicator();

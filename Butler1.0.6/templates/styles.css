@@ -1063,12 +1063,13 @@ textarea {
 }
 
 .send-btn.is-mic-mode {
+  background: #f4f4f4;
+  color: #111;
   font-size: 18px;
 }
 
-.send-btn.is-mic-mode.is-pressing,
-.send-btn.is-mic-mode:active {
-  background: #2d2d2d;
+.send-btn.is-mic-mode.is-pressing {
+  background: #111;
   color: #fff;
   transform: scale(0.96);
 }
