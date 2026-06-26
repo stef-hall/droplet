@@ -55,7 +55,7 @@ def _current_app_version_label() -> str:
     return version_files[0].name
 
 
-RAGenable = 1
+RAGenable = 0
 if Path(__file__).resolve().parent.name == "Server":
     RAGenable = 1 # Enable RAG if for Server
 
