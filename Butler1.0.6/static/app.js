@@ -2641,7 +2641,7 @@ promptInput.addEventListener("blur", () => {
   updateComposerMobileResting();
 });
 promptInput.addEventListener("keydown", (event) => {
-  if (event.key === "Enter" && !event.shiftKey) {
+  if (event.key === "Enter" && !event.shiftKey && !isMobileComposerMode()) {
     event.preventDefault();
     form.requestSubmit();
   }
