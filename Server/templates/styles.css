@@ -22,6 +22,7 @@
   --composer-radius: var(--composer-radius-medium);
   --composer-squircle: var(--composer-squircle-medium);
   --content-width: 760px;
+  --composer-mobile-rest-width: 90%;
   --sticky-note-default-width: 182px;
   --sticky-note-mobile-rest-peek-ratio: 0.2;
   --sticky-note-stowed-peek-ratio: 0.2;
@@ -1062,12 +1063,13 @@ textarea {
 }
 
 .send-btn.is-mic-mode {
+  background: #f4f4f4;
+  color: #111;
   font-size: 18px;
 }
 
-.send-btn.is-mic-mode.is-pressing,
-.send-btn.is-mic-mode:active {
-  background: #2d2d2d;
+.send-btn.is-mic-mode.is-pressing {
+  background: #111;
   color: #fff;
   transform: scale(0.96);
 }
@@ -2122,6 +2124,11 @@ textarea {
     overflow: hidden;
     overscroll-behavior: none;
     touch-action: none;
+    transition: transform 420ms cubic-bezier(0.2, 0.8, 0.2, 1), padding 420ms cubic-bezier(0.2, 0.8, 0.2, 1), width 220ms ease;
+  }
+
+  .composer.mobile-resting {
+    width: min(var(--content-width), var(--composer-mobile-rest-width));
   }
 
   textarea {
@@ -2241,7 +2248,7 @@ textarea {
   }
 
   .bubble {
-    max-width: 70%;
+    max-width: 95%;
     padding: 6px 12px;
   }
 

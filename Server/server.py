@@ -170,13 +170,17 @@ def _tool_name_to_status_label(tool_name: str) -> str:
         "deletestickynotes": "Deleting StickyNotes...",
         "gettrellolists": "Getting Lists...",
         "gettrellocards": "Getting Cards...",
-        "createtrellocard": "Creating Card...",
-        "createtrellolist": "Creating List...",
-        "edittrellocard": "Editing Card...",
-        "deletetrellolist": "Deleting List...",
-        "deletetrellocard": "Deleting Card...",
+        "createtrellocard": "Creating Trello Card...",
+        "createtrellolist": "Creating Trello List...",
+        "edittrellocard": "Editing Trello Card...",
+        "deletetrellolist": "Deleting Trello List...",
+        "deletetrellocard": "Deleting Trello Card...",
         "getweather": "Getting Weather...",
         "getcalendarnames": "Getting Calendar Names...",
+        "searchmemories" : "Searching Memory...",
+        "addmemory" : "Adding Memory...",
+        "deletememory" : "Deleting Memory...",
+        "editmemory" : "Editing Memory..."
     }
     if normalized in label_map:
         return label_map[normalized]
@@ -826,7 +830,7 @@ def _get_trello_cards_for_user(user_id: int, list_id: str) -> list[dict]:
 
     query = urlencode(
         {
-            "fields": "name,desc,due,url,idList",
+            "fields": "name,desc,due,idList",
             "key": "ac891ffdcf2553ac640f08509636d1c6",
             "token": trello_token,
         }
@@ -851,7 +855,6 @@ def _get_trello_cards_for_user(user_id: int, list_id: str) -> list[dict]:
                 "card_name": card_name,
                 "description": str(item.get("desc", "") or ""),
                 "due": item.get("due"),
-                "url": str(item.get("url", "") or ""),
                 "list_id": str(item.get("idList", "") or safe_list_id),
             }
         )
@@ -1024,7 +1027,6 @@ def _create_trello_card_for_user(
         "card_id": str(payload.get("id", "")),
         "card_name": str(payload.get("name", safe_name)),
         "list_id": str(payload.get("idList", safe_list_id)),
-        "url": str(payload.get("url", "")),
     }
 
 
@@ -1319,7 +1321,7 @@ system_prompt = concise_prompt + """
 # Reminders:
 - If multiple details are missing, ask for them all in one message.
 - If a duration cannot be reasonably defered, default to *1 hour*.
-- When a tool creates resources and returns IDs/UIDs, assume those returned IDs will be visible in conversation context after the batched tool results complete. Therefore, batch independent create calls together. Only serialize calls when the next call requires a value produced by a previous call.
+- When a tool creates resources and returns IDs/UIDs; Those returned IDs will be visible in conversation context, use them before calling another tool.
 - If given a City to ReadWeather for; default to using the Co-Ordinates (Lat/Long) of that City's Center. 
 - apply extra reasoning scrutiny around meridians (AM/PM), especially 12:00 times.
 - If told to remeber going forwards/onwards: Always add appropriate persistent memory.
@@ -2709,30 +2711,75 @@ def compress_delete_sticky_notes(value):
         "sticky_note_name": result.get("sticky_note_name") or value.get("sticky_note", {}).get("sticky_note_name"),
     }
 
-def compress_gettrellocards(value):
+def _tableize_records(records, preferred_cols):
+    if isinstance(records, dict):
+        records = [records]
+    if not isinstance(records, list):
+        records = []
+
+    cols = list(preferred_cols)
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        for key in record.keys():
+            if key not in cols:
+                cols.append(key)
+
+    rows = []
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        rows.append([record.get(col) for col in cols])
+
+    return cols, rows
+
+
+def compress_trello(value):
     if not isinstance(value, dict):
         return value
 
-    cards = value.get("result", []) or []
-    cols = ["card_id", "card_name", "description", "due", "url"]
-    rows = []
-    for card in cards:
-        if not isinstance(card, dict):
-            continue
-        rows.append([
-            card.get("card_id", ""),
-            card.get("card_name", ""),
-            card.get("description", ""),
-            card.get("due", ""),
-            card.get("url", ""),
-        ])
-
-    return {
-        "tool": value.get("tool"),
-        "list_id": value.get("list_id", ""),
-        "cols": cols,
-        "rows": rows,
+    operation = value.get("operation") or value.get("tool")
+    preferred_cols_by_operation = {
+        "GetTrelloBoards": ["board_id", "board_name"],
+        "GetTrelloLists": ["board_id", "board_name", "list_id", "list_name"],
+        "GetTrelloCards": ["card_id", "card_name", "description", "due", "list_id"],
+        "CreateTrelloCard": ["status", "card_id", "card_name", "list_id"],
+        "CreateTrelloList": ["status", "list_id", "list_name", "board_id"],
+        "EditTrelloCard": ["status", "card_id", "updated_fields"],
+        "DeleteTrelloCard": ["status", "card_id"],
+        "DeleteTrelloList": ["status", "list_id"],
     }
+    trello_operations = set(preferred_cols_by_operation)
+    if operation not in trello_operations and value.get("tool") not in {"ReadTrello", "WriteTrello"}:
+        return value
+
+    compacted = {
+        "tool": value.get("tool"),
+    }
+    if value.get("operation"):
+        compacted["operation"] = value.get("operation")
+    if value.get("status"):
+        compacted["status"] = value.get("status")
+    for key in ("board_id", "list_id", "card_id", "error"):
+        if key in value:
+            compacted[key] = value.get(key)
+
+    if value.get("status") == "failed":
+        failure_cols = ["status", "error"]
+        for key in ("board_id", "list_id", "card_id", "args"):
+            if key in value:
+                failure_cols.append(key)
+        compacted["cols"] = failure_cols
+        compacted["rows"] = [[value.get(col) for col in failure_cols]]
+        return compacted
+
+    cols, rows = _tableize_records(
+        value.get("result"),
+        preferred_cols_by_operation.get(operation, []),
+    )
+    compacted["cols"] = cols
+    compacted["rows"] = rows
+    return compacted
 
 def compress_addmemory(value):
     if not isinstance(value, dict):
@@ -2876,8 +2923,17 @@ def _compact_value(value):
         x = compress_delete_sticky_notes(value)
         return x
     
-    if operation == 'GetTrelloCards':
-        x = compress_gettrellocards(value)
+    if operation in {
+        'GetTrelloBoards',
+        'GetTrelloLists',
+        'GetTrelloCards',
+        'CreateTrelloCard',
+        'CreateTrelloList',
+        'EditTrelloCard',
+        'DeleteTrelloCard',
+        'DeleteTrelloList',
+    } or value.get("tool") in {"ReadTrello", "WriteTrello"}:
+        x = compress_trello(value)
         return x
 
     if operation == 'AddMemory':

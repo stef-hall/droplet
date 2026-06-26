@@ -134,9 +134,26 @@ let speechPressTranscript = "";
 let speechSessionTranscript = "";
 let suppressNextSendClick = false;
 let promptMeasureMirrorEl = null;
+let lastChatFeedScrollTop = feedEl ? feedEl.scrollTop : 0;
+let promptKeyboardActive = false;
+let composerPressActive = false;
 
 function isMobileComposerMode() {
   return window.matchMedia("(max-width: 768px) and (pointer: coarse)").matches;
+}
+
+function setComposerMobileResting(isResting) {
+  if (!composerEl) return;
+  composerEl.classList.toggle("mobile-resting", Boolean(isResting) && isMobileComposerMode());
+}
+
+function updateComposerMobileResting() {
+  setComposerMobileResting(!(promptKeyboardActive || composerPressActive || hasValidPromptMessage()));
+}
+
+function activateComposer() {
+  setComposerMobileResting(false);
+  dockComposer();
 }
 
 function getSpeechRecognitionCtor() {
@@ -246,6 +263,7 @@ function updatePromptFromSpeechState() {
   autoSizePrompt();
   updateDictationLiveIndicator();
   updateSendButtonState();
+  updateComposerMobileResting();
 }
 
 function startSpeechRecognitionSession() {
@@ -2309,6 +2327,7 @@ async function submitPromptText(prompt) {
   autoSizePrompt();
   updateDictationLiveIndicator();
   updateSendButtonState();
+  updateComposerMobileResting();
   const imageDataUrlForRequest = attachedImageDataUrl;
   if (imageDataUrlForRequest) {
     clearAttachedImage();
@@ -2608,15 +2627,21 @@ promptInput.addEventListener("input", () => {
   autoSizePrompt();
   updateDictationLiveIndicator();
   updateSendButtonState();
+  updateComposerMobileResting();
 });
 promptInput.addEventListener("scroll", () => {
   updateDictationLiveIndicator();
 });
 promptInput.addEventListener("focus", () => {
-  dockComposer();
+  promptKeyboardActive = true;
+  activateComposer();
+});
+promptInput.addEventListener("blur", () => {
+  promptKeyboardActive = false;
+  updateComposerMobileResting();
 });
 promptInput.addEventListener("keydown", (event) => {
-  if (event.key === "Enter" && !event.shiftKey) {
+  if (event.key === "Enter" && !event.shiftKey && !isMobileComposerMode()) {
     event.preventDefault();
     form.requestSubmit();
   }
@@ -2630,7 +2655,7 @@ addAttachmentBtn.addEventListener("pointerdown", (event) => {
   if (composerDocked) return;
   // Prevent the floating-to-docked transition from swallowing the intended attach action.
   event.preventDefault();
-  dockComposer();
+  activateComposer();
   setTimeout(() => {
     imageUploadInput.click();
   }, 120);
@@ -2656,7 +2681,7 @@ document.addEventListener("paste", async (event) => {
   const imageFile = imageItem.getAsFile();
   if (!imageFile) return;
   event.preventDefault();
-  dockComposer();
+  activateComposer();
   await attachImageFile(imageFile);
 });
 
@@ -2681,7 +2706,7 @@ if (sendBtn instanceof HTMLButtonElement) {
     event.preventDefault();
     setMicPressedVisual(true);
     startSpeechCapture(event);
-    dockComposer();
+    activateComposer();
     try {
       sendBtn.setPointerCapture(event.pointerId);
     } catch (_) {
@@ -2706,7 +2731,7 @@ if (sendBtn instanceof HTMLButtonElement) {
       event.preventDefault();
       setMicPressedVisual(true);
       startSpeechCapture(event);
-      dockComposer();
+      activateComposer();
     }, { passive: false });
     sendBtn.addEventListener("touchend", endSpeechFromPointer);
     sendBtn.addEventListener("touchcancel", endSpeechFromPointer);
@@ -2753,7 +2778,7 @@ feedEl.addEventListener("click", async (event) => {
     promptInput.value = reply;
     autoSizePrompt();
     updateSendButtonState();
-    dockComposer();
+    activateComposer();
     promptInput.focus();
     promptInput.setSelectionRange(promptInput.value.length, promptInput.value.length);
     return;
@@ -2761,7 +2786,7 @@ feedEl.addEventListener("click", async (event) => {
 
   promptInput.value = reply;
   updateSendButtonState();
-  dockComposer();
+  activateComposer();
   await submitPromptText(reply);
 });
 
@@ -2819,7 +2844,8 @@ function updateComposerFloatOffset() {
 
 function initializeComposerFloating() {
   if (isTouchDevice) {
-    dockComposer();
+    setComposerMobileResting(true);
+    dockComposer({ focusPrompt: false });
     return;
   }
   requestAnimationFrame(() => {
@@ -2828,7 +2854,16 @@ function initializeComposerFloating() {
   });
 }
 
-function dockComposer() {
+function handleChatFeedScroll() {
+  if (!feedEl) return;
+  const currentScrollTop = feedEl.scrollTop;
+  if (isMobileComposerMode() && currentScrollTop < lastChatFeedScrollTop - 2) {
+    updateComposerMobileResting();
+  }
+  lastChatFeedScrollTop = currentScrollTop;
+}
+
+function dockComposer({ focusPrompt = true } = {}) {
   if (composerDocked) return;
   composerDocked = true;
   if (initialAssistantMessageEl) {
@@ -2840,28 +2875,72 @@ function dockComposer() {
   composerEl.classList.add("docking");
   composerEl.classList.remove("floating");
   composerEl.style.setProperty("--float-offset", "0px");
-  requestAnimationFrame(keepPromptFocused);
-  setTimeout(keepPromptFocused, 80);
+  if (focusPrompt) {
+    requestAnimationFrame(keepPromptFocused);
+    setTimeout(keepPromptFocused, 80);
+  }
   setTimeout(() => {
     composerEl.classList.remove("docking");
   }, 440);
 }
 
 window.addEventListener("resize", () => {
+  updateComposerMobileResting();
   if (isTouchDevice) return;
   updateComposerFloatOffset();
   updateDictationLiveIndicator();
 });
+feedEl.addEventListener("scroll", handleChatFeedScroll, { passive: true });
 composerEl.addEventListener("pointerdown", (event) => {
-  dockComposer();
+  composerPressActive = true;
   const target = event.target;
   const clickedControl =
     target instanceof HTMLElement &&
     target.closest("button, input[type='file'], .pill-clear");
+  if (isMobileComposerMode() && !clickedControl) {
+    requestAnimationFrame(keepPromptFocused);
+    return;
+  }
+  activateComposer();
   if (!clickedControl) {
     requestAnimationFrame(keepPromptFocused);
   }
 });
+document.addEventListener("pointerup", () => {
+  if (!composerPressActive) return;
+  composerPressActive = false;
+  updateComposerMobileResting();
+});
+document.addEventListener("pointercancel", () => {
+  if (!composerPressActive) return;
+  composerPressActive = false;
+  updateComposerMobileResting();
+});
+
+if (!("PointerEvent" in window)) {
+  composerEl.addEventListener("touchstart", (event) => {
+    composerPressActive = true;
+    const target = event.target;
+    const clickedControl =
+      target instanceof HTMLElement &&
+      target.closest("button, input[type='file'], .pill-clear");
+    if (isMobileComposerMode() && !clickedControl) {
+      requestAnimationFrame(keepPromptFocused);
+      return;
+    }
+    activateComposer();
+  }, { passive: true });
+  document.addEventListener("touchend", () => {
+    if (!composerPressActive) return;
+    composerPressActive = false;
+    updateComposerMobileResting();
+  }, { passive: true });
+  document.addEventListener("touchcancel", () => {
+    if (!composerPressActive) return;
+    composerPressActive = false;
+    updateComposerMobileResting();
+  }, { passive: true });
+}
 
 window.addEventListener("keydown", (event) => {
   if (event.defaultPrevented) return;
@@ -2876,7 +2955,7 @@ window.addEventListener("keydown", (event) => {
 
   if (event.key.length === 1) {
     event.preventDefault();
-    dockComposer();
+    activateComposer();
     promptInput.focus();
     promptInput.setRangeText(event.key, promptInput.selectionStart, promptInput.selectionEnd, "end");
     autoSizePrompt();
@@ -2885,7 +2964,7 @@ window.addEventListener("keydown", (event) => {
 
   if (event.key === "Backspace" && promptInput.value.length > 0) {
     event.preventDefault();
-    dockComposer();
+    activateComposer();
     promptInput.focus();
     const start = Math.max(0, promptInput.selectionStart - 1);
     promptInput.setRangeText("", start, promptInput.selectionEnd, "end");
