@@ -137,6 +137,8 @@ let promptMeasureMirrorEl = null;
 let lastChatFeedScrollTop = feedEl ? feedEl.scrollTop : 0;
 let promptKeyboardActive = false;
 let composerPressActive = false;
+let composerKeyboardRestTimer = null;
+const COMPOSER_KEYBOARD_REST_DELAY_MS = 250;
 
 function isMobileComposerMode() {
   return window.matchMedia("(max-width: 768px) and (pointer: coarse)").matches;
@@ -152,6 +154,10 @@ function updateComposerMobileResting() {
 }
 
 function activateComposer() {
+  if (composerKeyboardRestTimer) {
+    clearTimeout(composerKeyboardRestTimer);
+    composerKeyboardRestTimer = null;
+  }
   setComposerMobileResting(false);
   dockComposer();
 }
@@ -2637,8 +2643,14 @@ promptInput.addEventListener("focus", () => {
   activateComposer();
 });
 promptInput.addEventListener("blur", () => {
-  promptKeyboardActive = false;
-  updateComposerMobileResting();
+  if (composerKeyboardRestTimer) {
+    clearTimeout(composerKeyboardRestTimer);
+  }
+  composerKeyboardRestTimer = setTimeout(() => {
+    composerKeyboardRestTimer = null;
+    promptKeyboardActive = false;
+    updateComposerMobileResting();
+  }, COMPOSER_KEYBOARD_REST_DELAY_MS);
 });
 promptInput.addEventListener("keydown", (event) => {
   if (event.key === "Enter" && !event.shiftKey) {
