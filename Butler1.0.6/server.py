@@ -55,7 +55,7 @@ def _current_app_version_label() -> str:
     return version_files[0].name
 
 
-RAGenable = 0
+RAGenable = 1
 if Path(__file__).resolve().parent.name == "Server":
     RAGenable = 1 # Enable RAG if for Server
 
@@ -170,13 +170,17 @@ def _tool_name_to_status_label(tool_name: str) -> str:
         "deletestickynotes": "Deleting StickyNotes...",
         "gettrellolists": "Getting Lists...",
         "gettrellocards": "Getting Cards...",
-        "createtrellocard": "Creating Card...",
-        "createtrellolist": "Creating List...",
-        "edittrellocard": "Editing Card...",
-        "deletetrellolist": "Deleting List...",
-        "deletetrellocard": "Deleting Card...",
+        "createtrellocard": "Creating Trello Card...",
+        "createtrellolist": "Creating Trello List...",
+        "edittrellocard": "Editing Trello Card...",
+        "deletetrellolist": "Deleting Trello List...",
+        "deletetrellocard": "Deleting Trello Card...",
         "getweather": "Getting Weather...",
         "getcalendarnames": "Getting Calendar Names...",
+        "searchmemories" : "Searching Memory...",
+        "addmemory" : "Adding Memory...",
+        "deletememory" : "Deleting Memory...",
+        "editmemory" : "Editing Memory..."
     }
     if normalized in label_map:
         return label_map[normalized]
