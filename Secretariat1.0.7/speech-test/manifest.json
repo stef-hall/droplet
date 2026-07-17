@@ -1,0 +1,9 @@
+{
+  "name": "Speech Test",
+  "short_name": "Speech",
+  "start_url": "/speech-test.html",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#111111",
+  "icons": []
+}
