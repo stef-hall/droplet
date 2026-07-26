@@ -77,7 +77,7 @@ MAX_PARALLEL_TOOL_CALLS = 10
 STICKY_NOTES_DIR = Path(__file__).resolve( ).parent / "StickyNotes"
 DB_PATH = Path(__file__).resolve().parent / "secretariat.db"
 DEFAULT_ASSISTANT_MODEL = "gpt-5.4"
-ALLOWED_ASSISTANT_MODELS = {"gpt-5.4-mini", "gpt-5.4"}
+ALLOWED_ASSISTANT_MODELS = {"gpt-5.4-mini", "gpt-5.4", "gpt-5.4", "gpt-5.6-terra", "gpt-5.6-luna"}  
 COMMUNICATION_PROFILE_TYPE = "communication_profile"
 DEFAULT_COMMUNICATION_PROFILE = {
     "type": COMMUNICATION_PROFILE_TYPE,
@@ -3270,7 +3270,7 @@ def settings_page():
     _restore_auth_from_trusted_device()
     if not session.get("user_id"):
         return redirect("/")
-    return render_template("settings.html", current_version=_current_app_version_label())
+    return render_template("settings.html", current_version=_current_app_version_label(), assistant_models=sorted(ALLOWED_ASSISTANT_MODELS), default_assistant_model=DEFAULT_ASSISTANT_MODEL)
 
 
 @app.get("/templates/styles.css")

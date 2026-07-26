@@ -396,7 +396,7 @@ async function loadSettings() {
     }
     renderCalendarOptions();
     if (assistantModelEl) {
-      assistantModelEl.value = settings.assistant_model || "gpt-5.4";
+      assistantModelEl.value = settings.assistant_model || "gpt-5.6-luna";
     }
     caldavPasswordEl.value = "";
     setSettingsStatus(settings.has_password ? "Saved password is already on file." : "No CalDAV password saved yet.");
@@ -494,7 +494,7 @@ if (caldavSettingsFormEl) {
           trello_token: trelloTokenEl ? trelloTokenEl.value.trim() : "",
           trello_board_ids: selectedTrelloBoardIds,
           caldav_calendars: selectedCalendars,
-          assistant_model: assistantModelEl ? assistantModelEl.value : "gpt-5.4",
+          assistant_model: assistantModelEl ? assistantModelEl.value : "gpt-5.6-luna",
         }),
       });
       const data = await response.json();

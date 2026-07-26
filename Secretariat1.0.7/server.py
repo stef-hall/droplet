@@ -76,8 +76,8 @@ TRUSTED_DEVICE_DAYS = 60
 MAX_PARALLEL_TOOL_CALLS = 10
 STICKY_NOTES_DIR = Path(__file__).resolve( ).parent / "StickyNotes"
 DB_PATH = Path(__file__).resolve().parent / "secretariat.db"
-DEFAULT_ASSISTANT_MODEL = "gpt-5.4"
-ALLOWED_ASSISTANT_MODELS = {"gpt-5.4-mini", "gpt-5.4"}
+DEFAULT_ASSISTANT_MODEL = "gpt-5.6-luna"
+ALLOWED_ASSISTANT_MODELS = {"gpt-5.6-luna"}
 COMMUNICATION_PROFILE_TYPE = "communication_profile"
 DEFAULT_COMMUNICATION_PROFILE = {
     "type": COMMUNICATION_PROFILE_TYPE,
