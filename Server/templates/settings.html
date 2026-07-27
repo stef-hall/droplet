@@ -84,8 +84,9 @@
             <label class="settings-field">
               <span>Model</span>
               <select id="assistant-model" name="assistant_model">
-                <option value="gpt-5.4-mini" selected>gpt-5.4-mini</option>
-                <option value="gpt-5.4">gpt-5.4</option>
+                {% for model in assistant_models %}
+                <option value="{{ model }}"{% if model == default_assistant_model %} selected{% endif %}>{{ model }}</option>
+                {% endfor %}
               </select>
             </label>
 
